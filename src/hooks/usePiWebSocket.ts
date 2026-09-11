@@ -10,43 +10,68 @@ export function usePiWebSocket() {
   });
 
   const wsRef = useRef<WebSocket | null>(null);
+  const reconnectTimeoutRef = useRef<any>(null);
+  const isMountedRef = useRef(true);
+
+  // 指向当前正在接收流的 Assistant Message ID
   const currentAssistantIdRef = useRef<string | null>(null);
 
-  const requestInitialState = useCallback((ws: WebSocket) => {
-    // 请求会话状态与模型信息
-    ws.send(JSON.stringify({ type: 'get_state' }));
-    // 请求当前会话的所有历史消息
-    ws.send(JSON.stringify({ type: 'get_messages' }));
-  }, []);
+  const requestInitialState = (ws: WebSocket) => {
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'get_state' }));
+      ws.send(JSON.stringify({ type: 'get_messages' }));
+    }
+  };
 
-  useEffect(() => {
+  const connectWs = useCallback(() => {
+    if (!isMountedRef.current) return;
+
+    // 清理之前的连接与定时器
+    if (wsRef.current) {
+      try {
+        wsRef.current.close();
+      } catch {}
+      wsRef.current = null;
+    }
+
     const ws = new WebSocket('ws://localhost:3001');
     wsRef.current = ws;
 
     ws.onopen = () => {
+      if (!isMountedRef.current) return;
+      console.log('[usePiWebSocket] Connected to bridge');
       setStatus(prev => ({ ...prev, connected: true }));
       requestInitialState(ws);
     };
 
     ws.onclose = () => {
-      setStatus(prev => ({ ...prev, connected: false }));
+      if (!isMountedRef.current) return;
+      console.warn('[usePiWebSocket] Disconnected from bridge. Reconnecting in 2s...');
+      setStatus(prev => ({ ...prev, connected: false, isStreaming: false }));
+      
+      // 2秒后自动尝试退避重连
+      clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = setTimeout(() => {
+        connectWs();
+      }, 2000);
     };
 
-    ws.onerror = () => {
-      setStatus(prev => ({ ...prev, connected: false }));
+    ws.onerror = (err) => {
+      console.error('[usePiWebSocket] Socket error:', err);
+      // onerror 会触发 onclose，由 onclose 统一进行重连处理
     };
 
     ws.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
 
-        // 1. 桥接状态
+        // 1. 桥接服务状态通知
         if (data.type === 'bridge_status' || data.type === 'cwd_changed') {
           setStatus(prev => ({ ...prev, cwd: data.cwd }));
           return;
         }
 
-        // 2. 处理 RPC 响应指令 (get_state / get_messages)
+        // 2. 处理 RPC 命令响应 (get_state / get_messages)
         if (data.type === 'response') {
           if (data.command === 'get_state' && data.success && data.data) {
             const state = data.data;
@@ -66,7 +91,6 @@ export function usePiWebSocket() {
           }
 
           if (data.command === 'get_messages' && data.success && data.data?.messages) {
-            // 将 Pi 本地存储的 AgentMessage 数组映射为前端 PiMessage
             const rawMessages: any[] = data.data.messages;
             const restored: PiMessage[] = [];
 
@@ -78,7 +102,6 @@ export function usePiWebSocket() {
                   ? rm.content.map((c: any) => c.text || '').join('\n')
                   : '';
                 
-                // 忽略底层包装的 bash 执行结果提示
                 if (userContent.startsWith('Ran `') && userContent.includes('```')) {
                   continue;
                 }
@@ -131,9 +154,15 @@ export function usePiWebSocket() {
           return;
         }
 
-        // 3. Pi RPC 事件流 - 运行状态
+        // 3. Pi Agent 全局运行生命周期
         if (data.type === 'agent_start') {
           setStatus(prev => ({ ...prev, isStreaming: true }));
+        }
+
+        // 4. 多轮转折处理 (Turn 管理)
+        // 当一个 turn 结束并包含工具调用时，如果接下来有新的 turn，确保消息结构平滑追加而不相互覆盖
+        if (data.type === 'turn_start') {
+          // 如果当前已有 assistant 消息，且上一个 turn 已经有工具调用或正文，保持追加通道畅通
         }
 
         if (data.type === 'agent_end' || data.type === 'agent_settled') {
@@ -150,7 +179,7 @@ export function usePiWebSocket() {
           }
         }
 
-        // 4. 流式消息增量 (message_update)
+        // 5. 流式文本与思考链更新 (message_update)
         if (data.type === 'message_update') {
           const asstEvt = data.assistantMessageEvent;
           if (!asstEvt) return;
@@ -177,7 +206,7 @@ export function usePiWebSocket() {
           }
         }
 
-        // 5. 工具调用生命周期与执行结果回显 (tool_execution_start / tool_execution_end / turn_end)
+        // 6. 工具调用全生命周期 (tool_execution_start / update / end / turn_end)
         if (data.type === 'tool_execution_start') {
           const toolCall: ToolCallState = {
             id: data.toolCallId || `tool-${Date.now()}`,
@@ -193,10 +222,9 @@ export function usePiWebSocket() {
             setMessages(prev =>
               prev.map(m => {
                 if (m.id !== asstId) return m;
-                const existingTools = m.tools || [];
-                const alreadyExists = existingTools.some(t => t.id === toolCall.id);
-                if (alreadyExists) return m;
-                return { ...m, tools: [...existingTools, toolCall] };
+                const existing = m.tools || [];
+                if (existing.some(t => t.id === toolCall.id)) return m;
+                return { ...m, tools: [...existing, toolCall] };
               })
             );
           }
@@ -251,7 +279,6 @@ export function usePiWebSocket() {
           }
         }
 
-        // turn_end 携带批量 toolResults，做最终兜底填充
         if (data.type === 'turn_end' && Array.isArray(data.toolResults)) {
           const asstId = currentAssistantIdRef.current;
           if (asstId) {
@@ -279,14 +306,23 @@ export function usePiWebSocket() {
         console.error('Error handling WebSocket message', e);
       }
     };
+  }, []);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    connectWs();
 
     return () => {
-      ws.close();
+      isMountedRef.current = false;
+      clearTimeout(reconnectTimeoutRef.current);
+      if (wsRef.current) {
+        wsRef.current.close();
+      }
     };
-  }, [requestInitialState]);
+  }, [connectWs]);
 
   const sendPrompt = useCallback((text: string) => {
-    if (!text.trim() || !wsRef.current) return;
+    if (!text.trim() || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
 
     const userMsg: PiMessage = {
       id: `user-${Date.now()}`,
@@ -320,19 +356,19 @@ export function usePiWebSocket() {
   }, []);
 
   const abort = useCallback(() => {
-    if (wsRef.current) {
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({ type: 'abort' }));
     }
   }, []);
 
   const changeCwd = useCallback((newCwd: string) => {
-    if (wsRef.current) {
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({ type: 'change_cwd', cwd: newCwd }));
     }
   }, []);
 
   const newSession = useCallback(() => {
-    if (wsRef.current) {
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({ type: 'new_session' }));
       setMessages([]);
     }
