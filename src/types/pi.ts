@@ -16,9 +16,19 @@ export interface PiMessage {
   status?: 'streaming' | 'done' | 'error';
 }
 
+export interface ModelInfo {
+  id: string;
+  name: string;
+  provider: string;
+  contextWindow?: number;
+}
+
 export interface BridgeStatus {
   connected: boolean;
   cwd: string;
   isStreaming: boolean;
   currentTool?: string;
+  model?: ModelInfo;
+  thinkingLevel?: string;
+  sessionId?: string;
 }

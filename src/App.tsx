@@ -6,7 +6,7 @@ import { ChatInput } from './components/ChatInput';
 import { Sparkles, ArrowRight } from 'lucide-react';
 
 export default function App() {
-  const { messages, status, sendPrompt, abort, changeCwd, clearMessages } =
+  const { messages, status, sendPrompt, abort, changeCwd, newSession } =
     usePiWebSocket();
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -25,7 +25,7 @@ export default function App() {
       {/* 极简顶栏 */}
       <TopBar
         status={status}
-        onClearChat={clearMessages}
+        onNewSession={newSession}
         hasMessages={messages.length > 0}
         onChangeCwd={changeCwd}
       />
