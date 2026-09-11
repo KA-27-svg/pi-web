@@ -38,6 +38,7 @@ body {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
 }
 
 /* 自定义纤细优雅滚动条 */
@@ -54,4 +55,61 @@ body {
 }
 ::-webkit-scrollbar-thumb:hover {
   background: var(--muted);
+}
+
+/* Prism.js 极简高质感深色高亮配色 */
+.token.comment,
+.token.prolog,
+.token.doctype,
+.token.cdata {
+  color: #636f88;
+  font-style: italic;
+}
+
+.token.punctuation {
+  color: #8b9bb4;
+}
+
+.token.property,
+.token.tag,
+.token.boolean,
+.token.number,
+.token.constant,
+.token.symbol,
+.token.deleted {
+  color: #f78c6c;
+}
+
+.token.selector,
+.token.attr-name,
+.token.string,
+.token.char,
+.token.builtin,
+.token.inserted {
+  color: #c3e88d;
+}
+
+.token.operator,
+.token.entity,
+.token.url,
+.language-css .token.string,
+.style .token.string {
+  color: #89ddff;
+}
+
+.token.atrule,
+.token.attr-value,
+.token.keyword {
+  color: #c792ea;
+}
+
+.token.function,
+.token.class-name {
+  color: #82aaff;
+}
+
+.token.regex,
+.token.important,
+.token.variable {
+  color: #ffcb6b;
 }

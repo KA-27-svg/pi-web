@@ -9,9 +9,23 @@ export default function App() {
   const { messages, status, sendPrompt, abort, changeCwd, newSession } =
     usePiWebSocket();
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLElement>(null);
+  const isAtBottomRef = useRef(true);
 
+  // 监听用户是否主动向上滚动阅读
+  const handleScroll = () => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    // 当距离底部不足 80px 时，判定为用户希望保持自动贴底
+    const distanceToBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    isAtBottomRef.current = distanceToBottom < 80;
+  };
+
+  // 仅在用户位于底部时自动贴底滚屏，避免打扰用户向上翻看历史
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (isAtBottomRef.current) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
   }, [messages]);
 
   const agentActions = [
@@ -21,7 +35,7 @@ export default function App() {
   ];
 
   return (
-    <div className="flex flex-col h-screen w-full bg-background text-foreground selection:bg-accent/10 selection:text-foreground">
+    <div className="flex flex-col h-screen w-full bg-background text-foreground selection:bg-accent/10 selection:text-foreground overflow-hidden">
       {/* 极简顶栏 */}
       <TopBar
         status={status}
@@ -30,12 +44,16 @@ export default function App() {
         onChangeCwd={changeCwd}
       />
 
-      {/* 主对话消息区 */}
-      <main className="flex-1 overflow-y-auto px-2 sm:px-4">
-        <div className="max-w-3xl mx-auto py-6 space-y-2">
+      {/* 主对话消息区 - 严格限制横向溢出 */}
+      <main
+        ref={scrollContainerRef}
+        onScroll={handleScroll}
+        className="flex-1 overflow-y-auto overflow-x-hidden px-2 sm:px-4 min-w-0"
+      >
+        <div className="max-w-3xl mx-auto py-6 space-y-2 min-w-0">
           {messages.length === 0 ? (
             /* 极简空白首屏状态 - Pi Agent 工作台模式 */
-            <div className="h-[65vh] flex flex-col items-center justify-center text-center px-4">
+            <div className="h-[65vh] flex flex-col items-center justify-center text-center px-4 select-none">
               <div className="w-12 h-12 rounded-2xl bg-surface border border-border flex items-center justify-center text-foreground font-mono text-2xl font-bold shadow-xs mb-4">
                 π
               </div>
@@ -72,7 +90,7 @@ export default function App() {
       </main>
 
       {/* 底部自适应输入框 */}
-      <footer className="w-full">
+      <footer className="w-full flex-shrink-0">
         <ChatInput
           onSend={sendPrompt}
           onStop={abort}

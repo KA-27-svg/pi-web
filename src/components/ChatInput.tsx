@@ -22,6 +22,9 @@ export function ChatInput({ onSend, onStop, isLoading }: ChatInputProps) {
   }, [input]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    // 兼容中文/日文等输入法选词过程中的 Enter，避免误发送
+    if (e.nativeEvent.isComposing) return;
+
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSend();
