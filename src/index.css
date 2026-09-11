@@ -1,0 +1,57 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* 极简现代浅黑白主题（默认） */
+  --background: #ffffff;
+  --surface: #f9fafb;
+  --surface-hover: #f3f4f6;
+  --foreground: #111827;
+  --muted: #6b7280;
+  --border: #e5e7eb;
+  --accent: #18181b;
+  --accent-foreground: #ffffff;
+  --accent-hover: #27272a;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    /* 极简纯净深色主题 */
+    --background: #0d0e11;
+    --surface: #16181d;
+    --surface-hover: #1f2229;
+    --foreground: #f3f4f6;
+    --muted: #9ca3af;
+    --border: #272a33;
+    --accent: #f3f4f6;
+    --accent-foreground: #0f1015;
+    --accent-hover: #e5e7eb;
+  }
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  background-color: var(--background);
+  color: var(--foreground);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* 自定义纤细优雅滚动条 */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--muted);
+}
