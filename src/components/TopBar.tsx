@@ -87,11 +87,7 @@ export function TopBar({
 
         {/* 新建会话按钮 */}
         <button
-          onClick={() => {
-            if (confirm('确认开启新会话？')) {
-              onNewSession();
-            }
-          }}
+          onClick={onNewSession}
           className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs text-muted hover:text-foreground hover:bg-surface-hover transition-colors border border-border/60"
           title="新建独立会话"
         >

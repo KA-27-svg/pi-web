@@ -90,6 +90,14 @@ export function usePiWebSocket() {
             }));
           }
 
+          if (data.command === 'new_session' && data.success) {
+            // 后端新建会话成功，立即清空本地消息并刷新状态
+            currentAssistantIdRef.current = null;
+            setMessages([]);
+            ws.send(JSON.stringify({ type: 'get_state' }));
+            return;
+          }
+
           if (data.command === 'get_messages' && data.success && data.data?.messages) {
             const rawMessages: any[] = data.data.messages;
             const restored: PiMessage[] = [];
@@ -147,9 +155,7 @@ export function usePiWebSocket() {
               }
             }
 
-            if (restored.length > 0) {
-              setMessages(restored);
-            }
+            setMessages(restored);
           }
           return;
         }
@@ -369,8 +375,9 @@ export function usePiWebSocket() {
 
   const newSession = useCallback(() => {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ type: 'new_session' }));
+      currentAssistantIdRef.current = null;
       setMessages([]);
+      wsRef.current.send(JSON.stringify({ type: 'new_session' }));
     }
   }, []);
 
