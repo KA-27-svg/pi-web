@@ -5,20 +5,32 @@ interface ChatInputProps {
   onSend: (text: string) => void;
   onStop: () => void;
   isLoading: boolean;
+  onFocusChange?: (focused: boolean) => void;
+  autoFocus?: boolean;
 }
 
-export function ChatInput({ onSend, onStop, isLoading }: ChatInputProps) {
+export function ChatInput({
+  onSend,
+  onStop,
+  isLoading,
+  onFocusChange,
+  autoFocus,
+}: ChatInputProps) {
   const [input, setInput] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
-    if (textareaRef.current) {
-      textareaRef.current.style.height = 'auto';
-      textareaRef.current.style.height = `${Math.min(
-        textareaRef.current.scrollHeight,
-        200
-      )}px`;
+    if (autoFocus) {
+      textareaRef.current?.focus();
     }
+  }, [autoFocus]);
+
+  // 输入框高度随内容自适应
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
   }, [input]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -41,16 +53,18 @@ export function ChatInput({ onSend, onStop, isLoading }: ChatInputProps) {
   };
 
   return (
-    <div className="w-full max-w-3xl mx-auto px-4 pb-4 sm:pb-6">
+    <div className="w-full max-w-3xl mx-auto px-4 pb-5 sm:pb-7">
       <div className="relative flex items-end bg-surface border border-border focus-within:border-accent/40 rounded-2xl shadow-sm transition-all duration-200">
         <textarea
           ref={textareaRef}
           value={input}
           onChange={e => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="给 Pi 发送消息... (Enter 发送，Shift+Enter 换行)"
+          onFocus={() => onFocusChange?.(true)}
+          onBlur={() => onFocusChange?.(false)}
+          placeholder="给 Pi 发送消息..."
           rows={1}
-          className="w-full resize-none bg-transparent py-3 pl-4 pr-12 text-[14px] text-foreground placeholder:text-muted focus:outline-none max-h-48 leading-relaxed"
+          className="w-full resize-none bg-transparent py-3.5 pl-4 pr-14 text-[14px] text-foreground placeholder:text-muted focus:outline-none max-h-48 leading-relaxed"
         />
 
         <div className="absolute right-2 bottom-2">
@@ -59,6 +73,7 @@ export function ChatInput({ onSend, onStop, isLoading }: ChatInputProps) {
               onClick={onStop}
               className="p-2 rounded-xl bg-accent text-accent-foreground hover:bg-accent-hover transition-colors"
               title="停止生成"
+              aria-label="停止生成"
             >
               <Square className="w-4 h-4 fill-current" />
             </button>
@@ -68,15 +83,13 @@ export function ChatInput({ onSend, onStop, isLoading }: ChatInputProps) {
               disabled={!input.trim()}
               className="p-2 rounded-xl bg-accent text-accent-foreground hover:bg-accent-hover disabled:opacity-30 disabled:hover:bg-accent transition-all duration-150"
               title="发送"
+              aria-label="发送"
             >
               <ArrowUp className="w-4 h-4 stroke-[2.5]" />
             </button>
           )}
         </div>
       </div>
-      <p className="text-center text-[11px] text-muted/70 mt-2">
-        Pi 可能会产生不准确的信息，请自行核对重要内容。
-      </p>
     </div>
   );
 }

@@ -1,9 +1,8 @@
-import { useRef, useEffect } from 'react';
+import { useRef, useEffect, useState } from 'react';
 import { usePiWebSocket } from './hooks/usePiWebSocket';
 import { TopBar } from './components/TopBar';
 import { PiMessageItem } from './components/PiMessageItem';
 import { ChatInput } from './components/ChatInput';
-import { Sparkles, ArrowRight } from 'lucide-react';
 
 export default function App() {
   const { messages, status, sendPrompt, abort, changeCwd, newSession } =
@@ -11,90 +10,71 @@ export default function App() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLElement>(null);
   const isAtBottomRef = useRef(true);
+  const [composerFocused, setComposerFocused] = useState(false);
 
-  // 监听用户是否主动向上滚动阅读
+  const isEmpty = messages.length === 0;
+  // 顶栏与控制图标：仅在输入框获得焦点或已有对话时淡入
+  const showChrome = composerFocused || !isEmpty;
+
   const handleScroll = () => {
     const el = scrollContainerRef.current;
     if (!el) return;
-    // 当距离底部不足 80px 时，判定为用户希望保持自动贴底
     const distanceToBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
     isAtBottomRef.current = distanceToBottom < 80;
   };
 
-  // 仅在用户位于底部时自动贴底滚屏，避免打扰用户向上翻看历史
   useEffect(() => {
     if (isAtBottomRef.current) {
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
   }, [messages]);
 
-  const agentActions = [
-    { title: '查看当前项目结构并总结', prompt: '请列出当前项目目录下的所有文件并简要总结架构' },
-    { title: '检查 package.json 依赖健康度', prompt: '读取当前目录下的 package.json，分析依赖是否合理' },
-    { title: '运行一次构建并查看结果', prompt: '在当前目录下执行 npm run build，分析构建是否成功' },
-  ];
-
   return (
     <div className="flex flex-col h-screen w-full bg-background text-foreground selection:bg-accent/10 selection:text-foreground overflow-hidden">
-      {/* 极简顶栏 */}
-      <TopBar
-        status={status}
-        onNewSession={newSession}
-        hasMessages={messages.length > 0}
-        onChangeCwd={changeCwd}
-      />
+      {/* 顶栏：初始隐藏，聚焦输入框后平滑浮现 */}
+      <div
+        className={`flex-shrink-0 transition-all duration-500 ease-out ${
+          showChrome
+            ? 'opacity-100 translate-y-0'
+            : 'opacity-0 -translate-y-2 pointer-events-none'
+        }`}
+      >
+        <TopBar
+          status={status}
+          onNewSession={newSession}
+          hasMessages={!isEmpty}
+          onChangeCwd={changeCwd}
+        />
+      </div>
 
-      {/* 主对话消息区 - 严格限制横向溢出 */}
+      {/* 对话消息区 */}
       <main
         ref={scrollContainerRef}
         onScroll={handleScroll}
-        className="flex-1 overflow-y-auto overflow-x-hidden px-2 sm:px-4 min-w-0"
+        className="flex-1 overflow-y-auto overflow-x-hidden min-w-0"
       >
-        <div className="max-w-3xl mx-auto py-6 space-y-2 min-w-0">
-          {messages.length === 0 ? (
-            /* 极简空白首屏状态 - Pi Agent 工作台模式 */
-            <div className="h-[65vh] flex flex-col items-center justify-center text-center px-4 select-none">
-              <div className="w-12 h-12 rounded-2xl bg-surface border border-border flex items-center justify-center text-foreground font-mono text-2xl font-bold shadow-xs mb-4">
-                π
-              </div>
-              <h1 className="text-xl font-medium text-foreground tracking-tight mb-2">
-                Pi Coding Agent 可视化工作台
-              </h1>
-              <p className="text-xs text-muted max-w-md mb-6 leading-relaxed">
-                已通过原生 RPC 协议深度映射本地 Pi Agent 运行时。<br />
-                支持实时可视化观测：文件读写 (<span className="font-mono text-blue-400">read</span>/<span className="font-mono text-emerald-400">write</span>)、代码补丁 (<span className="font-mono text-amber-400">edit</span>)、终端执行 (<span className="font-mono text-purple-400">bash</span>) 与深度思考。
-              </p>
-
-              {/* 快捷推荐指令 */}
-              <div className="w-full max-w-md space-y-2">
-                {agentActions.map((action, idx) => (
-                  <button
-                    key={idx}
-                    onClick={() => sendPrompt(action.prompt)}
-                    className="w-full flex items-center justify-between px-4 py-2.5 rounded-xl border border-border/80 bg-surface/60 hover:bg-surface-hover hover:border-accent/30 text-xs text-muted hover:text-foreground text-left transition-all duration-150 group"
-                  >
-                    <span className="flex items-center gap-2">
-                      <Sparkles className="w-3.5 h-3.5 text-muted group-hover:text-accent" />
-                      {action.title}
-                    </span>
-                    <ArrowRight className="w-3.5 h-3.5 opacity-0 -translate-x-1 group-hover:opacity-100 group-hover:translate-x-0 transition-all" />
-                  </button>
-                ))}
-              </div>
-            </div>
-          ) : (
-            messages.map(msg => <PiMessageItem key={msg.id} message={msg} />)
-          )}
-          <div ref={messagesEndRef} />
-        </div>
+        {!isEmpty && (
+          <div className="max-w-3xl mx-auto py-6 px-2 sm:px-4 space-y-2 min-w-0">
+            {messages.map(msg => (
+              <PiMessageItem key={msg.id} message={msg} />
+            ))}
+            <div ref={messagesEndRef} />
+          </div>
+        )}
       </main>
 
-      {/* 底部自适应输入框 */}
-      <footer className="w-full flex-shrink-0">
+      {/* 输入区：空白态时垂直居中，有对话后沉入底部 */}
+      <footer
+        className={`w-full flex-shrink-0 transition-all duration-500 ease-out ${
+          isEmpty ? 'pb-[32vh]' : 'pb-0'
+        }`}
+      >
         <ChatInput
           onSend={sendPrompt}
           onStop={abort}
           isLoading={status.isStreaming}
+          onFocusChange={setComposerFocused}
+          autoFocus={isEmpty}
         />
       </footer>
     </div>

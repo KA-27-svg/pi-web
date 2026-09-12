@@ -68,19 +68,10 @@ export function PiMessageItem({ message }: PiMessageItemProps) {
         />
 
         {/* 最终回复正文 */}
-        {message.content ? (
+        {message.content && (
           <div className="p-3.5 rounded-2xl rounded-tl-xs bg-surface/40 border border-border/40">
             <MarkdownView content={message.content} />
           </div>
-        ) : (
-          isStreaming &&
-          !message.reasoning &&
-          (!message.tools || message.tools.length === 0) && (
-            <div className="flex items-center gap-1.5 py-1 text-muted text-xs">
-              <span className="w-1.5 h-1.5 rounded-full bg-accent animate-ping" />
-              <span>Pi 正在理解并规划任务...</span>
-            </div>
-          )
         )}
       </div>
     </div>

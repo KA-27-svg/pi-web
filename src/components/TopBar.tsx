@@ -21,7 +21,10 @@ export function TopBar({
   };
 
   return (
-    <header className="sticky top-0 z-30 w-full flex items-center justify-between px-4 sm:px-6 py-2.5 bg-background/85 backdrop-blur-md border-b border-border transition-colors">
+    <header
+      onMouseDown={e => e.preventDefault()}
+      className="sticky top-0 z-30 w-full flex items-center justify-between px-4 sm:px-6 py-2.5 bg-background/85 backdrop-blur-md border-b border-border transition-colors"
+    >
       <div className="flex items-center gap-3">
         {/* Logo */}
         <div className="flex items-center gap-1.5 font-bold tracking-tight text-base text-foreground font-mono">

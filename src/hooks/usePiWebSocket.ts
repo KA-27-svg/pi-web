@@ -108,6 +108,8 @@ export function usePiWebSocket() {
     };
 
     setMessages(prev => [...prev, userMsg, assistantMsg]);
+    // 立即置为执行中，确保“停止生成”按钮无需等待 agent_start 事件即出现
+    setStatus(prev => ({ ...prev, isStreaming: true }));
 
     wsRef.current.send(
       JSON.stringify({
@@ -118,6 +120,8 @@ export function usePiWebSocket() {
   }, []);
 
   const abort = useCallback(() => {
+    // 先本地立即响应，避免按钮状态迟滞
+    setStatus(prev => ({ ...prev, isStreaming: false, currentTool: undefined }));
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({ type: 'abort' }));
     }
