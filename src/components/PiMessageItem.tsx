@@ -58,8 +58,10 @@ export function PiMessageItem({ message }: PiMessageItemProps) {
           </span>
         </div>
 
-        {/* 思考过程 + 已执行工具：统一收归为一个优雅的渐进式折叠组件 */}
+        {/* 思考过程 + 已执行工具：传入固定 key / id 确保状态持久不随重渲染丢失 */}
         <ExecutionCollapse
+          key={message.id}
+          id={message.id}
           reasoning={message.reasoning}
           tools={message.tools}
           isStreaming={isStreaming}

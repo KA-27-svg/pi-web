@@ -4,6 +4,7 @@ import { ToolCallCard } from './ToolCallCard';
 import { ChevronRight, Sparkles, Wrench } from 'lucide-react';
 
 interface ExecutionCollapseProps {
+  id?: string;
   reasoning?: string;
   tools?: ToolCallState[];
   isStreaming?: boolean;
@@ -14,7 +15,7 @@ export function ExecutionCollapse({
   tools,
   isStreaming,
 }: ExecutionCollapseProps) {
-  // 生成中如果正在思考或运行工具，默认展开以便实时观测；完成后统一收起
+  // 仅受用户手动点击控制，绝不随流式推送或父级 re-render 自动闭合
   const [isOpen, setIsOpen] = useState(false);
 
   const hasReasoning = !!reasoning?.trim();
@@ -29,7 +30,7 @@ export function ExecutionCollapse({
     <div className="my-2 rounded-xl border border-border/70 bg-surface/60 overflow-hidden text-xs transition-all">
       {/* 统一顶层折叠条 */}
       <button
-        onClick={() => setIsOpen(!isOpen)}
+        onClick={() => setIsOpen(prev => !prev)}
         className="w-full flex items-center justify-between px-3.5 py-2 text-muted hover:text-foreground hover:bg-surface-hover/50 transition-colors select-none text-left"
       >
         <div className="flex items-center gap-2">
