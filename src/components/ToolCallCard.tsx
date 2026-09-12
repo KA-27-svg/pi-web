@@ -1,147 +1,104 @@
 import { useState } from 'react';
 import type { ToolCallState } from '../types/pi';
-import { Terminal, FileText, Edit3, PenTool, CheckCircle2, Loader2, ChevronRight } from 'lucide-react';
+import { ChevronRight, Loader2 } from 'lucide-react';
 
 interface ToolCallCardProps {
   tool: ToolCallState;
 }
 
+/** 不同工具 → 一行摘要 */
+function summarize(tool: ToolCallState) {
+  const a = tool.args || {};
+  switch (tool.name) {
+    case 'read':
+    case 'edit':
+    case 'write':
+      return { tag: tool.name, text: a.path || '' };
+    case 'bash':
+      return { tag: 'bash', text: a.command || '' };
+    default:
+      return {
+        tag: tool.name,
+        text:
+          a.path || a.command || a.pattern || JSON.stringify(a).slice(0, 120),
+      };
+  }
+}
+
 export function ToolCallCard({ tool }: ToolCallCardProps) {
   const [isOpen, setIsOpen] = useState(false);
-
-  // 根据不同工具匹配图标与说明
-  const getToolMeta = () => {
-    switch (tool.name) {
-      case 'read':
-        return {
-          icon: <FileText className="w-3.5 h-3.5 text-blue-400" />,
-          title: `读取文件: ${tool.args?.path || ''}`,
-          badge: 'READ',
-        };
-      case 'edit':
-        return {
-          icon: <Edit3 className="w-3.5 h-3.5 text-amber-400" />,
-          title: `编辑文件: ${tool.args?.path || ''}`,
-          badge: 'EDIT',
-        };
-      case 'write':
-        return {
-          icon: <PenTool className="w-3.5 h-3.5 text-emerald-400" />,
-          title: `写入文件: ${tool.args?.path || ''}`,
-          badge: 'WRITE',
-        };
-      case 'bash':
-        return {
-          icon: <Terminal className="w-3.5 h-3.5 text-purple-400" />,
-          title: `执行命令: ${tool.args?.command || ''}`,
-          badge: 'BASH',
-        };
-      default:
-        return {
-          icon: <Terminal className="w-3.5 h-3.5 text-accent" />,
-          title: `调用工具: ${tool.name}`,
-          badge: tool.name.toUpperCase(),
-        };
-    }
-  };
-
-  const meta = getToolMeta();
-
-  // 针对 edit 工具渲染精美的 Diff 对比
-  const renderEditDiff = () => {
-    const edits = tool.args?.edits;
-    if (!Array.isArray(edits) || edits.length === 0) return null;
-
-    return (
-      <div className="space-y-3 mt-1">
-        <div className="text-gray-400 text-[10px] uppercase tracking-wider font-semibold">
-          代码补丁对比 (Patch Diff):
-        </div>
-        {edits.map((item: any, idx: number) => (
-          <div key={idx} className="rounded border border-white/10 bg-[#0d0e12] overflow-hidden">
-            {item.oldText && (
-              <div className="p-2 bg-rose-950/20 text-rose-300 font-mono text-[11px] border-b border-white/5 whitespace-pre-wrap break-all">
-                <span className="select-none text-rose-500 mr-2 font-bold">-</span>
-                {item.oldText}
-              </div>
-            )}
-            {item.newText && (
-              <div className="p-2 bg-emerald-950/20 text-emerald-300 font-mono text-[11px] whitespace-pre-wrap break-all">
-                <span className="select-none text-emerald-500 mr-2 font-bold">+</span>
-                {item.newText}
-              </div>
-            )}
-          </div>
-        ))}
-      </div>
-    );
-  };
+  const { tag, text } = summarize(tool);
+  const edits: any[] = Array.isArray(tool.args?.edits) ? tool.args.edits : [];
 
   return (
-    <div className="my-2 border border-border/70 rounded-lg bg-surface/80 overflow-hidden text-xs transition-all shadow-2xs">
-      <div
-        onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center justify-between px-3 py-2 cursor-pointer hover:bg-surface-hover/60 transition-colors select-none"
+    <div className="text-[12px]">
+      {/* 一行：TAG  摘要 */}
+      <button
+        onClick={() => setIsOpen(prev => !prev)}
+        className="group flex w-full items-baseline gap-3 text-left"
       >
-        <div className="flex items-center gap-2 min-w-0">
-          {tool.status === 'running' ? (
-            <Loader2 className="w-3.5 h-3.5 text-accent animate-spin flex-shrink-0" />
-          ) : (
-            meta.icon
-          )}
-          <span className="font-mono text-[11px] px-1.5 py-0.5 rounded bg-background/80 border border-border/60 text-muted font-medium">
-            {meta.badge}
-          </span>
-          <span className="font-medium text-foreground truncate max-w-sm sm:max-w-md">
-            {meta.title}
-          </span>
-        </div>
-
-        <div className="flex items-center gap-1.5 text-muted">
-          {tool.status === 'done' && (
-            <span className="text-[10px] text-emerald-500 flex items-center gap-1">
-              <CheckCircle2 className="w-3 h-3" />
-              已完成
-            </span>
-          )}
+        <span className="w-11 shrink-0 font-mono text-[11px] uppercase tracking-wide text-muted/70">
+          {tag}
+        </span>
+        <span className="min-w-0 flex-1 truncate font-mono text-foreground/75 group-hover:text-foreground transition-colors">
+          {text}
+        </span>
+        {tool.status === 'running' ? (
+          <Loader2 className="w-3 h-3 shrink-0 animate-spin text-muted" />
+        ) : (
           <ChevronRight
-            className={`w-3.5 h-3.5 transition-transform duration-200 ${
+            className={`w-3 h-3 shrink-0 text-muted/50 transition-transform duration-200 ${
               isOpen ? 'rotate-90' : ''
             }`}
           />
-        </div>
-      </div>
+        )}
+      </button>
 
-      {/* 展开查看参数和详细执行结果 */}
+      {/* 展开：缩进 + 竖线，与上层同一套语言 */}
       {isOpen && (
-        <div className="px-3 py-2.5 border-t border-border/50 bg-[#121318] text-gray-200 font-mono text-[11px] max-h-80 overflow-y-auto leading-relaxed space-y-3">
-          {/* edit 专属可视化 diff */}
-          {tool.name === 'edit' && renderEditDiff()}
-
-          {/* 通用参数展示 (如果不是 edit) */}
-          {tool.name !== 'edit' && tool.args && (
-            <div>
-              <div className="text-gray-400 text-[10px] uppercase tracking-wider mb-1">
-                参数 (Arguments):
-              </div>
-              <pre className="text-gray-300 whitespace-pre-wrap break-all bg-black/30 p-2 rounded">
-                {JSON.stringify(tool.args, null, 2)}
-              </pre>
+        <div className="mt-2 ml-[3.25rem] pl-4 border-l border-border space-y-3">
+          {/* edit 专属：增删对照 */}
+          {edits.length > 0 && (
+            <div className="space-y-2">
+              {edits.map((item, idx) => (
+                <div key={idx} className="font-mono text-[11.5px] leading-[1.7]">
+                  {item.oldText && (
+                    <div className="whitespace-pre-wrap break-all text-rose-500/80">
+                      {String(item.oldText)
+                        .split('\n')
+                        .map((l: string, i: number) => (
+                          <div key={i}>- {l}</div>
+                        ))}
+                    </div>
+                  )}
+                  {item.newText && (
+                    <div className="whitespace-pre-wrap break-all text-emerald-600/80 dark:text-emerald-400/80">
+                      {String(item.newText)
+                        .split('\n')
+                        .map((l: string, i: number) => (
+                          <div key={i}>+ {l}</div>
+                        ))}
+                    </div>
+                  )}
+                </div>
+              ))}
             </div>
           )}
 
-          {/* 工具输出结果 */}
+          {/* 非 edit：参数 */}
+          {edits.length === 0 && tool.args && (
+            <pre className="font-mono text-[11.5px] leading-[1.7] text-muted whitespace-pre-wrap break-all">
+              {JSON.stringify(tool.args, null, 2)}
+            </pre>
+          )}
+
+          {/* 输出 */}
           {tool.result && (
-            <div>
-              <div className="text-gray-400 text-[10px] uppercase tracking-wider mb-1">
-                输出结果 (Output):
-              </div>
-              <pre className="text-emerald-400/90 whitespace-pre-wrap break-all bg-black/30 p-2 rounded max-h-60 overflow-y-auto">
-                {typeof tool.result === 'string'
-                  ? tool.result
-                  : JSON.stringify(tool.result, null, 2)}
-              </pre>
-            </div>
+            <pre className="rounded-md bg-[var(--code-bg)] border border-[var(--code-border)] px-3 py-2.5 font-mono text-[11.5px] leading-[1.7] text-foreground/80 whitespace-pre-wrap break-all max-h-72 overflow-y-auto">
+              {typeof tool.result === 'string'
+                ? tool.result
+                : JSON.stringify(tool.result, null, 2)}
+            </pre>
           )}
         </div>
       )}

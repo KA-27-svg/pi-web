@@ -11,10 +11,11 @@ export default function App() {
   const scrollContainerRef = useRef<HTMLElement>(null);
   const isAtBottomRef = useRef(true);
   const [composerFocused, setComposerFocused] = useState(false);
+  const [topHover, setTopHover] = useState(false);
 
   const isEmpty = messages.length === 0;
-  // 顶栏与控制图标：仅在输入框获得焦点或已有对话时淡入
-  const showChrome = composerFocused || !isEmpty;
+  // 白纸原则：顶栏默认隐去，仅在聚焦输入框或鼠标触到顶部时才淡入
+  const revealed = composerFocused || topHover;
 
   const handleScroll = () => {
     const el = scrollContainerRef.current;
@@ -30,40 +31,41 @@ export default function App() {
   }, [messages]);
 
   return (
-    <div className="flex flex-col h-screen w-full bg-background text-foreground selection:bg-accent/10 selection:text-foreground overflow-hidden">
-      {/* 顶栏：初始隐藏，聚焦输入框后平滑浮现 */}
+    <div className="flex flex-col h-screen w-full bg-background text-foreground selection:bg-foreground/10 overflow-hidden">
+      {/* 顶栏：仅一行灰色小字，默认透明 */}
       <div
-        className={`flex-shrink-0 transition-all duration-500 ease-out ${
-          showChrome
-            ? 'opacity-100 translate-y-0'
-            : 'opacity-0 -translate-y-2 pointer-events-none'
+        onMouseEnter={() => setTopHover(true)}
+        onMouseLeave={() => setTopHover(false)}
+        className={`flex-shrink-0 transition-opacity duration-300 ease-out ${
+          revealed ? 'opacity-100' : 'opacity-0'
         }`}
       >
-        <TopBar
-          status={status}
-          onNewSession={newSession}
-          hasMessages={!isEmpty}
-          onChangeCwd={changeCwd}
-        />
+        <div className={revealed ? 'block' : 'pointer-events-none'}>
+          <TopBar
+            status={status}
+            onNewSession={newSession}
+            onChangeCwd={changeCwd}
+          />
+        </div>
       </div>
 
-      {/* 对话消息区 */}
+      {/* 对话流：无框、无头像、无气泡边框 */}
       <main
         ref={scrollContainerRef}
         onScroll={handleScroll}
         className="flex-1 overflow-y-auto overflow-x-hidden min-w-0"
       >
         {!isEmpty && (
-          <div className="max-w-3xl mx-auto py-6 px-2 sm:px-4 space-y-2 min-w-0">
+          <div className="max-w-2xl mx-auto px-5 sm:px-6 py-8 space-y-8">
             {messages.map(msg => (
               <PiMessageItem key={msg.id} message={msg} />
             ))}
-            <div ref={messagesEndRef} />
+            <div ref={messagesEndRef} className="h-1" />
           </div>
         )}
       </main>
 
-      {/* 输入区：空白态时垂直居中，有对话后沉入底部 */}
+      {/* 输入区：空白态悬浮居中，有对话后沉底 */}
       <footer
         className={`w-full flex-shrink-0 transition-all duration-500 ease-out ${
           isEmpty ? 'pb-[32vh]' : 'pb-0'

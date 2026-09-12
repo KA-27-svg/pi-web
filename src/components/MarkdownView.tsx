@@ -8,11 +8,10 @@ interface MarkdownViewProps {
 
 export function MarkdownView({ content }: MarkdownViewProps) {
   return (
-    <div className="text-[14px] leading-relaxed text-foreground select-text overflow-hidden">
+    <div className="text-[14.5px] leading-[1.75] text-foreground break-words">
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
-          // 代码与内联代码
           code(props) {
             const { className, children } = props;
             const match = /language-(\w+)/.exec(className || '');
@@ -21,128 +20,106 @@ export function MarkdownView({ content }: MarkdownViewProps) {
 
             if (!isInline) {
               return (
-                <CodeBlock
-                  language={match ? match[1] : 'text'}
-                  value={codeText}
-                />
+                <CodeBlock language={match ? match[1] : 'text'} value={codeText} />
               );
             }
-
             return (
-              <code className="px-1.5 py-0.5 mx-0.5 rounded text-[12px] bg-surface-hover text-foreground font-mono border border-border/80">
+              <code className="rounded bg-[var(--code-inline-bg)] px-1.5 py-[1px] font-mono text-[12.5px] text-[var(--code-inline-fg)]">
                 {children}
               </code>
             );
           },
 
-          // 表格支持与美化排版
-          table({ children }) {
-            return (
-              <div className="my-3 w-full overflow-x-auto rounded-lg border border-border/80 bg-surface/50">
-                <table className="w-full text-left text-xs border-collapse">
-                  {children}
-                </table>
-              </div>
-            );
-          },
-          thead({ children }) {
-            return (
-              <thead className="bg-surface-hover/80 text-foreground font-semibold border-b border-border/80">
-                {children}
-              </thead>
-            );
-          },
-          tbody({ children }) {
-            return (
-              <tbody className="divide-y divide-border/50">
-                {children}
-              </tbody>
-            );
-          },
-          tr({ children }) {
-            return (
-              <tr className="hover:bg-surface-hover/40 transition-colors">
-                {children}
-              </tr>
-            );
-          },
-          th({ children }) {
-            return (
-              <th className="px-3.5 py-2.5 font-medium text-foreground tracking-wide whitespace-nowrap">
-                {children}
-              </th>
-            );
-          },
-          td({ children }) {
-            return (
-              <td className="px-3.5 py-2 text-foreground/90 align-top leading-normal">
-                {children}
-              </td>
-            );
+          p({ children }) {
+            return <p className="my-3 first:mt-0 last:mb-0">{children}</p>;
           },
 
-          // 标题层级美化
+          ul({ children }) {
+            return <ul className="my-3 list-disc space-y-1.5 pl-5">{children}</ul>;
+          },
+          ol({ children }) {
+            return (
+              <ol className="my-3 list-decimal space-y-1.5 pl-5">{children}</ol>
+            );
+          },
+          li({ children }) {
+            return <li className="leading-[1.75]">{children}</li>;
+          },
+
           h1({ children }) {
             return (
-              <h1 className="text-lg font-bold text-foreground mt-4 mb-2 pb-1 border-b border-border/60">
+              <h1 className="mt-6 mb-3 text-[19px] font-semibold tracking-tight">
                 {children}
               </h1>
             );
           },
           h2({ children }) {
             return (
-              <h2 className="text-base font-semibold text-foreground mt-3.5 mb-2">
+              <h2 className="mt-5 mb-2.5 text-[16.5px] font-semibold tracking-tight">
                 {children}
               </h2>
             );
           },
           h3({ children }) {
             return (
-              <h3 className="text-sm font-semibold text-foreground mt-3 mb-1.5">
-                {children}
-              </h3>
+              <h3 className="mt-4 mb-2 text-[15px] font-semibold">{children}</h3>
             );
           },
 
-          // 段落与列表
-          p({ children }) {
-            return <p className="mb-2.5 last:mb-0 leading-relaxed">{children}</p>;
-          },
-          ul({ children }) {
-            return <ul className="list-disc pl-5 mb-2.5 space-y-1">{children}</ul>;
-          },
-          ol({ children }) {
-            return <ol className="list-decimal pl-5 mb-2.5 space-y-1">{children}</ol>;
-          },
-          li({ children }) {
-            return <li className="leading-relaxed">{children}</li>;
-          },
-
-          // 引用块
           blockquote({ children }) {
             return (
-              <blockquote className="border-l-3 border-accent/40 bg-surface/40 px-3 py-1.5 rounded-r-md my-2.5 text-muted text-xs italic">
+              <blockquote className="my-4 border-l border-border pl-4 text-muted italic">
                 {children}
               </blockquote>
             );
           },
 
-          // 分割线
           hr() {
-            return <hr className="my-4 border-border/60" />;
+            return <hr className="my-6 border-border" />;
           },
 
-          // 超链接
           a({ href, children }) {
             return (
               <a
                 href={href}
                 target="_blank"
                 rel="noreferrer"
-                className="text-accent underline underline-offset-2 hover:opacity-80 transition-opacity font-medium"
+                className="underline underline-offset-[3px] decoration-muted/40 hover:decoration-foreground transition-colors"
               >
                 {children}
               </a>
+            );
+          },
+
+          // 表格：只有横向细线，无外框
+          table({ children }) {
+            return (
+              <div className="my-4 w-full overflow-x-auto">
+                <table className="w-full border-collapse text-[13px]">
+                  {children}
+                </table>
+              </div>
+            );
+          },
+          thead({ children }) {
+            return <thead>{children}</thead>;
+          },
+          tbody({ children }) {
+            return <tbody>{children}</tbody>;
+          },
+          tr({ children }) {
+            return <tr className="border-b border-border last:border-0">{children}</tr>;
+          },
+          th({ children }) {
+            return (
+              <th className="py-2 pr-4 text-left text-[12px] font-medium uppercase tracking-wide text-muted whitespace-nowrap">
+                {children}
+              </th>
+            );
+          },
+          td({ children }) {
+            return (
+              <td className="py-2 pr-4 align-top leading-[1.7]">{children}</td>
             );
           },
         }}

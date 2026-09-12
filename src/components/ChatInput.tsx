@@ -20,12 +20,9 @@ export function ChatInput({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
-    if (autoFocus) {
-      textareaRef.current?.focus();
-    }
+    if (autoFocus) textareaRef.current?.focus();
   }, [autoFocus]);
 
-  // 输入框高度随内容自适应
   useEffect(() => {
     const el = textareaRef.current;
     if (!el) return;
@@ -34,9 +31,8 @@ export function ChatInput({
   }, [input]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    // 兼容中文/日文等输入法选词过程中的 Enter，避免误发送
+    // 中文输入法选词时的 Enter 不触发发送
     if (e.nativeEvent.isComposing) return;
-
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSend();
@@ -47,14 +43,15 @@ export function ChatInput({
     if (!input.trim() || isLoading) return;
     onSend(input);
     setInput('');
-    if (textareaRef.current) {
-      textareaRef.current.style.height = 'auto';
-    }
+    if (textareaRef.current) textareaRef.current.style.height = 'auto';
   };
 
+  const canSend = !!input.trim();
+
   return (
-    <div className="w-full max-w-3xl mx-auto px-4 pb-5 sm:pb-7">
-      <div className="relative flex items-end bg-surface border border-border focus-within:border-accent/40 rounded-2xl shadow-sm transition-all duration-200">
+    <div className="w-full max-w-2xl mx-auto px-5 sm:px-6 pb-6 sm:pb-8">
+      {/* 无边框、无阴影：仅一层极淡底，聚焦时微微加深 */}
+      <div className="relative flex items-end rounded-2xl bg-surface/60 transition-colors duration-200 focus-within:bg-surface">
         <textarea
           ref={textareaRef}
           value={input}
@@ -62,26 +59,30 @@ export function ChatInput({
           onKeyDown={handleKeyDown}
           onFocus={() => onFocusChange?.(true)}
           onBlur={() => onFocusChange?.(false)}
-          placeholder="给 Pi 发送消息..."
+          placeholder="给 Pi 发送消息…"
           rows={1}
-          className="w-full resize-none bg-transparent py-3.5 pl-4 pr-14 text-[14px] text-foreground placeholder:text-muted focus:outline-none max-h-48 leading-relaxed"
+          className="w-full resize-none bg-transparent py-3.5 pl-4 pr-12 text-[14.5px] leading-[1.7] text-foreground placeholder:text-muted/70 focus:outline-none max-h-48"
         />
 
         <div className="absolute right-2 bottom-2">
           {isLoading ? (
             <button
               onClick={onStop}
-              className="p-2 rounded-xl bg-accent text-accent-foreground hover:bg-accent-hover transition-colors"
+              className="p-2 rounded-full bg-foreground text-background transition-opacity hover:opacity-80"
               title="停止生成"
               aria-label="停止生成"
             >
-              <Square className="w-4 h-4 fill-current" />
+              <Square className="w-3.5 h-3.5 fill-current" />
             </button>
           ) : (
             <button
               onClick={handleSend}
-              disabled={!input.trim()}
-              className="p-2 rounded-xl bg-accent text-accent-foreground hover:bg-accent-hover disabled:opacity-30 disabled:hover:bg-accent transition-all duration-150"
+              disabled={!canSend}
+              className={`p-2 rounded-full transition-all duration-150 ${
+                canSend
+                  ? 'bg-foreground text-background hover:opacity-80'
+                  : 'text-muted/40 cursor-default'
+              }`}
               title="发送"
               aria-label="发送"
             >
