@@ -30,37 +30,45 @@ export function usePiWebSocket() {
   const connectWs = useCallback(() => {
     if (!isMountedRef.current) return;
 
-    if (wsRef.current) {
-      try {
-        wsRef.current.close();
-      } catch {}
-      wsRef.current = null;
+    // 已存在活着的连接（连接中或已打开）则直接复用，避免连接风暴
+    const existing = wsRef.current;
+    if (
+      existing &&
+      (existing.readyState === WebSocket.OPEN ||
+        existing.readyState === WebSocket.CONNECTING)
+    ) {
+      return;
     }
 
     const ws = new WebSocket('ws://localhost:3001');
     wsRef.current = ws;
 
+    // 陈旧 socket 的事件一律忽略（StrictMode 双挂载 / 重连替换时至关重要）
+    const isStale = () => wsRef.current !== ws;
+
     ws.onopen = () => {
-      if (!isMountedRef.current) return;
+      if (!isMountedRef.current || isStale()) return;
       setStatus(prev => ({ ...prev, connected: true }));
       requestInitialState(ws);
     };
 
     ws.onclose = () => {
+      if (isStale()) return; // 已被新连接取代，不触发重连
       if (!isMountedRef.current) return;
+
       setStatus(prev => ({ ...prev, connected: false, isStreaming: false }));
-      
       clearTimeout(reconnectTimeoutRef.current);
       reconnectTimeoutRef.current = setTimeout(() => {
-        connectWs();
+        if (isMountedRef.current) connectWs();
       }, 2000);
     };
 
-    ws.onerror = (err) => {
-      console.error('[usePiWebSocket] Socket error:', err);
+    ws.onerror = () => {
+      // 由 onclose 统一处理重连
     };
 
     ws.onmessage = (event) => {
+      if (isStale()) return;
       try {
         const data = JSON.parse(event.data);
         handlerRef.current?.handleEvent(data, ws);

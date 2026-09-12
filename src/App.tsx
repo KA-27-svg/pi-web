@@ -1,8 +1,9 @@
-import { useRef, useEffect, useState } from 'react';
+import { useRef, useEffect, useState, useCallback } from 'react';
 import { usePiWebSocket } from './hooks/usePiWebSocket';
-import { TopBar } from './components/TopBar';
+import { SettingsPanel } from './components/SettingsPanel';
 import { PiMessageItem } from './components/PiMessageItem';
 import { ChatInput } from './components/ChatInput';
+import { Settings } from 'lucide-react';
 
 export default function App() {
   const { messages, status, sendPrompt, abort, changeCwd, newSession } =
@@ -10,44 +11,58 @@ export default function App() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLElement>(null);
   const isAtBottomRef = useRef(true);
+
   const [composerFocused, setComposerFocused] = useState(false);
-  const [topHover, setTopHover] = useState(false);
+  const [gearHover, setGearHover] = useState(false);
+  const [panelOpen, setPanelOpen] = useState(false);
 
   const isEmpty = messages.length === 0;
-  // 白纸原则：顶栏默认隐去，仅在聚焦输入框或鼠标触到顶部时才淡入
-  const revealed = composerFocused || topHover;
+  const gearVisible = composerFocused || gearHover || panelOpen;
 
   const handleScroll = () => {
     const el = scrollContainerRef.current;
     if (!el) return;
-    const distanceToBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-    isAtBottomRef.current = distanceToBottom < 80;
+    isAtBottomRef.current =
+      el.scrollHeight - el.scrollTop - el.clientHeight < 80;
   };
 
+  // 贴底滚动：用瞬时定位而非平滑动画，避免流式输出时滚动动画被反复打断而抖动
+  const pinToBottom = useCallback(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+  }, []);
+
   useEffect(() => {
-    if (isAtBottomRef.current) {
-      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }
-  }, [messages]);
+    if (!isAtBottomRef.current) return;
+    const raf = requestAnimationFrame(pinToBottom);
+    return () => cancelAnimationFrame(raf);
+  }, [messages, pinToBottom]);
 
   return (
-    <div className="flex flex-col h-screen w-full bg-background text-foreground selection:bg-foreground/10 overflow-hidden">
-      {/* 顶栏：仅一行灰色小字，默认透明 */}
-      <div
-        onMouseEnter={() => setTopHover(true)}
-        onMouseLeave={() => setTopHover(false)}
-        className={`flex-shrink-0 transition-opacity duration-300 ease-out ${
-          revealed ? 'opacity-100' : 'opacity-0'
+    <div className="relative flex flex-col h-screen w-full bg-background text-foreground selection:bg-foreground/10 overflow-hidden">
+      {/* 唯一的常驻控件：齿轮 */}
+      <button
+        onMouseEnter={() => setGearHover(true)}
+        onMouseLeave={() => setGearHover(false)}
+        onClick={() => setPanelOpen(o => !o)}
+        className={`absolute right-4 top-3 z-50 rounded-full p-2 text-muted hover:text-foreground hover:bg-surface transition-all duration-300 ${
+          gearVisible ? 'opacity-100' : 'opacity-0'
         }`}
+        aria-label="设置"
+        title="设置"
       >
-        <div className={revealed ? 'block' : 'pointer-events-none'}>
-          <TopBar
-            status={status}
-            onNewSession={newSession}
-            onChangeCwd={changeCwd}
-          />
-        </div>
-      </div>
+        <Settings className="w-4 h-4" />
+      </button>
+
+      {panelOpen && (
+        <SettingsPanel
+          status={status}
+          onClose={() => setPanelOpen(false)}
+          onChangeCwd={changeCwd}
+          onNewSession={newSession}
+        />
+      )}
 
       {/* 对话流：无框、无头像、无气泡边框 */}
       <main
@@ -56,7 +71,7 @@ export default function App() {
         className="flex-1 overflow-y-auto overflow-x-hidden min-w-0"
       >
         {!isEmpty && (
-          <div className="max-w-2xl mx-auto px-5 sm:px-6 py-8 space-y-8">
+          <div className="max-w-2xl mx-auto px-5 sm:px-6 py-10 space-y-8">
             {messages.map(msg => (
               <PiMessageItem key={msg.id} message={msg} />
             ))}

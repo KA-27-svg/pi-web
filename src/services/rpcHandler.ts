@@ -85,7 +85,8 @@ export class RpcEventHandler {
 
     if (data.command === 'get_messages' && data.success && data.data?.messages) {
       const restored = MessageParser.parseHistory(data.data.messages);
-      this.setMessages(restored);
+      // 仅在本地尚无对话时用历史填充，避免覆盖进行中的实时消息导致界面跳动
+      this.setMessages(prev => (prev.length === 0 ? restored : prev));
     }
   }
 
