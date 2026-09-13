@@ -3,6 +3,7 @@ import { usePiWebSocket } from './hooks/usePiWebSocket';
 import { SettingsPanel } from './components/SettingsPanel';
 import { PiMessageItem } from './components/PiMessageItem';
 import { ChatInput } from './components/ChatInput';
+import { OpeningTransition } from './components/OpeningTransition';
 import { Settings } from 'lucide-react';
 
 export default function App() {
@@ -15,6 +16,7 @@ export default function App() {
   const [composerFocused, setComposerFocused] = useState(false);
   const [gearHover, setGearHover] = useState(false);
   const [panelOpen, setPanelOpen] = useState(false);
+  const [openingComplete, setOpeningComplete] = useState(false);
 
   const isEmpty = messages.length === 0;
   const gearVisible = composerFocused || gearHover || panelOpen;
@@ -41,6 +43,13 @@ export default function App() {
 
   return (
     <div className="relative flex flex-col h-screen w-full bg-background text-foreground selection:bg-foreground/10 overflow-hidden">
+      {!openingComplete && (
+        <OpeningTransition
+          hasConversation={!isEmpty}
+          onComplete={() => setOpeningComplete(true)}
+        />
+      )}
+
       {/* 唯一的常驻控件：齿轮 */}
       <button
         onMouseEnter={() => setGearHover(true)}
@@ -80,20 +89,22 @@ export default function App() {
         )}
       </main>
 
-      {/* 输入区：空白态悬浮居中，有对话后沉底 */}
-      <footer
-        className={`w-full flex-shrink-0 transition-all duration-500 ease-out ${
-          isEmpty ? 'pb-[32vh]' : 'pb-0'
-        }`}
-      >
-        <ChatInput
-          onSend={sendPrompt}
-          onStop={abort}
-          isLoading={status.isStreaming}
-          onFocusChange={setComposerFocused}
-          autoFocus={isEmpty}
-        />
-      </footer>
+      {/* 输入区：开场终帧落定后，在同一位置接管交互与焦点 */}
+      {openingComplete && (
+        <footer
+          className={`w-full flex-shrink-0 transition-all duration-500 ease-out opening-content-in ${
+            isEmpty ? 'pb-[32vh]' : 'pb-0'
+          }`}
+        >
+          <ChatInput
+            onSend={sendPrompt}
+            onStop={abort}
+            isLoading={status.isStreaming}
+            onFocusChange={setComposerFocused}
+            autoFocus={isEmpty}
+          />
+        </footer>
+      )}
     </div>
   );
 }
