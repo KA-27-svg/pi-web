@@ -5,7 +5,6 @@ interface ChatInputProps {
   onSend: (text: string) => void;
   onStop: () => void;
   isLoading: boolean;
-  onFocusChange?: (focused: boolean) => void;
   autoFocus?: boolean;
 }
 
@@ -13,7 +12,6 @@ export function ChatInput({
   onSend,
   onStop,
   isLoading,
-  onFocusChange,
   autoFocus,
 }: ChatInputProps) {
   const [input, setInput] = useState('');
@@ -50,15 +48,13 @@ export function ChatInput({
 
   return (
     <div className="w-full max-w-2xl mx-auto px-5 sm:px-6 pb-6 sm:pb-8">
-      {/* 无边框、无阴影：仅一层极淡底，聚焦时微微加深 */}
-      <div className="relative flex items-end rounded-2xl bg-surface/60 transition-colors duration-200 focus-within:bg-surface">
+      {/* 无边框、无阴影：始终保持输入时的状态 */}
+      <div className="relative flex items-end rounded-2xl bg-surface transition-colors duration-200">
         <textarea
           ref={textareaRef}
           value={input}
           onChange={e => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
-          onFocus={() => onFocusChange?.(true)}
-          onBlur={() => onFocusChange?.(false)}
           placeholder="给 Pi 发送消息…"
           rows={1}
           className="w-full resize-none bg-transparent py-3.5 pl-4 pr-12 text-[14.5px] leading-[1.7] text-foreground placeholder:text-muted/70 focus:outline-none max-h-48"
