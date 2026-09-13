@@ -141,23 +141,15 @@
 }
 
 .opening-trigger.is-opening {
-  /* 第一次点击：圆标展开为与图标等高的宽条，仍停在原位 */
-  top: 50%;
+  top: 61.5%;
   width: min(624px, calc(100vw - 40px));
-  height: 112px;
+  height: 53px;
   color: var(--foreground);
   border-radius: 16px;
-  cursor: text;
-}
-
-/* 第二次点击：下移到真实输入框的位置，并收成正常高度 */
-.opening-trigger.is-docking {
-  top: calc(68% - 58px);
-  height: 53px;
   cursor: default;
 }
 
-.opening-transition--history .opening-trigger.is-docking {
+.opening-transition--history .opening-trigger.is-opening {
   top: calc(100% - 58px);
 }
 
@@ -200,12 +192,12 @@
 }
 
 @media (max-width: 639px) {
-  .opening-trigger.is-docking {
-    top: calc(68% - 50px);
+  .opening-trigger.is-opening {
+    top: 61%;
   }
 
-  .opening-transition--history .opening-trigger.is-docking {
-    top: calc(100% - 50px);
+  .opening-transition--history .opening-trigger.is-opening {
+    top: calc(100% - 51px);
   }
 }
 

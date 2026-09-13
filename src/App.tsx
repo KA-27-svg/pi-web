@@ -13,10 +13,13 @@ export default function App() {
   const scrollContainerRef = useRef<HTMLElement>(null);
   const isAtBottomRef = useRef(true);
 
+  const [composerFocused, setComposerFocused] = useState(false);
+  const [gearHover, setGearHover] = useState(false);
   const [panelOpen, setPanelOpen] = useState(false);
   const [openingComplete, setOpeningComplete] = useState(false);
 
   const isEmpty = messages.length === 0;
+  const gearVisible = composerFocused || gearHover || panelOpen;
 
   const handleScroll = () => {
     const el = scrollContainerRef.current;
@@ -47,13 +50,13 @@ export default function App() {
         />
       )}
 
-      {/* 常驻控件：齿轮（始终可见，不随聚焦/悬停隐现） */}
+      {/* 唯一的常驻控件：齿轮 */}
       <button
+        onMouseEnter={() => setGearHover(true)}
+        onMouseLeave={() => setGearHover(false)}
         onClick={() => setPanelOpen(o => !o)}
-        className={`absolute right-4 top-3 z-50 rounded-full p-2 transition-colors duration-200 ${
-          panelOpen
-            ? 'bg-surface text-foreground'
-            : 'text-muted hover:text-foreground hover:bg-surface'
+        className={`absolute right-4 top-3 z-50 rounded-full p-2 text-muted hover:text-foreground hover:bg-surface transition-all duration-300 ${
+          gearVisible ? 'opacity-100' : 'opacity-0'
         }`}
         aria-label="设置"
         title="设置"
@@ -97,6 +100,7 @@ export default function App() {
             onSend={sendPrompt}
             onStop={abort}
             isLoading={status.isStreaming}
+            onFocusChange={setComposerFocused}
             autoFocus={isEmpty}
           />
         </footer>
