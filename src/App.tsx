@@ -3,6 +3,7 @@ import { usePiWebSocket } from './hooks/usePiWebSocket';
 import { SettingsPanel } from './components/SettingsPanel';
 import { PiMessageItem } from './components/PiMessageItem';
 import { ChatInput } from './components/ChatInput';
+import { OpeningTransition } from './components/OpeningTransition';
 import { Settings } from 'lucide-react';
 
 export default function App() {
@@ -13,6 +14,7 @@ export default function App() {
   const isAtBottomRef = useRef(true);
 
   const [panelOpen, setPanelOpen] = useState(false);
+  const [openingComplete, setOpeningComplete] = useState(false);
 
   const isEmpty = messages.length === 0;
 
@@ -38,7 +40,14 @@ export default function App() {
 
   return (
     <div className="relative flex flex-col h-screen w-full bg-background text-foreground selection:bg-foreground/10 overflow-hidden">
-      {/* 常驻控件：齿轮 */}
+      {!openingComplete && (
+        <OpeningTransition
+          hasConversation={!isEmpty}
+          onComplete={() => setOpeningComplete(true)}
+        />
+      )}
+
+      {/* 常驻控件：齿轮（始终可见，不随聚焦/悬停隐现） */}
       <button
         onClick={() => setPanelOpen(o => !o)}
         className={`absolute right-4 top-3 z-50 rounded-full p-2 transition-colors duration-200 ${
@@ -77,19 +86,21 @@ export default function App() {
         )}
       </main>
 
-      {/* 输入区：一直可见，空白态悬浮居中，有对话后沉底 */}
-      <footer
-        className={`w-full flex-shrink-0 transition-all duration-500 ease-out ${
-          isEmpty ? 'pb-[32vh]' : 'pb-0'
-        }`}
-      >
-        <ChatInput
-          onSend={sendPrompt}
-          onStop={abort}
-          isLoading={status.isStreaming}
-          autoFocus={isEmpty}
-        />
-      </footer>
+      {/* 输入区：开场终帧落定后，在同一位置接管交互与焦点 */}
+      {openingComplete && (
+        <footer
+          className={`w-full flex-shrink-0 transition-all duration-500 ease-out opening-content-in ${
+            isEmpty ? 'pb-[32vh]' : 'pb-0'
+          }`}
+        >
+          <ChatInput
+            onSend={sendPrompt}
+            onStop={abort}
+            isLoading={status.isStreaming}
+            autoFocus={isEmpty}
+          />
+        </footer>
+      )}
     </div>
   );
 }
