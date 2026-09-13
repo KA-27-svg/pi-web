@@ -6,28 +6,41 @@ interface OpeningTransitionProps {
   onComplete: () => void;
 }
 
+type Phase = 'idle' | 'expanded' | 'docking';
+
 export function OpeningTransition({
   hasConversation,
   onComplete,
 }: OpeningTransitionProps) {
-  const [opening, setOpening] = useState(false);
+  const [phase, setPhase] = useState<Phase>('idle');
   const completionTimer = useRef<number | undefined>(undefined);
 
   useEffect(() => {
     return () => window.clearTimeout(completionTimer.current);
   }, []);
 
-  const open = () => {
-    if (opening) return;
+  const prefersReducedMotion = () =>
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-    setOpening(true);
-    const reduceMotion = window.matchMedia(
-      '(prefers-reduced-motion: reduce)',
-    ).matches;
+  /** 第一次点击：圆标展开成与图标等高的宽条，停在原位 */
+  const expand = () => {
+    if (phase !== 'idle') return;
+    setPhase('expanded');
+  };
+
+  /** 第二次点击输入条：下移到正常输入框位置并交接 */
+  const dock = () => {
+    if (phase !== 'expanded') return;
+    setPhase('docking');
     completionTimer.current = window.setTimeout(
       onComplete,
-      reduceMotion ? 60 : 1080,
+      prefersReducedMotion() ? 60 : 760,
     );
+  };
+
+  const handleClick = () => {
+    if (phase === 'idle') expand();
+    else if (phase === 'expanded') dock();
   };
 
   return (
@@ -38,10 +51,12 @@ export function OpeningTransition({
     >
       <button
         type="button"
-        className={`opening-trigger${opening ? ' is-opening' : ''}`}
-        onClick={open}
-        aria-label="打开 Pi Agent 对话"
-        aria-expanded={opening}
+        className={`opening-trigger${phase !== 'idle' ? ' is-opening' : ''}${
+          phase === 'docking' ? ' is-docking' : ''
+        }`}
+        onClick={handleClick}
+        aria-label={phase === 'idle' ? '打开 Pi Agent 对话' : '开始输入'}
+        aria-expanded={phase !== 'idle'}
       >
         <span className="opening-trigger__surface" aria-hidden="true" />
         <svg
