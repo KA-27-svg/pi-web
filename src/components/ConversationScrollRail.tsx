@@ -61,14 +61,32 @@ export function ConversationScrollRail({
   const measure = useCallback(() => {
     const container = containerRef.current;
     if (!container) return;
-    setMetrics({
+    const next = {
       scrollTop: container.scrollTop,
       scrollHeight: container.scrollHeight,
       clientHeight: container.clientHeight,
-    });
+    };
+    // 值没变必须返回原对象：下面是「每次渲染后都测」，否则会无休止地重渲染
+    setMetrics(prev =>
+      prev.scrollTop === next.scrollTop &&
+      prev.scrollHeight === next.scrollHeight &&
+      prev.clientHeight === next.clientHeight
+        ? prev
+        : next
+    );
   }, [containerRef]);
 
-  // 跟着滚动位置走；内容在流式输出时会长高但不一定触发 scroll，所以额外观察尺寸
+  /**
+   * 每次渲染后合并到下一帧测一次。新对话挂载时内容还很短，全靠事后发现它长高；
+   * 只依赖 ResizeObserver 的话，一旦它没触发（或观察的元素不对）轨道就永远不出现。
+   * 用 rAF 合并是因为流式输出一帧可能要渲染很多次，逐次测量会反复强制布局。
+   */
+  useEffect(() => {
+    const frame = requestAnimationFrame(measure);
+    return () => cancelAnimationFrame(frame);
+  });
+
+  // 跟着滚动位置走，并监听窗口尺寸；内容尺寸变化另由 ResizeObserver 兼顾
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;

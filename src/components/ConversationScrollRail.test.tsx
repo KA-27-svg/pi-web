@@ -147,6 +147,15 @@ beforeEach(() => {
     disconnect() {}
   }
   (globalThis as unknown as { ResizeObserver: unknown }).ResizeObserver = ResizeObserverStub;
+  // 同步执行 rAF，让「每帧测量」在测试里可预测；
+  // 若 setMetrics 缺了相等性短路，这里会直接爆栈
+  (globalThis as unknown as { requestAnimationFrame: unknown }).requestAnimationFrame = (
+    callback: FrameRequestCallback
+  ) => {
+    callback(0);
+    return 1;
+  };
+  (globalThis as unknown as { cancelAnimationFrame: unknown }).cancelAnimationFrame = () => {};
   Element.prototype.setPointerCapture = () => {};
   Element.prototype.releasePointerCapture = () => {};
   Element.prototype.hasPointerCapture = () => false;
@@ -204,6 +213,22 @@ describe('横线数量', () => {
     setScrollHeight(400);
     resize();
     expect(rail()).toBeNull();
+  });
+
+  it('助手回复长高时，不靠 ResizeObserver 也能出现轨道', () => {
+    setScrollHeight(400);
+    resize();
+    expect(rail()).toBeNull();
+
+    // 关键的回归场景：新对话挂载时内容很短，之后仅因为助手回复变长而超过一屏。
+    // 这里 items 没变、没有 scroll 事件、也不触发 ResizeObserver，
+    // 只有「每次渲染后测量」能发现它。
+    setScrollHeight(2000);
+    act(() => {
+      root.render(<Harness />);
+    });
+
+    expect(rail()).not.toBeNull();
   });
 });
 
