@@ -2,6 +2,7 @@ import { useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import { usePiWebSocket } from './hooks/usePiWebSocket';
 import { useRubberBandScroll } from './hooks/useRubberBandScroll';
 import { ConversationScrollRail, type RailItem } from './components/ConversationScrollRail';
+import { ConversationThread } from './components/ConversationThread';
 import { isSidebarDismissClick } from './utils/sidebarDismiss';
 
 /** 与 Tailwind 的 sm 断点一致：窄屏时侧栏是覆盖层，而不是并排的一栏 */
@@ -9,7 +10,6 @@ const NARROW_VIEWPORT = '(max-width: 640px)';
 const isOverlaySidebar = () => window.matchMedia(NARROW_VIEWPORT).matches;
 import { SettingsPanel } from './components/SettingsPanel';
 import { Sidebar } from './components/Sidebar';
-import { PiMessageItem } from './components/PiMessageItem';
 import { ChatInput } from './components/ChatInput';
 import { Settings, PanelLeftOpen } from 'lucide-react';
 
@@ -26,7 +26,10 @@ export default function App() {
   const [openingIcon, setOpeningIcon] = useState(true);
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  const isEmpty = messages.length === 0;
+  const switching = status.switching ?? false;
+  // 切换会话时对话区不显示内容，但布局要按「有对话」算，
+  // 否则底部输入区位置与开场图标都会跟着弹一次
+  const isEmpty = messages.length === 0 && !switching;
 
   const handleScroll = () => {
     const el = scrollContainerRef.current;
@@ -61,6 +64,14 @@ export default function App() {
     const raf = requestAnimationFrame(pinToBottom);
     return () => cancelAnimationFrame(raf);
   }, [messages, pinToBottom]);
+
+  // 切换完成后回到最新处：切换时内容只是被隐藏、并没有塌陷，
+  // 所以滚动位置还停在旧会话那里，不重新贴底就会落在新对话中间
+  useEffect(() => {
+    if (switching) return;
+    const raf = requestAnimationFrame(pinToBottom);
+    return () => cancelAnimationFrame(raf);
+  }, [switching, pinToBottom]);
 
   const shouldStickBottom = !isEmpty || composerEngaged;
 
@@ -168,12 +179,12 @@ export default function App() {
             className="scrollbar-none h-full overflow-y-auto overflow-x-hidden overscroll-y-contain"
           >
             {!isEmpty && (
-              <div ref={contentRef} className="max-w-content mx-auto px-5 sm:px-6 py-10 space-y-8">
-                {messages.map(msg => (
-                  <PiMessageItem key={msg.id} message={msg} />
-                ))}
-                <div ref={messagesEndRef} className="h-1" />
-              </div>
+              <ConversationThread
+                messages={messages}
+                switching={switching}
+                contentRef={contentRef}
+                endRef={messagesEndRef}
+              />
             )}
           </main>
 

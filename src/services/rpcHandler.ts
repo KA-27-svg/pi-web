@@ -30,6 +30,16 @@ export class RpcEventHandler {
     this.currentAssistantId = id;
   }
 
+  /**
+   * 用户刚点了某个会话。立刻进入「切换中」：对话区不再显示上一个会话，
+   * 但布局保持不变，等历史到达后原位置换上。
+   */
+  public beginSwitch() {
+    this.pendingHistory = true;
+    this.currentAssistantId = null;
+    this.setStatus((prev: any) => ({ ...prev, switching: true, notice: undefined }));
+  }
+
   /** 结束当前这一轮：复位执行状态，并把占位消息落定为完成或失败 */
   private finishTurn(error?: string) {
     this.setStatus((prev: any) => ({ ...prev, isStreaming: false, currentTool: undefined }));
@@ -81,6 +91,8 @@ export class RpcEventHandler {
       data.type === 'bridge_error'
     ) {
       console.error('[Pi]', data.error ?? data.type);
+      // 出错时要放开「切换中」，否则对话区会一直空着
+      this.setStatus((prev: any) => ({ ...prev, switching: false }));
       this.finishTurn(
         data.error || `Pi 进程已退出（code ${data.code ?? '未知'}）`
       );
@@ -188,29 +200,32 @@ export class RpcEventHandler {
       this.currentAssistantId = null;
       this.pendingHistory = false;
       this.setMessages([]);
+      this.setStatus((prev: any) => ({ ...prev, switching: false }));
       ws.send(JSON.stringify({ type: 'get_state' }));
     }
 
     // 切换历史会话：重新拉取该会话的消息。
-    // 这里不清空现有消息：中间会多出一帧空对话，那一帧会让底部输入区的位置与
-    // 滚动位置先弹一次，而且消息节点全被卸载重建会重播入场动画。
+    // 这里不清空消息：清空会让底部输入区位置与滚动位置先弹一次；
+    // 「切换中不显示内容」由 status.switching 单独负责。
     if (data.command === 'switch_session') {
       if (data.success && !data.data?.cancelled) {
         this.currentAssistantId = null;
         this.pendingHistory = true;
         ws.send(JSON.stringify({ type: 'get_messages' }));
         ws.send(JSON.stringify({ type: 'get_state' }));
-        this.setStatus((prev: any) => ({ ...prev, notice: undefined }));
         return;
       }
 
-      // 会话记录里的项目目录被删掉时 pi 会直接拒绝，以前这里是静默的
+      // 会话记录里的项目目录被删掉时 pi 会直接拒绝，以前这里是静默的。
+      // 此时 pi 实际还停在原来的会话上，重新拉一次把界面换回去。
       this.setStatus((prev: any) => ({
         ...prev,
         notice: data.success
           ? '该会话切换被扩展取消'
           : `无法打开该会话：${data.error ?? '未知原因'}`,
       }));
+      this.pendingHistory = true;
+      ws.send(JSON.stringify({ type: 'get_messages' }));
       return;
     }
 
@@ -226,6 +241,7 @@ export class RpcEventHandler {
       if (this.pendingHistory) {
         this.pendingHistory = false;
         this.setMessages(restored);
+        this.setStatus((prev: any) => ({ ...prev, switching: false }));
         return;
       }
 

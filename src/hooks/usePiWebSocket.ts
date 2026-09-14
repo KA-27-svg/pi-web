@@ -180,9 +180,11 @@ export function usePiWebSocket() {
 
   const switchSession = useCallback(
     (sessionPath: string) => {
+      // 点下就进入「切换中」：对话区不再显示上一个会话，历史到达后原地换上
+      handler.beginSwitch();
       sendCommand({ type: 'switch_session', sessionPath });
     },
-    [sendCommand]
+    [handler, sendCommand]
   );
 
   const renameSession = useCallback(

@@ -362,3 +362,69 @@ describe('切换会话时的消息处理', () => {
     expect(h.messages()).toEqual([]);
   });
 });
+
+describe('切换中的状态', () => {
+  const switchOk = { type: 'response', command: 'switch_session', success: true, data: {} };
+  const history = (texts: string[]) => ({
+    type: 'response',
+    command: 'get_messages',
+    success: true,
+    data: { messages: texts.map((text, i) => ({ role: i % 2 ? 'assistant' : 'user', content: text, timestamp: i })) },
+  });
+
+  it('点下会话就进入切换中，并清掉上一次的提示', () => {
+    const h = createHarness();
+    h.setStatus({ ...h.status(), notice: '上一次的错误' });
+
+    h.handler.beginSwitch();
+
+    expect(h.status().switching).toBe(true);
+    expect(h.status().notice).toBeUndefined();
+  });
+
+  it('到历史到达之前一直保持切换中', () => {
+    const h = createHarness();
+    h.handler.beginSwitch();
+
+    h.handler.handleEvent(switchOk, h.ws);
+
+    expect(h.status().switching).toBe(true);
+  });
+
+  it('历史到达后结束切换中并换成新内容', () => {
+    const h = createHarness();
+    h.handler.beginSwitch();
+    h.handler.handleEvent(switchOk, h.ws);
+
+    h.handler.handleEvent(history(['新问题']), h.ws);
+
+    expect(h.status().switching).toBe(false);
+    expect(h.messages().map(m => m.content)).toEqual(['新问题']);
+  });
+
+  it('切换失败时不卡在切换中，并把原会话拉回来', () => {
+    const h = createHarness();
+    h.setMessages([{ id: 'old', role: 'assistant', content: '旧内容', status: 'done' }]);
+    h.handler.beginSwitch();
+
+    h.handler.handleEvent(
+      { type: 'response', command: 'switch_session', success: false, error: '目录不存在' },
+      h.ws
+    );
+    // pi 其实还停在原会话上，所以再拉一次把界面换回去
+    h.handler.handleEvent(history(['原会话内容']), h.ws);
+
+    expect(h.status().switching).toBe(false);
+    expect(h.messages().map(m => m.content)).toEqual(['原会话内容']);
+    expect(h.status().notice).toContain('目录不存在');
+  });
+
+  it('pi 出错时不会让对话区一直空着', () => {
+    const h = createHarness();
+    h.handler.beginSwitch();
+
+    h.handler.handleEvent({ type: 'pi_process_exit', code: 1 }, h.ws);
+
+    expect(h.status().switching).toBe(false);
+  });
+});

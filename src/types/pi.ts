@@ -63,4 +63,9 @@ export interface BridgeStatus {
   trashed?: TrashedSession[];
   /** 需要告知用户的一次性提示（切换会话失败等） */
   notice?: string;
+  /**
+   * 正在切换会话。此时对话区不显示任何内容（也不会显示上一个会话），
+   * 但布局仍按「有对话」算，以免底部输入区位置与滚动位置跟着弹一次。
+   */
+  switching?: boolean;
 }
