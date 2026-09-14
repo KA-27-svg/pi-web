@@ -14,6 +14,8 @@
   --border: 233 233 229; /* #e9e9e5 */
   /* 滚动条滑块：供需要常驻可见的滚动区（侧栏）使用 */
   --scrollbar-thumb: #d2d2cc;
+  /* 输入框那条再深一档：小控件里需要更明确 */
+  --scrollbar-thumb-strong: #b2b2aa;
   /* 输入框占位文字：由 input::placeholder 与开场动画共用，保证两者渲染一致 */
   --placeholder: #9ca3af;
   --accent: 28 28 26; /* #1c1c1a */
@@ -48,6 +50,8 @@
     --muted: 143 143 138; /* #8f8f8a */
     --border: 42 42 46; /* #2a2a2e */
     --scrollbar-thumb: #3c3c42;
+    /* 深色主题下再深就看不清了，所以反而略微提亮保持对比 */
+    --scrollbar-thumb-strong: #56565f;
     --accent: 236 236 234; /* #ececea */
     --accent-foreground: 23 23 26; /* #17171a */
     --accent-hover: 255 255 255; /* #ffffff */

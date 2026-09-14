@@ -117,7 +117,7 @@
  */
 .pi-composer textarea {
   scrollbar-width: thin;
-  scrollbar-color: var(--scrollbar-thumb) transparent;
+  scrollbar-color: var(--scrollbar-thumb-strong) transparent;
   /* 预留滑块位置，避免它出现时文字重新折行而抖一下 */
   scrollbar-gutter: stable;
 }
@@ -127,7 +127,7 @@
 }
 
 .pi-composer textarea::-webkit-scrollbar-thumb {
-  background: var(--scrollbar-thumb);
+  background: var(--scrollbar-thumb-strong);
   border-radius: 9999px;
 }
 
