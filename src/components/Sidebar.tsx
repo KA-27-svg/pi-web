@@ -277,7 +277,7 @@ export function Sidebar({
           <div className="border-t border-border px-3 py-2">
             <div className="flex items-start gap-2">
               <span
-                className={`min-w-0 flex-1 text-[11.5px] leading-[1.6] ${
+                className={`min-w-0 flex-1 text-[12px] leading-[1.6] ${
                   activeToast.tone === 'error' ? 'text-rose-500' : 'text-muted'
                 }`}
               >
@@ -289,7 +289,7 @@ export function Sidebar({
                     onRestoreSession(activeToast.undoPath!);
                     setToast(null);
                   }}
-                  className="shrink-0 text-[11.5px] text-foreground underline underline-offset-2 decoration-border transition-colors hover:decoration-foreground"
+                  className="shrink-0 text-[12px] text-foreground underline underline-offset-2 decoration-border transition-colors hover:decoration-foreground"
                 >
                   撤销
                 </button>

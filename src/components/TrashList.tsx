@@ -51,7 +51,7 @@ export function TrashList({ items, onRestore, onPurge, onEmpty }: TrashListProps
                 )}
               </div>
 
-              <div className="mt-1.5 flex items-center gap-2 text-[11.5px]">
+              <div className="mt-1.5 flex items-center gap-2 text-[12.5px]">
                 <button
                   onClick={() => onRestore(item.path)}
                   className="flex items-center gap-1 text-muted transition-colors hover:text-foreground"
@@ -94,7 +94,7 @@ export function TrashList({ items, onRestore, onPurge, onEmpty }: TrashListProps
 
       <div className="mt-2 border-t border-border px-2.5 pt-2.5 pb-1">
         {confirmingEmpty ? (
-          <div className="flex items-center gap-2 text-[11.5px]">
+          <div className="flex items-center gap-2 text-[12.5px]">
             <span className="flex-1 text-muted">清空后无法找回</span>
             <button
               onClick={() => {
@@ -115,7 +115,7 @@ export function TrashList({ items, onRestore, onPurge, onEmpty }: TrashListProps
         ) : (
           <button
             onClick={() => setConfirmingEmpty(true)}
-            className="text-[11.5px] text-muted transition-colors hover:text-foreground"
+            className="text-[12.5px] text-muted transition-colors hover:text-foreground"
           >
             清空回收箱
           </button>
