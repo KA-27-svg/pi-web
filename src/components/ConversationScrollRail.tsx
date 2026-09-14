@@ -104,6 +104,10 @@ export function ConversationScrollRail({
   const scrollable = maxScroll > 1;
   const progress = maxScroll > 0 ? metrics.scrollTop / maxScroll : 0;
 
+  // 整组居中，条数变多时自动收紧间距，保证始终滑得下
+  const usableHeight = Math.max(0, metrics.clientHeight - RAIL_PADDING_PX * 2);
+  const dashGap = count > 1 ? clamp((usableHeight - count * 2) / (count - 1), 0, 4) : 0;
+
   const fractionFromClientY = (clientY: number) => {
     const rail = railRef.current;
     if (!rail) return 0;
@@ -126,8 +130,10 @@ export function ConversationScrollRail({
 
   const track = (clientY: number) => {
     const rail = railRef.current;
+    // 提示卡相对轨道所在的容器定位，所以纵向位置也要换算到同一坐标系
+    const parentTop = rail?.parentElement?.getBoundingClientRect().top ?? 0;
     setHoveredIndex(indexFromClientY(clientY));
-    setHoverY(clamp(clientY - (rail?.getBoundingClientRect().top ?? 0), 0, metrics.clientHeight));
+    setHoverY(clamp(clientY - parentTop, 0, metrics.clientHeight));
     return indexFromClientY(clientY);
   };
 
@@ -212,8 +218,8 @@ export function ConversationScrollRail({
         aria-valuemax={100}
         aria-valuenow={Math.round(progress * 100)}
         tabIndex={0}
-        style={{ paddingTop: RAIL_PADDING_PX, paddingBottom: RAIL_PADDING_PX }}
-        className="absolute inset-y-0 right-0 z-20 flex w-4 cursor-pointer flex-col items-center justify-between rounded-full outline-none focus-visible:ring-2 focus-visible:ring-border"
+        style={{ paddingTop: RAIL_PADDING_PX, paddingBottom: RAIL_PADDING_PX, gap: dashGap }}
+        className="absolute right-0 top-1/2 z-20 flex w-4 -translate-y-1/2 cursor-pointer flex-col items-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-border"
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={endDrag}
