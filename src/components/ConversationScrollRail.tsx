@@ -5,7 +5,7 @@ const RAIL_PADDING_PX = 16;
 /** 短横线高度 */
 const DASH_HEIGHT_PX = 2;
 /** 条数很少时的最大间距，让它们看起来是散开的一列而不是挤成一团 */
-const DASH_GAP_MAX_PX = 8;
+const DASH_GAP_MAX_PX = 16;
 /** 间距压到这个值以下就不再把每条画成横线，改成整条滑动条 */
 const DASH_GAP_MIN_PX = 1.5;
 /** 滑动条滑块的最小高度，太短了抓不住 */

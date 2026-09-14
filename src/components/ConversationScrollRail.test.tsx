@@ -260,14 +260,14 @@ describe('跳转', () => {
 
 describe('密度自适应', () => {
   it('提问少时散开', () => {
-    expect(rail()!.style.gap).toBe('8px');
+    expect(rail()!.style.gap).toBe('16px');
   });
 
   it('提问变多时间距收紧', () => {
     mount(manyItems(60));
     const gap = Number.parseFloat(rail()!.style.gap);
     expect(gap).toBeGreaterThan(0);
-    expect(gap).toBeLessThan(8);
+    expect(gap).toBeLessThan(16);
   });
 
   it('再多一些会继续变密', () => {
