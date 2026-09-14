@@ -28,7 +28,6 @@ export interface SessionSummary {
   id: string;
   name?: string;
   preview: string;
-  turns: number;
   updatedAt: number;
   cwd?: string;
 }
