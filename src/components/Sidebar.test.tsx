@@ -324,3 +324,19 @@ describe('失败提示', () => {
     expect(host.textContent).not.toContain('出错了');
   });
 });
+
+describe('撤销契约', () => {
+  it('撤销传的是原位置路径，桥接那侧必须接受这种入参', () => {
+    // 这条断言锁住 UI 侧的契约：删除后客户端手上只有原位置路径，
+    // 此刻还没拉过回收箱列表，拿不到箱内路径。
+    // 对侧的接受能力由 server/trash.test.ts 的
+    // 「用原位置路径也能恢复」兜着——两边必须同时成立。
+    const onRestoreSession = vi.fn();
+    mount(2, { onRestoreSession });
+
+    clickButton('删除');
+    clickButton('撤销');
+
+    expect(onRestoreSession).toHaveBeenCalledWith('/tmp/proj/session-0.jsonl');
+  });
+});

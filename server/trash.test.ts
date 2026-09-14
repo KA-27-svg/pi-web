@@ -131,6 +131,27 @@ describe('恢复', () => {
     expect(await listTrash()).toHaveLength(1);
     expect(await fs.readFile(sessionFile, 'utf-8')).toContain('新出现的');
   });
+
+  it('用原位置路径也能恢复（删除后的「撤销」只能拿到这个路径）', async () => {
+    await writeSession(sessionFile, '撤销回来的');
+    await trashSession(sessionFile);
+    expect(await listTrash()).toHaveLength(1);
+
+    // 关键：传的不是箱内路径
+    await restoreSession(sessionFile);
+
+    expect(await fs.readFile(sessionFile, 'utf-8')).toContain('撤销回来的');
+    expect(await listTrash()).toEqual([]);
+  });
+
+  it('用原位置路径也能彻底删除', async () => {
+    await writeSession(sessionFile);
+    await trashSession(sessionFile);
+
+    await purgeSession(sessionFile);
+
+    expect(await listTrash()).toEqual([]);
+  });
 });
 
 describe('彻底删除', () => {
@@ -188,10 +209,18 @@ describe('路径穿越防护', () => {
     await expect(trashSession(outside)).rejects.toThrow('invalid path');
   });
 
-  it('拒绝回收箱目录之外的路径', async () => {
-    const outside = path.join(sessionsDir, 'proj-abc', 'x.jsonl');
+  it('拒绝两个根目录之外的路径', async () => {
+    const outside = path.join(tempHome, 'evil.jsonl');
     await expect(restoreSession(outside)).rejects.toThrow('invalid path');
     await expect(purgeSession(outside)).rejects.toThrow('invalid path');
+  });
+
+  it('原位置没有对应的回收箱条目时失败，而不是去动别的文件', async () => {
+    // 现在 sessions/ 下的路径会被当作「原位置」接受，所以要确保对不上时是明确报错
+    await writeSession(sessionFile, '从没被删过');
+
+    await expect(restoreSession(sessionFile)).rejects.toThrow();
+    expect(await fs.readFile(sessionFile, 'utf-8')).toContain('从没被删过');
   });
 
   it('拒绝非 .jsonl 文件', async () => {

@@ -40,6 +40,22 @@ function resolveUnder(root: string, target: string, extension: string): string {
 const exists = (target: string) =>
   fs.stat(target).then(() => true, () => false);
 
+/**
+ * 把路径解析成「箱内路径」。两种入参都接受：
+ *  - 箱内路径：回收箱视图点「恢复」时给的就是它；
+ *  - 原位置路径：刚删除时的「撤销」只握有原位置，而此时还没来得及拉回收箱列表。
+ * 因为目录结构是镜像的（sessions/<rel> ↔ sessions-trash/<rel>），两种能互相推导。
+ * 两个根目录都不匹配的路径仍然会被拒绝。
+ */
+function resolveTrashEntry(candidate: string): string {
+  try {
+    return resolveUnder(trashRoot(), candidate, '.jsonl');
+  } catch {
+    const original = resolveUnder(sessionsRoot(), candidate, '.jsonl');
+    return path.join(trashRoot(), path.relative(sessionsRoot(), original));
+  }
+}
+
 /** 删掉空掉的目录，一路向上直到回收箱根目录为止 */
 async function pruneEmptyDirs(dir: string): Promise<void> {
   const stop = path.resolve(trashRoot());
@@ -116,10 +132,9 @@ export async function listTrash(): Promise<TrashedSession[]> {
   return found.sort((a, b) => b.deletedAt - a.deletedAt);
 }
 
-export async function restoreSession(trashPath: string): Promise<void> {
-  const root = trashRoot();
-  const source = resolveUnder(root, trashPath, '.jsonl');
-  const target = path.join(sessionsRoot(), path.relative(root, source));
+export async function restoreSession(sessionPath: string): Promise<void> {
+  const source = resolveTrashEntry(sessionPath);
+  const target = path.join(sessionsRoot(), path.relative(trashRoot(), source));
 
   if (await exists(target)) {
     throw new Error('原位置已存在同名会话，无法恢复');
@@ -131,8 +146,8 @@ export async function restoreSession(trashPath: string): Promise<void> {
 }
 
 /** 彻底删除一条 */
-export async function purgeSession(trashPath: string): Promise<void> {
-  const target = resolveUnder(trashRoot(), trashPath, '.jsonl');
+export async function purgeSession(sessionPath: string): Promise<void> {
+  const target = resolveTrashEntry(sessionPath);
   await fs.unlink(target);
   await pruneEmptyDirs(path.dirname(target));
 }
