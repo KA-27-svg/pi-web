@@ -41,23 +41,21 @@ describe('MessageParser.parseHistory', () => {
     expect(parsed[0].content).toBe('第一段\n第二段');
   });
 
-  it('ID 由索引派生，重复解析结果完全一致', () => {
-    const raw = [
-      user('一'),
-      { role: 'assistant', content: 'a', timestamp: 1 },
-      user('二'),
-      { role: 'assistant', content: 'b', timestamp: 2 },
-    ];
+  it('每次加载给一批新 id，避免不同会话共用组件状态', () => {
+    const raw = [user('一'), { role: 'assistant', content: 'a', timestamp: 1 }];
 
     const first = MessageParser.parseHistory(raw);
     const second = MessageParser.parseHistory(raw);
 
-    expect(first.map(m => m.id)).toEqual(second.map(m => m.id));
-    // 索引稳定：第三条（index 2）的 id 不能因为前面被过滤而前移
-    expect(first.map(m => m.id)).toEqual(['hist-user-0', 'hist-asst-1', 'hist-user-2', 'hist-asst-3']);
+    // 同一个下标上的思考块展开状态不应该从一个会话串到另一个会话，
+    // 所以每次加载都换一批 id；重播动画另由 fromHistory 抑制
+    expect(first.map(m => m.id)).not.toEqual(second.map(m => m.id));
+    // 同一批内仍然按索引区分，后缀可读
+    expect(first[0].id).toMatch(/-user-0$/);
+    expect(first[1].id).toMatch(/-asst-1$/);
   });
 
-  it('被过滤的消息不占用后续 id，保证刷新不会导致重新挂载', () => {
+  it('被过滤的消息仍然占用索引，同一批内下标不会前移', () => {
     const bashWrapper = 'Ran `ls`\n```\noutput\n```';
     const parsed = MessageParser.parseHistory([
       user(bashWrapper),
@@ -65,7 +63,16 @@ describe('MessageParser.parseHistory', () => {
     ]);
 
     expect(parsed).toHaveLength(1);
-    expect(parsed[0].id).toBe('hist-asst-1');
+    expect(parsed[0].id).toMatch(/-asst-1$/);
+  });
+
+  it('恢复出来的消息都标记为历史，以免重播入场动画', () => {
+    const parsed = MessageParser.parseHistory([
+      user('问'),
+      { role: 'assistant', content: '答', timestamp: 1 },
+    ]);
+
+    expect(parsed.every(m => m.fromHistory === true)).toBe(true);
   });
 
   it('过滤 bash 调试包装消息', () => {

@@ -16,6 +16,8 @@ export interface PiMessage {
   status?: 'streaming' | 'done' | 'error';
   /** status 为 error 时的原因，用于直接展示给用户 */
   error?: string;
+  /** 从会话记录里恢复出来的消息，不播放入场动画 */
+  fromHistory?: true;
 }
 
 export interface ModelInfo {

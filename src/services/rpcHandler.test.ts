@@ -280,3 +280,85 @@ describe('会话列表事件', () => {
     }
   });
 });
+
+describe('切换会话时的消息处理', () => {
+  const historyResponse = (texts: string[]) => ({
+    type: 'response',
+    command: 'get_messages',
+    success: true,
+    data: {
+      messages: texts.map((text, i) => ({
+        role: i % 2 === 0 ? 'user' : 'assistant',
+        content: text,
+        timestamp: i,
+      })),
+    },
+  });
+
+  const switchOk = { type: 'response', command: 'switch_session', success: true, data: {} };
+  const oldMessages = [{ id: 'old', role: 'assistant', content: '上一个会话', status: 'done' }];
+
+  it('切换成功时不清空，避免中间多出一帧空对话', () => {
+    // 那一帧空对话会让底部输入区位置与滚动位置先弹一次，
+    // 并且消息节点全被卸载重建、重播入场动画
+    const h = createHarness();
+    h.setMessages(oldMessages);
+
+    h.handler.handleEvent(switchOk, h.ws);
+
+    expect(h.messages()).toHaveLength(1);
+    expect(h.ws.sent).toContain(JSON.stringify({ type: 'get_messages' }));
+  });
+
+  it('切换后到达的历史会替换掉旧会话内容', () => {
+    const h = createHarness();
+    h.setMessages(oldMessages);
+    h.handler.handleEvent(switchOk, h.ws);
+
+    h.handler.handleEvent(historyResponse(['新问题', '新回答']), h.ws);
+
+    expect(h.messages().map(m => m.content)).toEqual(['新问题', '新回答']);
+  });
+
+  it('切换失败时不动现有消息，并给出提示', () => {
+    const h = createHarness();
+    h.setMessages(oldMessages);
+
+    h.handler.handleEvent(
+      { type: 'response', command: 'switch_session', success: false, error: '目录不存在' },
+      h.ws
+    );
+
+    expect(h.messages().map(m => m.content)).toEqual(['上一个会话']);
+    expect(h.status().notice).toContain('目录不存在');
+  });
+
+  it('没有切换时的历史补拉不覆盖本地消息', () => {
+    const h = createHarness();
+    h.setMessages([{ id: 'live', role: 'assistant', content: '本地内容', status: 'done' }]);
+
+    h.handler.handleEvent(historyResponse(['服务器上的旧内容']), h.ws);
+
+    expect(h.messages().map(m => m.content)).toEqual(['本地内容']);
+  });
+
+  it('本地为空时（首屏）仍然用历史填充', () => {
+    const h = createHarness();
+
+    h.handler.handleEvent(historyResponse(['历史']), h.ws);
+
+    expect(h.messages().map(m => m.content)).toEqual(['历史']);
+  });
+
+  it('新建会话仍然清空消息', () => {
+    const h = createHarness();
+    h.setMessages(oldMessages);
+
+    h.handler.handleEvent(
+      { type: 'response', command: 'new_session', success: true, data: {} },
+      h.ws
+    );
+
+    expect(h.messages()).toEqual([]);
+  });
+});

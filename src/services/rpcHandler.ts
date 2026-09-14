@@ -13,6 +13,8 @@ function toModelInfo(model: any): ModelInfo | undefined {
 
 export class RpcEventHandler {
   private currentAssistantId: string | null = null;
+  /** 刚发出 switch_session，下一次 get_messages 要直接替换而不是「仅在本空时填充」 */
+  private pendingHistory = false;
   private setMessages: React.Dispatch<React.SetStateAction<PiMessage[]>>;
   private setStatus: React.Dispatch<React.SetStateAction<any>>;
 
@@ -184,15 +186,18 @@ export class RpcEventHandler {
 
     if (data.command === 'new_session' && data.success) {
       this.currentAssistantId = null;
+      this.pendingHistory = false;
       this.setMessages([]);
       ws.send(JSON.stringify({ type: 'get_state' }));
     }
 
-    // 切换历史会话：成功后清空并重新拉取该会话的消息
+    // 切换历史会话：重新拉取该会话的消息。
+    // 这里不清空现有消息：中间会多出一帧空对话，那一帧会让底部输入区的位置与
+    // 滚动位置先弹一次，而且消息节点全被卸载重建会重播入场动画。
     if (data.command === 'switch_session') {
       if (data.success && !data.data?.cancelled) {
         this.currentAssistantId = null;
-        this.setMessages([]);
+        this.pendingHistory = true;
         ws.send(JSON.stringify({ type: 'get_messages' }));
         ws.send(JSON.stringify({ type: 'get_state' }));
         this.setStatus((prev: any) => ({ ...prev, notice: undefined }));
@@ -216,7 +221,16 @@ export class RpcEventHandler {
 
     if (data.command === 'get_messages' && data.success && data.data?.messages) {
       const restored = MessageParser.parseHistory(data.data.messages);
-      // 仅在本地尚无对话时用历史填充，避免覆盖进行中的实时消息导致界面跳动
+
+      // 刚切换过会话：这份历史就是要替换掉旧会话的内容
+      if (this.pendingHistory) {
+        this.pendingHistory = false;
+        this.setMessages(restored);
+        return;
+      }
+
+      // 其余情况（重连后补拉）仅在本地尚无对话时填充，
+      // 避免覆盖进行中的实时消息导致界面跳动
       this.setMessages(prev => (prev.length === 0 ? restored : prev));
     }
   }
