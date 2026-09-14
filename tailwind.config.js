@@ -6,6 +6,10 @@ export default {
   ],
   theme: {
     extend: {
+      // 对话区统一宽度：消息流与输入框共用，单点可调
+      maxWidth: {
+        content: '48rem',
+      },
       colors: {
         background: "var(--background)",
         surface: "var(--surface)",

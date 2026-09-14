@@ -31,4 +31,6 @@ export interface BridgeStatus {
   model?: ModelInfo;
   thinkingLevel?: string;
   sessionId?: string;
+  availableModels?: ModelInfo[];
+  availableThinkingLevels?: string[];
 }

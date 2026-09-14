@@ -6,7 +6,7 @@ import { ChatInput } from './components/ChatInput';
 import { Settings } from 'lucide-react';
 
 export default function App() {
-  const { messages, status, sendPrompt, abort, changeCwd, newSession } =
+  const { messages, status, sendPrompt, abort, changeCwd, newSession, setModel, setThinkingLevel } =
     usePiWebSocket();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLElement>(null);
@@ -57,18 +57,27 @@ export default function App() {
           status={status}
           onClose={() => setPanelOpen(false)}
           onChangeCwd={changeCwd}
-          onNewSession={newSession}
+          onNewSession={() => {
+            newSession();
+            // 回到与首次打开一致的开场态：Pi 图标居中，等待点击展开
+            setOpeningIcon(true);
+            setComposerEngaged(false);
+          }}
+          onSelectModel={setModel}
+          onSelectThinkingLevel={setThinkingLevel}
         />
       )}
 
       {/* 对话流：无框、无头像、无气泡边框 */}
+      {/* scrollbar-gutter both-edges：占位时两侧对称预留，正文不会因滚动条而偏离视口中心；
+          窄屏滚动条为 overlay，不需要预留，否则白白压窄正文 */}
       <main
         ref={scrollContainerRef}
         onScroll={handleScroll}
-        className="flex-1 overflow-y-auto overflow-x-hidden min-w-0"
+        className="flex-1 overflow-y-auto overflow-x-hidden min-w-0 [scrollbar-gutter:stable_both-edges] max-sm:[scrollbar-gutter:auto]"
       >
         {!isEmpty && (
-          <div className="max-w-2xl mx-auto px-5 sm:px-6 py-10 space-y-8">
+          <div className="max-w-content mx-auto px-5 sm:px-6 py-10 space-y-8">
             {messages.map(msg => (
               <PiMessageItem key={msg.id} message={msg} />
             ))}

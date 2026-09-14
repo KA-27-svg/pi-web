@@ -1,12 +1,14 @@
 import { useState } from 'react';
-import type { BridgeStatus } from '../types/pi';
-import { X, FolderGit2, PlusCircle } from 'lucide-react';
+import type { BridgeStatus, ModelInfo } from '../types/pi';
+import { X, FolderGit2, PlusCircle, ChevronDown } from 'lucide-react';
 
 interface SettingsPanelProps {
   status: BridgeStatus;
   onClose: () => void;
   onChangeCwd: (cwd: string) => void;
   onNewSession: () => void;
+  onSelectModel: (provider: string, modelId: string) => void;
+  onSelectThinkingLevel: (level: string) => void;
 }
 
 function Row({
@@ -26,11 +28,133 @@ function Row({
   );
 }
 
+function modelKey(model: ModelInfo) {
+  return `${model.provider}/${model.id}`;
+}
+
+function ModelPicker({
+  status,
+  onSelectModel,
+}: {
+  status: BridgeStatus;
+  onSelectModel: (provider: string, modelId: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const models = status.availableModels ?? [];
+  const current = status.model ? modelKey(status.model) : null;
+  const selectable = status.connected && models.length > 0;
+
+  return (
+    <div className="py-2">
+      <button
+        onClick={() => selectable && setOpen(o => !o)}
+        disabled={!selectable}
+        aria-expanded={open}
+        className="flex w-full items-baseline justify-between gap-4 text-left disabled:cursor-default"
+      >
+        <span className="shrink-0 text-[11px] text-muted">模型</span>
+        <span className="flex min-w-0 items-center gap-1">
+          <span className="truncate text-[12.5px] font-mono text-foreground/90">
+            {status.model?.name || status.model?.id || '—'}
+          </span>
+          {selectable && (
+            <ChevronDown
+              className={`w-3 h-3 shrink-0 text-muted transition-transform duration-200 ${
+                open ? 'rotate-180' : ''
+              }`}
+            />
+          )}
+        </span>
+      </button>
+
+      {open && (
+        <div className="mt-1.5 max-h-52 overflow-y-auto rounded-md border border-border/70">
+          {models.map(model => {
+            const active = modelKey(model) === current;
+            return (
+              <button
+                key={modelKey(model)}
+                onClick={() => {
+                  if (!active) onSelectModel(model.provider, model.id);
+                  setOpen(false);
+                }}
+                className={`flex w-full items-baseline justify-between gap-3 px-2.5 py-1.5 text-left transition-colors ${
+                  active ? 'bg-surface-hover' : 'hover:bg-surface'
+                }`}
+              >
+                <span
+                  className={`truncate text-[11.5px] font-mono ${
+                    active ? 'text-foreground' : 'text-foreground/80'
+                  }`}
+                >
+                  {model.name || model.id}
+                </span>
+                <span className="shrink-0 text-[10px] text-muted">
+                  {model.provider}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ThinkingLevelPicker({
+  status,
+  onSelectThinkingLevel,
+}: {
+  status: BridgeStatus;
+  onSelectThinkingLevel: (level: string) => void;
+}) {
+  const levels = status.availableThinkingLevels ?? [];
+  const onlyOff = levels.length === 1 && levels[0] === 'off';
+
+  return (
+    <div className="py-2">
+      <div className="mb-1.5 flex items-baseline justify-between gap-4">
+        <span className="text-[11px] text-muted">思考强度</span>
+        <span className="font-mono text-[11px] text-muted">
+          {status.thinkingLevel || '—'}
+        </span>
+      </div>
+
+      {levels.length === 0 ? (
+        <span className="text-[11px] text-muted">—</span>
+      ) : (
+        <div className="flex flex-wrap gap-1">
+          {levels.map(level => {
+            const active = level === status.thinkingLevel;
+            return (
+              <button
+                key={level}
+                onClick={() => !active && onSelectThinkingLevel(level)}
+                disabled={!status.connected}
+                title={onlyOff ? '当前模型不支持思考' : undefined}
+                className={`rounded px-2 py-1 font-mono text-[10.5px] transition-colors disabled:cursor-default ${
+                  active
+                    ? 'bg-foreground text-background'
+                    : 'bg-surface text-muted hover:text-foreground'
+                }`}
+              >
+                {level}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function SettingsPanel({
   status,
   onClose,
   onChangeCwd,
   onNewSession,
+  onSelectModel,
+  onSelectThinkingLevel,
 }: SettingsPanelProps) {
   const [cwdDraft, setCwdDraft] = useState(status.cwd);
 
@@ -60,7 +184,7 @@ export function SettingsPanel({
           </button>
         </div>
 
-        {/* 运行时信息 */}
+        {/* 运行时信息与可调项 */}
         <div className="px-4 pb-3">
           <div className="divide-y divide-border/70">
             <Row label="连接">
@@ -73,9 +197,16 @@ export function SettingsPanel({
                 {status.connected ? 'RPC 联机' : '未连接'}
               </span>
             </Row>
-            <Row label="模型">{status.model?.name || status.model?.id || '—'}</Row>
+
+            <ModelPicker status={status} onSelectModel={onSelectModel} />
+
             <Row label="提供方">{status.model?.provider || '—'}</Row>
-            <Row label="思考强度">{status.thinkingLevel || '—'}</Row>
+
+            <ThinkingLevelPicker
+              status={status}
+              onSelectThinkingLevel={onSelectThinkingLevel}
+            />
+
             <Row label="上下文">{contextK}</Row>
           </div>
         </div>

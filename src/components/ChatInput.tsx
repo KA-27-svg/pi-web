@@ -29,6 +29,13 @@ export function ChatInput({
     if (autoFocus) textareaRef.current?.focus();
   }, [autoFocus]);
 
+  // 展开后自动聚焦：点开图标即可直接输入，不必再点一次。
+  // 注意这里不触发展开下移——下移只由用户主动点击输入框触发。
+  useEffect(() => {
+    if (showIcon) return;
+    textareaRef.current?.focus();
+  }, [showIcon]);
+
   const measure = useCallback(() => {
     const el = textareaRef.current;
     if (!el) return;
@@ -115,8 +122,7 @@ export function ChatInput({
             value={input}
             onChange={e => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            onFocus={() => onFocusChange?.(true)}
-            onBlur={() => onFocusChange?.(false)}
+            onPointerDown={() => onFocusChange?.(true)}
             placeholder="给 Pi 发送消息…"
             rows={1}
             tabIndex={showIcon ? -1 : undefined}

@@ -24,6 +24,8 @@ export function usePiWebSocket() {
     if (ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({ type: 'get_state' }));
       ws.send(JSON.stringify({ type: 'get_messages' }));
+      ws.send(JSON.stringify({ type: 'get_available_models' }));
+      ws.send(JSON.stringify({ type: 'get_available_thinking_levels' }));
     }
   };
 
@@ -141,6 +143,12 @@ export function usePiWebSocket() {
     }
   }, []);
 
+  const sendCommand = useCallback((command: object) => {
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify(command));
+    }
+  }, []);
+
   const newSession = useCallback(() => {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       handlerRef.current?.setCurrentAssistantId(null);
@@ -149,6 +157,20 @@ export function usePiWebSocket() {
     }
   }, []);
 
+  const setModel = useCallback(
+    (provider: string, modelId: string) => {
+      sendCommand({ type: 'set_model', provider, modelId });
+    },
+    [sendCommand]
+  );
+
+  const setThinkingLevel = useCallback(
+    (level: string) => {
+      sendCommand({ type: 'set_thinking_level', level });
+    },
+    [sendCommand]
+  );
+
   return {
     messages,
     status,
@@ -156,5 +178,7 @@ export function usePiWebSocket() {
     abort,
     changeCwd,
     newSession,
+    setModel,
+    setThinkingLevel,
   };
 }

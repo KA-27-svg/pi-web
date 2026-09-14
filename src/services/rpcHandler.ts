@@ -1,5 +1,15 @@
 import { MessageParser } from '../utils/messageParser';
-import type { PiMessage, ToolCallState } from '../types/pi';
+import type { PiMessage, ToolCallState, ModelInfo } from '../types/pi';
+
+function toModelInfo(model: any): ModelInfo | undefined {
+  if (!model) return undefined;
+  return {
+    id: model.id,
+    name: model.name,
+    provider: model.provider,
+    contextWindow: model.contextWindow,
+  };
+}
 
 export class RpcEventHandler {
   private currentAssistantId: string | null = null;
@@ -66,15 +76,45 @@ export class RpcEventHandler {
         ...prev,
         thinkingLevel: state.thinkingLevel,
         sessionId: state.sessionId,
-        model: state.model
-          ? {
-              id: state.model.id,
-              name: state.model.name,
-              provider: state.model.provider,
-              contextWindow: state.model.contextWindow,
-            }
-          : undefined,
+        model: toModelInfo(state.model),
       }));
+    }
+
+    if (
+      data.command === 'get_available_models' &&
+      data.success &&
+      Array.isArray(data.data?.models)
+    ) {
+      this.setStatus((prev: any) => ({
+        ...prev,
+        availableModels: data.data.models.map(toModelInfo).filter(Boolean),
+      }));
+    }
+
+    if (
+      data.command === 'get_available_thinking_levels' &&
+      data.success &&
+      Array.isArray(data.data?.levels)
+    ) {
+      this.setStatus((prev: any) => ({
+        ...prev,
+        availableThinkingLevels: data.data.levels,
+      }));
+    }
+
+    // 切换模型后，agent 会重新解析该模型支持的思考档位，因此一并刷新
+    if (data.command === 'set_model' && data.success) {
+      const model = toModelInfo(data.data?.model ?? data.data);
+      if (model) {
+        this.setStatus((prev: any) => ({ ...prev, model }));
+      }
+      ws.send(JSON.stringify({ type: 'get_available_thinking_levels' }));
+      ws.send(JSON.stringify({ type: 'get_state' }));
+    }
+
+    // 档位可能被模型能力收窄（clamp），以 get_state 的结果为准
+    if (data.command === 'set_thinking_level' && data.success) {
+      ws.send(JSON.stringify({ type: 'get_state' }));
     }
 
     if (data.command === 'new_session' && data.success) {
