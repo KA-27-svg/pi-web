@@ -2,6 +2,11 @@ import { useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import { usePiWebSocket } from './hooks/usePiWebSocket';
 import { useRubberBandScroll } from './hooks/useRubberBandScroll';
 import { ConversationScrollRail, type RailItem } from './components/ConversationScrollRail';
+import { isSidebarDismissClick } from './utils/sidebarDismiss';
+
+/** 与 Tailwind 的 sm 断点一致：窄屏时侧栏是覆盖层，而不是并排的一栏 */
+const NARROW_VIEWPORT = '(max-width: 640px)';
+const isOverlaySidebar = () => window.matchMedia(NARROW_VIEWPORT).matches;
 import { SettingsPanel } from './components/SettingsPanel';
 import { Sidebar } from './components/Sidebar';
 import { PiMessageItem } from './components/PiMessageItem';
@@ -42,6 +47,14 @@ export default function App() {
     if (!isAtBottomRef.current) return;
     requestAnimationFrame(pinToBottom);
   }, [pinToBottom]);
+
+  // 点对话区的空白处收起侧栏；点交互元素或正在选字时不收
+  const handleConversationClick = (event: React.MouseEvent<HTMLElement>) => {
+    if (!sidebarOpen) return;
+    const selectionCollapsed = window.getSelection()?.isCollapsed ?? true;
+    if (!isSidebarDismissClick(event.target, selectionCollapsed)) return;
+    setSidebarOpen(false);
+  };
 
   useEffect(() => {
     if (!isAtBottomRef.current) return;
@@ -97,7 +110,9 @@ export default function App() {
         onNewSession={startNewSession}
         onSwitchSession={sessionPath => {
           switchSession(sessionPath);
-          setSidebarOpen(false);
+          // 侧栏保持展开，便于继续挑别的会话；
+          // 但窄屏时它是覆盖层，不收起来会挡住刚打开的对话
+          if (isOverlaySidebar()) setSidebarOpen(false);
         }}
         onRenameSession={renameSession}
         onDeleteSession={deleteSession}
@@ -149,6 +164,7 @@ export default function App() {
             id="conversation-scroll"
             ref={scrollContainerRef}
             onScroll={handleScroll}
+            onClick={handleConversationClick}
             className="scrollbar-none h-full overflow-y-auto overflow-x-hidden overscroll-y-contain"
           >
             {!isEmpty && (
