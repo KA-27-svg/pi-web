@@ -22,11 +22,12 @@ const items: RailItem[] = USER_MESSAGE_INDICES.map((index, i) => ({
 function Harness({ railItems = items }: { railItems?: RailItem[] }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
+  const childCount = Math.max(MESSAGE_COUNT, ...railItems.map(item => item.index + 1));
   return (
     <>
       <div ref={containerRef} data-testid="container">
         <div ref={contentRef} data-testid="content">
-          {Array.from({ length: MESSAGE_COUNT }, (_, i) => (
+          {Array.from({ length: childCount }, (_, i) => (
             <div key={i}>消息 {i}</div>
           ))}
         </div>
@@ -83,14 +84,24 @@ let container: HTMLElement;
 let content: HTMLElement;
 
 const rail = () => host.querySelector('[role="scrollbar"]') as HTMLElement | null;
-const dashes = () => Array.from(host.querySelectorAll('[role="scrollbar"] > span'));
+const dashes = () => Array.from(host.querySelectorAll('[role="scrollbar"] [data-part="dash"]'));
+const thumb = () => host.querySelector('[data-part="thumb"]') as HTMLElement | null;
+const track = () => host.querySelector('[data-part="track"]') as HTMLElement | null;
 const previewText = () =>
   host.querySelector('[role="scrollbar"]')?.parentElement?.querySelector('.line-clamp-3')
     ?.textContent ?? null;
 
 /** 第 index 条横线的中心 y */
-const dashY = (index: number) =>
-  RAIL_PADDING + ((CLIENT_HEIGHT - RAIL_PADDING * 2) * index) / (items.length - 1);
+const dashY = (index: number, total = items.length) =>
+  RAIL_PADDING + ((CLIENT_HEIGHT - RAIL_PADDING * 2) * index) / (total - 1);
+
+/** 轨道上某个比例对应的 y */
+const fractionY = (fraction: number) =>
+  RAIL_PADDING + (CLIENT_HEIGHT - RAIL_PADDING * 2) * fraction;
+
+/** n 次提问，消息下标即 0..n-1 */
+const manyItems = (n: number): RailItem[] =>
+  Array.from({ length: n }, (_, i) => ({ index: i, text: `提问 ${i}` }));
 
 const mount = (railItems: RailItem[] = items) => {
   act(() => {
@@ -242,6 +253,81 @@ describe('跳转', () => {
   it('未按下时移动不会改变滚动位置', () => {
     act(() => {
       rail()!.dispatchEvent(pointer('pointermove', dashY(3)));
+    });
+    expect(container.scrollTop).toBe(0);
+  });
+});
+
+describe('密度自适应', () => {
+  it('提问少时散开', () => {
+    expect(rail()!.style.gap).toBe('8px');
+  });
+
+  it('提问变多时间距收紧', () => {
+    mount(manyItems(60));
+    const gap = Number.parseFloat(rail()!.style.gap);
+    expect(gap).toBeGreaterThan(0);
+    expect(gap).toBeLessThan(8);
+  });
+
+  it('再多一些会继续变密', () => {
+    mount(manyItems(60));
+    const at60 = Number.parseFloat(rail()!.style.gap);
+    mount(manyItems(110));
+    const at110 = Number.parseFloat(rail()!.style.gap);
+
+    expect(at110).toBeLessThan(at60);
+    expect(at110).toBeGreaterThan(0);
+  });
+
+  it('密到画不下时变成滑动条', () => {
+    mount(manyItems(140));
+
+    expect(dashes()).toHaveLength(0);
+    expect(thumb()).not.toBeNull();
+    expect(track()).not.toBeNull();
+  });
+
+  it('滑动条形态仍可悬停预览对应的提问', () => {
+    mount(manyItems(140));
+
+    act(() => {
+      rail()!.dispatchEvent(pointer('pointermove', fractionY(0.5)));
+    });
+
+    expect(previewText()).toBe('提问 70');
+  });
+});
+
+describe('滑动条形态', () => {
+  it('滑块高度反映可见比例', () => {
+    mount(manyItems(140));
+
+    // 可见 500 / 总高 2000，可用高度 468
+    const expected = (CLIENT_HEIGHT - RAIL_PADDING * 2) * (CLIENT_HEIGHT / SCROLL_HEIGHT);
+    expect(Number.parseFloat(thumb()!.style.height)).toBeCloseTo(expected, 1);
+  });
+
+  it('点击按比例滚动，而不是跳到某一次提问', () => {
+    mount(manyItems(140));
+
+    act(() => {
+      rail()!.dispatchEvent(pointer('pointerdown', fractionY(0.5)));
+    });
+
+    expect(container.scrollTop).toBeCloseTo((SCROLL_HEIGHT - CLIENT_HEIGHT) * 0.5, 1);
+  });
+
+  it('点击两端分别到顶和到底', () => {
+    mount(manyItems(140));
+
+    act(() => {
+      rail()!.dispatchEvent(pointer('pointerdown', fractionY(1)));
+    });
+    expect(container.scrollTop).toBe(SCROLL_HEIGHT - CLIENT_HEIGHT);
+
+    act(() => {
+      rail()!.dispatchEvent(pointer('pointerdown', fractionY(0)));
     });
     expect(container.scrollTop).toBe(0);
   });
