@@ -45,4 +45,6 @@ export interface BridgeStatus {
   availableModels?: ModelInfo[];
   availableThinkingLevels?: string[];
   sessions?: SessionSummary[];
+  /** 磁盘上的会话总数；比 sessions.length 大说明列表被截断 */
+  sessionsTotal?: number;
 }

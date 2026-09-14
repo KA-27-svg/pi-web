@@ -1,6 +1,7 @@
 import * as path from 'path';
 import * as os from 'os';
 import * as fs from 'fs/promises';
+import * as fsSync from 'fs';
 import { StringDecoder } from 'string_decoder';
 
 /**
@@ -227,11 +228,41 @@ async function readSessionSummary(
   };
 }
 
+/** 列表上限。超过这个数就只展示最近的若干条，并在界面上说明 */
+export const SESSION_LIST_LIMIT = 200;
+
+export interface SessionList {
+  sessions: SessionSummary[];
+  /** 磁盘上一共有多少个会话，用来判断是否被截断 */
+  total: number;
+}
+
+/**
+ * 同步读出会话文件头里的 cwd。
+ * 切换会话时必须立刻知道，不能等异步读文件与 pi 的回包抢时序，所以用同步读。
+ * 只读头部一小段，不会把整个会话文件读进来。
+ */
+export function readSessionCwdSync(sessionPath: string): string | null {
+  let fd: number | undefined;
+  try {
+    fd = fsSync.openSync(resolveSessionPath(sessionPath), 'r');
+    const buffer = Buffer.alloc(4096);
+    const read = fsSync.readSync(fd, buffer, 0, buffer.length, 0);
+    const firstLine = buffer.subarray(0, read).toString('utf-8').split('\n')[0];
+    const header = JSON.parse(firstLine);
+    return typeof header?.cwd === 'string' && header.cwd ? header.cwd : null;
+  } catch {
+    return null;
+  } finally {
+    if (fd !== undefined) fsSync.closeSync(fd);
+  }
+}
+
 /**
  * 会话按工作目录分目录存放。侧栏像 Codex 一样展示全部历史，
  * 因此扫全部子目录后按修改时间取最近的若干条。
  */
-export async function listSessions(limit = 60): Promise<SessionSummary[]> {
+export async function listSessions(limit = SESSION_LIST_LIMIT): Promise<SessionList> {
   const root = sessionsRoot();
   let dirs: string[];
   try {
@@ -240,7 +271,7 @@ export async function listSessions(limit = 60): Promise<SessionSummary[]> {
       .filter(entry => entry.isDirectory())
       .map(entry => path.join(root, entry.name));
   } catch {
-    return [];
+    return { sessions: [], total: 0 };
   }
 
   const candidates: { full: string; mtimeMs: number }[] = [];
@@ -275,5 +306,5 @@ export async function listSessions(limit = 60): Promise<SessionSummary[]> {
       // 跳过损坏或不可读的会话
     }
   }
-  return summaries;
+  return { sessions: summaries, total: candidates.length };
 }

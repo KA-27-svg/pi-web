@@ -93,7 +93,12 @@ export class RpcEventHandler {
 
     // 5. 桥接扫描会话目录的结果
     if (data.type === 'sessions_list') {
-      this.setStatus((prev: any) => ({ ...prev, sessions: data.sessions ?? [] }));
+      this.setStatus((prev: any) => ({
+        ...prev,
+        sessions: data.sessions ?? [],
+        sessionsTotal:
+          typeof data.total === 'number' ? data.total : (data.sessions ?? []).length,
+      }));
       return;
     }
 

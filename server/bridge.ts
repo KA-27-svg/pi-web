@@ -3,7 +3,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import * as http from 'http';
 import * as path from 'path';
 import * as fs from 'fs/promises';
-import { listSessions, renameSession, deleteSession } from './sessions.js';
+import { listSessions, readSessionCwdSync, renameSession, deleteSession } from './sessions.js';
 
 const PORT = 3001;
 // 桥接能以任意 cwd 拉起 `pi --mode rpc`，等同于把本机命令执行能力开放出去，
@@ -18,6 +18,12 @@ const wss = new WebSocketServer({ server });
 
 let piProcess: ChildProcessWithoutNullStreams | null = null;
 let currentCwd = process.cwd();
+/**
+ * 刚请求切换到的会话的工作目录。
+ * pi 的 switch_session 会连带把工作目录换掉，但那个 cwd 只存在会话文件里，
+ * RPC 的 get_state 也不返回它，所以桥接自己在转发前读出来，等 pi 确认成功后再应用。
+ */
+let pendingSwitchCwd: string | null = null;
 
 function broadcast(msg: string) {
   wss.clients.forEach(client => {
@@ -25,6 +31,32 @@ function broadcast(msg: string) {
       client.send(msg);
     }
   });
+}
+
+/**
+ * pi 确认会话切换成功后，把桥接的 currentCwd 一并换掉。
+ * 失败或被扩展取消时 pi 的工作目录没变，必须保持原样。
+ */
+function applyPendingSwitch(line: string) {
+  if (!pendingSwitchCwd || !line.includes('switch_session')) return;
+
+  let message: any;
+  try {
+    message = JSON.parse(line);
+  } catch {
+    return;
+  }
+  if (message?.type !== 'response' || message.command !== 'switch_session') return;
+
+  if (!message.success || message.data?.cancelled) {
+    pendingSwitchCwd = null;
+    return;
+  }
+
+  currentCwd = pendingSwitchCwd;
+  pendingSwitchCwd = null;
+  console.log(`[Pi Bridge] Session switch moved cwd to: ${currentCwd}`);
+  broadcast(JSON.stringify({ type: 'cwd_changed', cwd: currentCwd }));
 }
 
 function ensurePiRpc(cwd: string) {
@@ -52,6 +84,7 @@ function ensurePiRpc(cwd: string) {
     for (const line of lines) {
       const trimmed = line.trim();
       if (!trimmed) continue;
+      applyPendingSwitch(trimmed);
       broadcast(trimmed);
     }
   });
@@ -155,19 +188,27 @@ wss.on('connection', (ws: WebSocket) => {
       // 历史会话列表：pi 的 RPC 没有列举接口，由桥接扫描会话目录
       if (data.type === 'list_sessions') {
         listSessions()
-          .then(sessions => {
+          .then(({ sessions, total }) => {
             if (ws.readyState === WebSocket.OPEN) {
-              ws.send(JSON.stringify({ type: 'sessions_list', sessions }));
+              ws.send(JSON.stringify({ type: 'sessions_list', sessions, total }));
             }
           })
           .catch(err => {
             console.error('[Pi Bridge] Failed to list sessions:', err);
             if (ws.readyState === WebSocket.OPEN) {
               ws.send(
-                JSON.stringify({ type: 'sessions_list', sessions: [], error: String(err?.message ?? err) })
+                JSON.stringify({ type: 'sessions_list', sessions: [], total: 0, error: String(err?.message ?? err) })
               );
             }
           });
+        return;
+      }
+
+      // 切换会话：pi 会把工作目录换成会话里记的 cwd，桥接必须跟着换，
+      // 否则设置面板显示的是旧目录，pi 崩溃自愈重启也会在错的目录里拉起
+      if (data.type === 'switch_session' && typeof data.sessionPath === 'string') {
+        pendingSwitchCwd = readSessionCwdSync(data.sessionPath);
+        sendToPi(data);
         return;
       }
 

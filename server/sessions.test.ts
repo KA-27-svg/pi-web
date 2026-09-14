@@ -2,7 +2,16 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import * as fs from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
-import { deleteSession, listSessions, renameSession, sessionsRoot } from './sessions';
+import {
+  deleteSession,
+  listSessions as readSessions,
+  readSessionCwdSync,
+  renameSession,
+  sessionsRoot,
+} from './sessions';
+
+/** 大多数用例只关心列表本身；total 另有专门用例 */
+const listSessions = async (limit?: number) => (await readSessions(limit)).sessions;
 
 const SESSION_ID = 'sess-1';
 const LAST_ENTRY_ID = 'entry-1';
@@ -118,6 +127,42 @@ describe('listSessions', () => {
   it('会话目录不存在时返回空数组', async () => {
     process.env.PI_SESSIONS_ROOT = path.join(tempHome, 'does-not-exist');
     expect(await listSessions()).toEqual([]);
+  });
+
+  it('total 反映磁盘上的总数，即使列表被截断', async () => {
+    const files: string[] = [];
+    for (let i = 0; i < 5; i += 1) {
+      const file = path.join(projectDir, `2026-02-0${i + 1}T00-00-00-000Z_y${i}.jsonl`);
+      await writeLines(file, [header(), userMessage(`消息 ${i}`)]);
+      files.push(file);
+    }
+
+    const listed = await readSessions(2);
+
+    expect(listed.sessions).toHaveLength(2);
+    expect(listed.total).toBe(5);
+  });
+});
+
+describe('readSessionCwdSync', () => {
+  it('读出会话头里记录的 cwd', async () => {
+    await writeLines(sessionFile, [header(), userMessage('问题')]);
+
+    expect(readSessionCwdSync(sessionFile)).toBe('C:\\demo');
+  });
+
+  it('头部损坏或没有 cwd 时返回 null', async () => {
+    const broken = path.join(projectDir, 'broken.jsonl');
+    await fs.writeFile(broken, 'not json at all', 'utf-8');
+    expect(readSessionCwdSync(broken)).toBeNull();
+
+    const noCwd = path.join(projectDir, 'no-cwd.jsonl');
+    await writeLines(noCwd, [JSON.stringify({ type: 'session', id: 'x' })]);
+    expect(readSessionCwdSync(noCwd)).toBeNull();
+  });
+
+  it('拒绝会话目录之外的路径', () => {
+    expect(readSessionCwdSync(path.join(os.tmpdir(), 'unrelated.jsonl'))).toBeNull();
   });
 });
 
