@@ -23,8 +23,8 @@
 .pi-composer.is-icon {
   width: 112px;
   height: 112px;
-  color: var(--background);
-  background-color: var(--foreground);
+  color: rgb(var(--background));
+  background-color: rgb(var(--foreground));
   border-radius: 50%;
   cursor: pointer;
 }
@@ -34,7 +34,7 @@
 }
 
 .pi-composer:focus-visible {
-  outline: 2px solid var(--foreground);
+  outline: 2px solid rgb(var(--foreground));
   outline-offset: 4px;
 }
 

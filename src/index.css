@@ -4,19 +4,21 @@
 
 :root {
   /* ── 白纸主题（默认浅色）──────────────────────── */
-  --background: #fcfcfb;
-  --surface: #f4f4f2;
-  --surface-hover: #eeeeeb;
-  --foreground: #1c1c1a;
-  --muted: #8b8b85;
-  --border: #e9e9e5;
+  /* 语义色以 R G B 三通道存储：Tailwind 才能拼出 rgb(... / <alpha-value>)，
+     从而支持 bg-surface/40 这类透明度写法；在裸 CSS 里用需写 rgb(var(--x)) */
+  --background: 252 252 251; /* #fcfcfb */
+  --surface: 244 244 242; /* #f4f4f2 */
+  --surface-hover: 238 238 235; /* #eeeeeb */
+  --foreground: 28 28 26; /* #1c1c1a */
+  --muted: 139 139 133; /* #8b8b85 */
+  --border: 233 233 229; /* #e9e9e5 */
   /* 滚动条滑块：供需要常驻可见的滚动区（侧栏）使用 */
   --scrollbar-thumb: #d2d2cc;
   /* 输入框占位文字：由 input::placeholder 与开场动画共用，保证两者渲染一致 */
   --placeholder: #9ca3af;
-  --accent: #1c1c1a;
-  --accent-foreground: #fcfcfb;
-  --accent-hover: #34342f;
+  --accent: 28 28 26; /* #1c1c1a */
+  --accent-foreground: 252 252 251; /* #fcfcfb */
+  --accent-hover: 52 52 47; /* #34342f */
 
   /* 代码（白纸上唯一允许的实体块） */
   --code-bg: #f5f5f2;
@@ -39,16 +41,16 @@
 @media (prefers-color-scheme: dark) {
   :root {
     /* ── 墨夜主题 ──────────────────────────────── */
-    --background: #121214;
-    --surface: #1a1a1d;
-    --surface-hover: #232327;
-    --foreground: #ececea;
-    --muted: #8f8f8a;
-    --border: #2a2a2e;
+    --background: 18 18 20; /* #121214 */
+    --surface: 26 26 29; /* #1a1a1d */
+    --surface-hover: 35 35 39; /* #232327 */
+    --foreground: 236 236 234; /* #ececea */
+    --muted: 143 143 138; /* #8f8f8a */
+    --border: 42 42 46; /* #2a2a2e */
     --scrollbar-thumb: #3c3c42;
-    --accent: #ececea;
-    --accent-foreground: #17171a;
-    --accent-hover: #ffffff;
+    --accent: 236 236 234; /* #ececea */
+    --accent-foreground: 23 23 26; /* #17171a */
+    --accent-hover: 255 255 255; /* #ffffff */
 
     --code-bg: #17171a;
     --code-fg: #d4d4d8;
@@ -76,8 +78,8 @@ body,
 body {
   margin: 0;
   padding: 0;
-  background-color: var(--background);
-  color: var(--foreground);
+  background-color: rgb(var(--background));
+  color: rgb(var(--foreground));
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
     "Hiragino Sans GB", "Microsoft YaHei", Roboto, "Helvetica Neue", Arial,
     sans-serif;
@@ -115,10 +117,10 @@ body {
   border-radius: 9999px;
 }
 *:hover::-webkit-scrollbar-thumb {
-  background: var(--border);
+  background: rgb(var(--border));
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--muted) !important;
+  background: rgb(var(--muted)) !important;
 }
 
 /* 常驻可见的滚动条：对话区刻意做得极淡，但侧栏要能一眼看出还能往下滚 */

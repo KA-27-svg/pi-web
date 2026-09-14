@@ -11,16 +11,18 @@ export default {
         content: '48rem',
       },
       colors: {
-        background: "var(--background)",
-        surface: "var(--surface)",
-        "surface-hover": "var(--surface-hover)",
-        foreground: "var(--foreground)",
-        muted: "var(--muted)",
-        border: "var(--border)",
+        // 用 rgb(var(...) / <alpha-value>) 而非裸 var()：后者无法注入透明度，
+        // 会让 bg-surface/40 这类写法被静默丢弃
+        background: "rgb(var(--background) / <alpha-value>)",
+        surface: "rgb(var(--surface) / <alpha-value>)",
+        "surface-hover": "rgb(var(--surface-hover) / <alpha-value>)",
+        foreground: "rgb(var(--foreground) / <alpha-value>)",
+        muted: "rgb(var(--muted) / <alpha-value>)",
+        border: "rgb(var(--border) / <alpha-value>)",
         accent: {
-          DEFAULT: "var(--accent)",
-          foreground: "var(--accent-foreground)",
-          hover: "var(--accent-hover)",
+          DEFAULT: "rgb(var(--accent) / <alpha-value>)",
+          foreground: "rgb(var(--accent-foreground) / <alpha-value>)",
+          hover: "rgb(var(--accent-hover) / <alpha-value>)",
         },
       },
     },
