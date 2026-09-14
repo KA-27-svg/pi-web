@@ -82,6 +82,18 @@ let root: Root;
 let host: HTMLElement;
 let container: HTMLElement;
 let content: HTMLElement;
+/** 组件注册的 ResizeObserver 回调，用来在测试里模拟内容尺寸变化 */
+const resizeCallbacks: Array<() => void> = [];
+
+const setScrollHeight = (value: number) => {
+  Object.defineProperty(container, 'scrollHeight', { configurable: true, value });
+};
+
+/** 模拟内容高度变化触发 ResizeObserver */
+const resize = () =>
+  act(() => {
+    for (const callback of resizeCallbacks) callback();
+  });
 
 const rail = () => host.querySelector('[role="scrollbar"]') as HTMLElement | null;
 const dashes = () => Array.from(host.querySelectorAll('[role="scrollbar"] [data-part="dash"]'));
@@ -125,7 +137,11 @@ const mount = (railItems: RailItem[] = items) => {
 };
 
 beforeEach(() => {
+  resizeCallbacks.length = 0;
   class ResizeObserverStub {
+    constructor(callback: () => void) {
+      resizeCallbacks.push(callback);
+    }
     observe() {}
     unobserve() {}
     disconnect() {}
@@ -166,6 +182,27 @@ describe('横线数量', () => {
       Object.defineProperty(container, 'scrollHeight', { configurable: true, value: 400 });
       container.dispatchEvent(new Event('scroll'));
     });
+    expect(rail()).toBeNull();
+  });
+
+  it('内容长到超过一屏后轨道自动出现（观察尺寸变化）', () => {
+    setScrollHeight(400);
+    resize();
+    expect(rail()).toBeNull();
+
+    // 流式输出把内容撑高，即使没有触发 scroll 事件也要能发现
+    setScrollHeight(2000);
+    resize();
+    expect(rail()).not.toBeNull();
+  });
+
+  it('内容缩回一屏以内后轨道又隐藏', () => {
+    setScrollHeight(2000);
+    resize();
+    expect(rail()).not.toBeNull();
+
+    setScrollHeight(400);
+    resize();
     expect(rail()).toBeNull();
   });
 });
