@@ -3,7 +3,15 @@ import * as os from 'os';
 import * as fs from 'fs/promises';
 import { StringDecoder } from 'string_decoder';
 
-export const SESSIONS_ROOT = path.join(os.homedir(), '.pi', 'agent', 'sessions');
+/**
+ * 会话根目录：默认 ~/.pi/agent/sessions。
+ * 用函数而不是模块级常量，一来测试可以指向临时目录，二来环境变量在运行时改也生效。
+ */
+export function sessionsRoot(): string {
+  return (
+    process.env.PI_SESSIONS_ROOT || path.join(os.homedir(), '.pi', 'agent', 'sessions')
+  );
+}
 
 export interface SessionSummary {
   path: string;
@@ -16,7 +24,7 @@ export interface SessionSummary {
 
 /** 只允许操作会话目录内的文件，避免路径穿越 */
 function resolveSessionPath(sessionPath: string): string {
-  const root = path.resolve(SESSIONS_ROOT) + path.sep;
+  const root = path.resolve(sessionsRoot()) + path.sep;
   const resolved = path.resolve(sessionPath);
   if (!resolved.startsWith(root) || !resolved.endsWith('.jsonl')) {
     throw new Error('invalid session path');
@@ -224,12 +232,13 @@ async function readSessionSummary(
  * 因此扫全部子目录后按修改时间取最近的若干条。
  */
 export async function listSessions(limit = 60): Promise<SessionSummary[]> {
+  const root = sessionsRoot();
   let dirs: string[];
   try {
-    const entries = await fs.readdir(SESSIONS_ROOT, { withFileTypes: true });
+    const entries = await fs.readdir(root, { withFileTypes: true });
     dirs = entries
       .filter(entry => entry.isDirectory())
-      .map(entry => path.join(SESSIONS_ROOT, entry.name));
+      .map(entry => path.join(root, entry.name));
   } catch {
     return [];
   }

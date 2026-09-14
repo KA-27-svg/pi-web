@@ -45,7 +45,8 @@ export class MessageParser {
               tools.push({
                 id: block.id || `hist-tool-${index}-${tools.length}`,
                 name: block.name || block.toolName || 'tool',
-                args: block.input || block.args || {},
+                // pi 存储的是 arguments；input/args 是兼容其他消息格式的兜底
+                args: block.arguments ?? block.input ?? block.args ?? {},
                 status: 'done',
               });
             }

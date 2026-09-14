@@ -46,6 +46,8 @@ Windows 上也可以直接双击 `start.bat`。
 | `npm run dev:server` | 只启动桥接 |
 | `npm run dev:vite` | 只启动前端 |
 | `npm run build` | 类型检查 + 生产构建 |
+| `npm test` | 运行测试（vitest，一次性） |
+| `npm run test:watch` | 监听模式跑测试 |
 | `npm run lint` | oxlint |
 | `npm run preview` | 预览构建产物 |
 
@@ -72,6 +74,18 @@ src/
   types/           共享类型
   index.css        设计变量（浅色 / 深色，跟随系统）
 ```
+
+## 测试
+
+```bash
+npm test
+```
+
+覆盖三块最容易静默改坏的地方：
+
+- `server/sessions.test.ts` — 会话扫描（含头部被注入内容撞满、多字节分块边界）、重命名追加、删除、路径穿越防护。
+- `src/services/rpcHandler.test.ts` — 一轮的生命周期（`agent_end` vs `agent_settled`）、`get_state` 竞态、崩溃收尾、工具调用状态机。
+- `src/utils/messageParser.test.ts` — 历史消息还原与稳定 ID（ID 不稳定会导致刷新时整段对话重新挂载并重播动画）。
 
 ## 已知限制
 
