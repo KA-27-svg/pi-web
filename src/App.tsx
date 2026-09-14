@@ -9,7 +9,7 @@ import { ChatInput } from './components/ChatInput';
 import { Settings, PanelLeftOpen } from 'lucide-react';
 
 export default function App() {
-  const { messages, status, sendPrompt, abort, changeCwd, newSession, setModel, setThinkingLevel, requestSessions, switchSession, renameSession, deleteSession } =
+  const { messages, status, sendPrompt, abort, changeCwd, newSession, setModel, setThinkingLevel, requestSessions, switchSession, renameSession, deleteSession, requestTrash, restoreSession, purgeSession, emptyTrash } =
     usePiWebSocket();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLElement>(null);
@@ -75,8 +75,11 @@ export default function App() {
 
   // 展开侧栏时刷新一次，保证顺序与最新改动一致（首次拉取在连接建立时完成）
   useEffect(() => {
-    if (sidebarOpen) requestSessions();
-  }, [sidebarOpen, requestSessions]);
+    if (!sidebarOpen) return;
+    requestSessions();
+    // 回收箱数量显示在侧栏底部，一并拉一下
+    requestTrash();
+  }, [sidebarOpen, requestSessions, requestTrash]);
 
   const startNewSession = () => {
     newSession();
@@ -99,6 +102,10 @@ export default function App() {
         onRenameSession={renameSession}
         onDeleteSession={deleteSession}
         onRefreshSessions={requestSessions}
+        onRequestTrash={requestTrash}
+        onRestoreSession={restoreSession}
+        onPurgeSession={purgeSession}
+        onEmptyTrash={emptyTrash}
       />
 
       <div className="relative flex min-w-0 flex-1 flex-col">

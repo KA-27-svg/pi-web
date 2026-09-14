@@ -59,4 +59,6 @@ export interface BridgeStatus {
   /** 磁盘上的会话总数；比 sessions.length 大说明列表被截断 */
   sessionsTotal?: number;
   trashed?: TrashedSession[];
+  /** 需要告知用户的一次性提示（切换会话失败等） */
+  notice?: string;
 }

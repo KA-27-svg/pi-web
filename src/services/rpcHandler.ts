@@ -107,21 +107,22 @@ export class RpcEventHandler {
       return;
     }
 
-    // 6. 会话增删改后刷新列表
-    if (data.type === 'session_renamed') {
-      if (data.success) ws.send(JSON.stringify({ type: 'list_sessions' }));
-      return;
-    }
-
+    // 6. 会话增删改的结果。失败必须说出来，不能点了没反应。
     if (
+      data.type === 'session_renamed' ||
       data.type === 'session_trashed' ||
       data.type === 'session_restored' ||
       data.type === 'session_purged' ||
       data.type === 'trash_emptied'
     ) {
+      if (!data.success) {
+        this.setStatus((prev: any) => ({ ...prev, notice: data.error ?? '操作失败' }));
+        return;
+      }
+
       // 两个列表都可能变了：会话列表多/少一条，回收箱少/多一条
-      if (data.success) {
-        ws.send(JSON.stringify({ type: 'list_sessions' }));
+      ws.send(JSON.stringify({ type: 'list_sessions' }));
+      if (data.type !== 'session_renamed') {
         ws.send(JSON.stringify({ type: 'list_trash' }));
       }
       return;
@@ -188,12 +189,24 @@ export class RpcEventHandler {
     }
 
     // 切换历史会话：成功后清空并重新拉取该会话的消息
-    if (data.command === 'switch_session' && data.success) {
-      if (data.data?.cancelled) return;
-      this.currentAssistantId = null;
-      this.setMessages([]);
-      ws.send(JSON.stringify({ type: 'get_messages' }));
-      ws.send(JSON.stringify({ type: 'get_state' }));
+    if (data.command === 'switch_session') {
+      if (data.success && !data.data?.cancelled) {
+        this.currentAssistantId = null;
+        this.setMessages([]);
+        ws.send(JSON.stringify({ type: 'get_messages' }));
+        ws.send(JSON.stringify({ type: 'get_state' }));
+        this.setStatus((prev: any) => ({ ...prev, notice: undefined }));
+        return;
+      }
+
+      // 会话记录里的项目目录被删掉时 pi 会直接拒绝，以前这里是静默的
+      this.setStatus((prev: any) => ({
+        ...prev,
+        notice: data.success
+          ? '该会话切换被扩展取消'
+          : `无法打开该会话：${data.error ?? '未知原因'}`,
+      }));
+      return;
     }
 
     // 重命名当前会话后，列表里的名字需要刷新
