@@ -1,5 +1,6 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
 import { usePiWebSocket } from './hooks/usePiWebSocket';
+import { useRubberBandScroll } from './hooks/useRubberBandScroll';
 import { SettingsPanel } from './components/SettingsPanel';
 import { Sidebar } from './components/Sidebar';
 import { PiMessageItem } from './components/PiMessageItem';
@@ -11,6 +12,7 @@ export default function App() {
     usePiWebSocket();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
   const isAtBottomRef = useRef(true);
 
   const [composerEngaged, setComposerEngaged] = useState(false);
@@ -41,6 +43,9 @@ export default function App() {
   }, [messages, pinToBottom]);
 
   const shouldStickBottom = !isEmpty || composerEngaged;
+
+  // 到底/到顶后继续滚轮可以再拉出一段阻尼位移，松手回弹；拖滚动条不触发
+  useRubberBandScroll(scrollContainerRef, contentRef, { enabled: !isEmpty });
 
   // 展开侧栏时刷新一次，保证顺序与最新改动一致（首次拉取在连接建立时完成）
   useEffect(() => {
@@ -110,10 +115,10 @@ export default function App() {
         <main
           ref={scrollContainerRef}
           onScroll={handleScroll}
-          className="flex-1 overflow-y-auto overflow-x-hidden min-w-0 [scrollbar-gutter:stable_both-edges] max-sm:[scrollbar-gutter:auto]"
+          className="flex-1 overflow-y-auto overflow-x-hidden overscroll-y-contain min-w-0 [scrollbar-gutter:stable_both-edges] max-sm:[scrollbar-gutter:auto]"
         >
           {!isEmpty && (
-            <div className="max-w-content mx-auto px-5 sm:px-6 py-10 space-y-8">
+            <div ref={contentRef} className="max-w-content mx-auto px-5 sm:px-6 py-10 space-y-8">
               {messages.map(msg => (
                 <PiMessageItem key={msg.id} message={msg} />
               ))}
