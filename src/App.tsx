@@ -5,6 +5,7 @@ import { ConversationScrollRail, type RailItem } from './components/Conversation
 import { ConversationThread } from './components/ConversationThread';
 import { isSidebarDismissClick } from './utils/sidebarDismiss';
 import { growWindow, initialWindow, visibleSlice } from './utils/threadWindow';
+import { composerLayout } from './utils/composerLayout';
 
 /** 与 Tailwind 的 sm 断点一致：窄屏时侧栏是覆盖层，而不是并排的一栏 */
 const NARROW_VIEWPORT = '(max-width: 640px)';
@@ -28,6 +29,11 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const switching = status.switching ?? false;
+  /**
+   * 已经知道当前会话的内容。在此之前显示「空白界面」是错的：
+   * 刷新一个已有对话时，会先演一遍开场形变再被历史替掉。
+   */
+  const sessionReady = status.sessionLoaded ?? false;
   // 切换会话时对话区不显示内容，但布局要按「有对话」算，
   // 否则底部输入区位置与开场图标都会跟着弹一次
   const isEmpty = messages.length === 0 && !switching;
@@ -102,7 +108,12 @@ export default function App() {
     return () => cancelAnimationFrame(raf);
   }, [switching, pinToBottom]);
 
-  const shouldStickBottom = !isEmpty || composerEngaged;
+  const { showIcon: showOpeningIcon, stickToBottom: shouldStickBottom } = composerLayout({
+    sessionReady,
+    openingIcon,
+    isEmpty,
+    composerEngaged,
+  });
 
   // 到底/到顶后继续滚轮可以再拉出一段阻尼位移，松手回弹；拖滚动条不触发
   useRubberBandScroll(scrollContainerRef, contentRef, { enabled: !isEmpty });
@@ -246,7 +257,7 @@ export default function App() {
               if (focused) setComposerEngaged(true);
             }}
             autoFocus={false}
-            showIcon={openingIcon && isEmpty}
+            showIcon={showOpeningIcon}
             onActivate={() => setOpeningIcon(false)}
             onResize={handleComposerResize}
           />

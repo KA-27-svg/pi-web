@@ -68,4 +68,9 @@ export interface BridgeStatus {
    * 但布局仍按「有对话」算，以免底部输入区位置与滚动位置跟着弹一次。
    */
   switching?: boolean;
+  /**
+   * 已经拿到过当前会话的消息。在此之前无从得知会话是否为空，
+   * 所以不能进入「空白界面」（开场图标、输入框居中）。
+   */
+  sessionLoaded?: boolean;
 }

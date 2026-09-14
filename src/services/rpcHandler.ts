@@ -237,6 +237,10 @@ export class RpcEventHandler {
     if (data.command === 'get_messages' && data.success && data.data?.messages) {
       const restored = MessageParser.parseHistory(data.data.messages);
 
+      // 到这里才真正知道这个会话是不是空的：
+      // 在此之前不能把界面当作「空白态」，否则刷新已有对话时会先演一遍开场形变
+      this.setStatus((prev: any) => ({ ...prev, sessionLoaded: true }));
+
       // 刚切换过会话：这份历史就是要替换掉旧会话的内容
       if (this.pendingHistory) {
         this.pendingHistory = false;

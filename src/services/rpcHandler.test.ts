@@ -428,3 +428,35 @@ describe('切换中的状态', () => {
     expect(h.status().switching).toBe(false);
   });
 });
+
+describe('会话是否已载入', () => {
+  const history = (texts: string[]) => ({
+    type: 'response',
+    command: 'get_messages',
+    success: true,
+    data: { messages: texts.map((text, i) => ({ role: i % 2 ? 'assistant' : 'user', content: text, timestamp: i })) },
+  });
+
+  it('拿到消息之前不声称已载入', () => {
+    // 界面靠它来决定要不要进入「空白态」；
+    // 早一步置真，刷新已有对话时就会先演一遍开场形变
+    const h = createHarness();
+    expect(h.status().sessionLoaded).toBeUndefined();
+  });
+
+  it('拿到消息之后标记为已载入', () => {
+    const h = createHarness();
+
+    h.handler.handleEvent(history(['一']), h.ws);
+
+    expect(h.status().sessionLoaded).toBe(true);
+  });
+
+  it('空会话也算已载入（此时才该显示开场图标）', () => {
+    const h = createHarness();
+
+    h.handler.handleEvent(history([]), h.ws);
+
+    expect(h.status().sessionLoaded).toBe(true);
+  });
+});
