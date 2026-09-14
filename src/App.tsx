@@ -37,6 +37,12 @@ export default function App() {
     el.scrollTop = el.scrollHeight;
   }, []);
 
+  // 输入框长高会把对话区压矮，贴底时得重新顶到底，否则最后一行会被切掉
+  const handleComposerResize = useCallback(() => {
+    if (!isAtBottomRef.current) return;
+    requestAnimationFrame(pinToBottom);
+  }, [pinToBottom]);
+
   useEffect(() => {
     if (!isAtBottomRef.current) return;
     const raf = requestAnimationFrame(pinToBottom);
@@ -175,6 +181,7 @@ export default function App() {
             autoFocus={false}
             showIcon={openingIcon && isEmpty}
             onActivate={() => setOpeningIcon(false)}
+            onResize={handleComposerResize}
           />
         </footer>
       </div>

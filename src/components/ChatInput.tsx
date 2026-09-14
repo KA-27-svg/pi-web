@@ -1,6 +1,13 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react';
 import { ArrowUp, Square } from 'lucide-react';
 import './ChatInput.css';
+
+/** 单行时外壳的高度 */
+const COMPOSER_MIN_HEIGHT = 53;
+/** 长高的上限，与 textarea 的 max-h-48 保持一致 */
+const COMPOSER_MAX_HEIGHT = 192;
+/** 开场形变时长，覆盖 CSS 里最长的过渡 */
+const MORPH_MS = 760;
 
 interface ChatInputProps {
   onSend: (text: string) => void;
@@ -11,6 +18,8 @@ interface ChatInputProps {
   /** 开场图标态：与展开后的输入框是同一个元素，点击后原地形变 */
   showIcon?: boolean;
   onActivate?: () => void;
+  /** 外壳高度变化（多行输入）时通知父级，便于贴底时重新对齐滚动位置 */
+  onResize?: () => void;
 }
 
 export function ChatInput({
@@ -21,9 +30,28 @@ export function ChatInput({
   autoFocus,
   showIcon = false,
   onActivate,
+  onResize,
 }: ChatInputProps) {
   const [input, setInput] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const stageRef = useRef<HTMLDivElement>(null);
+
+  // 只在开场形变期间让外壳高度参与过渡；平时打字必须立刻跟上文字。
+  // 用 CSS 变量而不是 class，避免 React 重写 className 时把标记冲掉。
+  useLayoutEffect(() => {
+    const stage = stageRef.current;
+    if (!stage) return;
+
+    if (showIcon) {
+      stage.style.setProperty('--composer-morph-ms', `${MORPH_MS}ms`);
+      return;
+    }
+    const timer = window.setTimeout(
+      () => stage.style.setProperty('--composer-morph-ms', '0ms'),
+      MORPH_MS
+    );
+    return () => window.clearTimeout(timer);
+  }, [showIcon]);
 
   useEffect(() => {
     if (autoFocus) textareaRef.current?.focus();
@@ -40,8 +68,15 @@ export function ChatInput({
     const el = textareaRef.current;
     if (!el) return;
     el.style.height = 'auto';
-    el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
-  }, []);
+    const height = Math.min(
+      Math.max(el.scrollHeight, COMPOSER_MIN_HEIGHT),
+      COMPOSER_MAX_HEIGHT
+    );
+    el.style.height = `${height}px`;
+    // 外壳（.pi-stage 与 .pi-composer）跟着一起长高，否则文字会溢出圆角背景
+    stageRef.current?.style.setProperty('--composer-height', `${height}px`);
+    onResize?.();
+  }, [onResize]);
 
   useEffect(() => {
     measure();
@@ -87,7 +122,7 @@ export function ChatInput({
 
   return (
     <div className="w-full max-w-2xl mx-auto px-5 sm:px-6 pb-6 sm:pb-8">
-      <div className="pi-stage">
+      <div className="pi-stage" ref={stageRef}>
         <div
           className={`pi-composer relative flex items-end rounded-2xl bg-surface ${
             showIcon ? 'is-icon' : ''
