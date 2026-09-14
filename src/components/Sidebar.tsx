@@ -162,10 +162,10 @@ export function Sidebar({
       <div className="flex h-full w-64 flex-col">
         <div className="flex items-center justify-between px-3 pt-3 pb-2">
           <span className="flex items-center gap-2 pl-1">
-            <span className="grid h-6 w-6 place-items-center rounded-full bg-foreground font-mono text-[10px] text-background">
+            <span className="grid h-7 w-7 place-items-center rounded-full bg-foreground font-mono text-[11px] text-background">
               Pi
             </span>
-            <span className="text-[12px] font-medium text-foreground">Pi Agent</span>
+            <span className="text-[13.5px] font-medium text-foreground">Pi Agent</span>
           </span>
           <button
             onClick={onToggle}
@@ -180,9 +180,9 @@ export function Sidebar({
         <div className="px-3 pb-2">
           <button
             onClick={onNewSession}
-            className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-[12.5px] text-foreground/90 transition-colors hover:bg-surface"
+            className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-[13.5px] text-foreground/90 transition-colors hover:bg-surface"
           >
-            <SquarePen className="w-3.5 h-3.5" />
+            <SquarePen className="w-4 h-4" />
             新建对话
           </button>
         </div>
@@ -190,7 +190,7 @@ export function Sidebar({
         {view === 'history' && (
           <div className="px-3 pb-2">
             <div className="flex items-center gap-1.5 rounded-md bg-surface px-2 py-1.5">
-              <Search className="w-3 h-3 shrink-0 text-muted" />
+              <Search className="w-3.5 h-3.5 shrink-0 text-muted" />
               <input
                 ref={searchRef}
                 type="search"
@@ -199,7 +199,7 @@ export function Sidebar({
                 placeholder="搜索对话…"
                 aria-label="搜索历史对话"
                 spellCheck={false}
-                className="min-w-0 flex-1 bg-transparent text-[11.5px] text-foreground outline-none placeholder:text-muted [&::-webkit-search-cancel-button]:hidden"
+                className="min-w-0 flex-1 bg-transparent text-[13px] text-foreground outline-none placeholder:text-muted [&::-webkit-search-cancel-button]:hidden"
               />
               {query && (
                 <button
@@ -207,7 +207,7 @@ export function Sidebar({
                   className="shrink-0 rounded p-0.5 text-muted transition-colors hover:text-foreground"
                   aria-label="清空搜索"
                 >
-                  <X className="w-3 h-3" />
+                  <X className="w-3.5 h-3.5" />
                 </button>
               )}
             </div>
@@ -215,7 +215,7 @@ export function Sidebar({
         )}
 
         <div className="flex items-center justify-between px-4 pt-1 pb-1">
-          <span className="text-[10.5px] text-muted">
+          <span className="text-[11.5px] text-muted">
             {view === 'history' ? '历史对话' : '回收箱'}
           </span>
           <button
@@ -224,7 +224,7 @@ export function Sidebar({
             aria-label={view === 'history' ? '刷新历史对话' : '刷新回收箱'}
             title="刷新"
           >
-            <RefreshCw className="w-3 h-3" />
+            <RefreshCw className="w-3.5 h-3.5" />
           </button>
         </div>
 
@@ -245,7 +245,7 @@ export function Sidebar({
                 onEmpty={onEmptyTrash}
               />
             ) : visibleSessions.length === 0 ? (
-              <p className="px-2 py-3 text-[11px] text-muted">
+              <p className="px-2 py-3 text-[12px] text-muted">
                 {sessions.length === 0
                   ? '暂无历史对话'
                   : `没有匹配「${query.trim()}」的对话`}
@@ -266,7 +266,7 @@ export function Sidebar({
             )}
 
             {view === 'history' && sessions.length > 0 && sessions.length < (status.sessionsTotal ?? 0) && (
-              <p className="px-2 py-2 text-[10.5px] leading-[1.6] text-muted">
+              <p className="px-2 py-2 text-[11.5px] leading-[1.6] text-muted">
                 只显示最近 {sessions.length} 条，共 {status.sessionsTotal} 条
               </p>
             )}
@@ -277,7 +277,7 @@ export function Sidebar({
           <div className="border-t border-border px-3 py-2">
             <div className="flex items-start gap-2">
               <span
-                className={`min-w-0 flex-1 text-[10.5px] leading-[1.6] ${
+                className={`min-w-0 flex-1 text-[11.5px] leading-[1.6] ${
                   activeToast.tone === 'error' ? 'text-rose-500' : 'text-muted'
                 }`}
               >
@@ -289,7 +289,7 @@ export function Sidebar({
                     onRestoreSession(activeToast.undoPath!);
                     setToast(null);
                   }}
-                  className="shrink-0 text-[10.5px] text-foreground underline underline-offset-2 decoration-border transition-colors hover:decoration-foreground"
+                  className="shrink-0 text-[11.5px] text-foreground underline underline-offset-2 decoration-border transition-colors hover:decoration-foreground"
                 >
                   撤销
                 </button>
@@ -302,7 +302,7 @@ export function Sidebar({
                 className="shrink-0 rounded p-0.5 text-muted transition-colors hover:text-foreground"
                 aria-label="关闭提示"
               >
-                <X className="w-3 h-3" />
+                <X className="w-3.5 h-3.5" />
               </button>
             </div>
           </div>
@@ -312,16 +312,16 @@ export function Sidebar({
           {view === 'trash' ? (
             <button
               onClick={() => setView('history')}
-              className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-[11.5px] text-muted transition-colors hover:bg-surface hover:text-foreground"
+              className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-[13px] text-muted transition-colors hover:bg-surface hover:text-foreground"
             >
               返回历史对话
             </button>
           ) : (
             <button
               onClick={switchToTrash}
-              className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-[11.5px] text-muted transition-colors hover:bg-surface hover:text-foreground"
+              className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-[13px] text-muted transition-colors hover:bg-surface hover:text-foreground"
             >
-              <Trash2 className="w-3.5 h-3.5" />
+              <Trash2 className="w-4 h-4" />
               回收箱
               {trashed.length > 0 && <span>({trashed.length})</span>}
             </button>

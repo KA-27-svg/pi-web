@@ -43,7 +43,7 @@ export function SessionRow({ session, active, onOpen, onRename, onDelete }: Sess
           }}
           onBlur={submitRename}
           aria-label="重命名对话"
-          className="w-full rounded-md bg-surface px-2.5 py-2 text-[12px] text-foreground outline-none ring-1 ring-border focus:ring-foreground/30"
+          className="w-full rounded-md bg-surface px-2.5 py-2 text-[13.5px] text-foreground outline-none ring-1 ring-border focus:ring-foreground/30"
         />
       </li>
     );
@@ -60,13 +60,13 @@ export function SessionRow({ session, active, onOpen, onRename, onDelete }: Sess
         }`}
       >
         <div
-          className={`truncate text-[12px] ${
+          className={`truncate text-[13.5px] ${
             active ? 'text-foreground' : 'text-foreground/85'
           }`}
         >
           {title}
         </div>
-        <div className="mt-0.5 flex items-center gap-1.5 text-[10px] text-muted">
+        <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-muted">
           <span>{formatRelativeTime(session.updatedAt)}</span>
           {project && (
             <>
@@ -85,7 +85,7 @@ export function SessionRow({ session, active, onOpen, onRename, onDelete }: Sess
           aria-label="重命名"
           title="重命名"
         >
-          <Pencil className="w-3 h-3" />
+          <Pencil className="w-3.5 h-3.5" />
         </button>
         <button
           onClick={onDelete}
@@ -94,7 +94,7 @@ export function SessionRow({ session, active, onOpen, onRename, onDelete }: Sess
           aria-label="删除"
           title={active ? '当前对话不能删除' : '删除（移入回收箱）'}
         >
-          <Trash2 className="w-3 h-3" />
+          <Trash2 className="w-3.5 h-3.5" />
         </button>
       </div>
     </li>
