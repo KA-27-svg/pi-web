@@ -3,7 +3,6 @@ import { usePiWebSocket } from './hooks/usePiWebSocket';
 import { SettingsPanel } from './components/SettingsPanel';
 import { PiMessageItem } from './components/PiMessageItem';
 import { ChatInput } from './components/ChatInput';
-import { OpeningTransition } from './components/OpeningTransition';
 import { Settings } from 'lucide-react';
 
 export default function App() {
@@ -13,13 +12,11 @@ export default function App() {
   const scrollContainerRef = useRef<HTMLElement>(null);
   const isAtBottomRef = useRef(true);
 
-  const [composerFocused, setComposerFocused] = useState(false);
-  const [gearHover, setGearHover] = useState(false);
+  const [composerEngaged, setComposerEngaged] = useState(false);
   const [panelOpen, setPanelOpen] = useState(false);
-  const [openingComplete, setOpeningComplete] = useState(false);
+  const [openingIcon, setOpeningIcon] = useState(true);
 
   const isEmpty = messages.length === 0;
-  const gearVisible = composerFocused || gearHover || panelOpen;
 
   const handleScroll = () => {
     const el = scrollContainerRef.current;
@@ -41,23 +38,14 @@ export default function App() {
     return () => cancelAnimationFrame(raf);
   }, [messages, pinToBottom]);
 
+  const shouldStickBottom = !isEmpty || composerEngaged;
+
   return (
     <div className="relative flex flex-col h-screen w-full bg-background text-foreground selection:bg-foreground/10 overflow-hidden">
-      {!openingComplete && (
-        <OpeningTransition
-          hasConversation={!isEmpty}
-          onComplete={() => setOpeningComplete(true)}
-        />
-      )}
-
-      {/* 唯一的常驻控件：齿轮 */}
+      {/* 设置入口：常驻可见，不随焦点或点击位置隐藏 */}
       <button
-        onMouseEnter={() => setGearHover(true)}
-        onMouseLeave={() => setGearHover(false)}
         onClick={() => setPanelOpen(o => !o)}
-        className={`absolute right-4 top-3 z-50 rounded-full p-2 text-muted hover:text-foreground hover:bg-surface transition-all duration-300 ${
-          gearVisible ? 'opacity-100' : 'opacity-0'
-        }`}
+        className="absolute right-4 top-3 z-[110] rounded-full p-2 text-muted hover:text-foreground hover:bg-surface transition-colors duration-200"
         aria-label="设置"
         title="设置"
       >
@@ -89,22 +77,26 @@ export default function App() {
         )}
       </main>
 
-      {/* 输入区：开场终帧落定后，在同一位置接管交互与焦点 */}
-      {openingComplete && (
-        <footer
-          className={`w-full flex-shrink-0 transition-all duration-500 ease-out opening-content-in ${
-            isEmpty ? 'pb-[32vh]' : 'pb-0'
-          }`}
-        >
-          <ChatInput
-            onSend={sendPrompt}
-            onStop={abort}
-            isLoading={status.isStreaming}
-            onFocusChange={setComposerFocused}
-            autoFocus={isEmpty}
-          />
-        </footer>
-      )}
+      {/* 输入区：开场图标态与展开态是同一个元素，原地形变，无交接 */}
+      <footer
+        className={`w-full flex-shrink-0 transition-[padding] duration-500 ease-out ${
+          shouldStickBottom
+            ? 'pb-0'
+            : 'pb-[calc(50vh-50.5px)] sm:pb-[calc(50vh-58.5px)]'
+        }`}
+      >
+        <ChatInput
+          onSend={sendPrompt}
+          onStop={abort}
+          isLoading={status.isStreaming}
+          onFocusChange={focused => {
+            if (focused) setComposerEngaged(true);
+          }}
+          autoFocus={false}
+          showIcon={openingIcon && isEmpty}
+          onActivate={() => setOpeningIcon(false)}
+        />
+      </footer>
     </div>
   );
 }
