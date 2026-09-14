@@ -65,7 +65,21 @@ export class RpcEventHandler {
       return;
     }
 
-    // 5. 工具调用生命周期
+    // 5. 桥接扫描会话目录的结果
+    if (data.type === 'sessions_list') {
+      this.setStatus((prev: any) => ({ ...prev, sessions: data.sessions ?? [] }));
+      return;
+    }
+
+    // 6. 重命名 / 删除会话后刷新列表
+    if (data.type === 'session_renamed' || data.type === 'session_deleted') {
+      if (data.success) {
+        ws.send(JSON.stringify({ type: 'list_sessions' }));
+      }
+      return;
+    }
+
+    // 7. 工具调用生命周期
     this.handleToolLifecycle(data);
   }
 
@@ -121,6 +135,20 @@ export class RpcEventHandler {
       this.currentAssistantId = null;
       this.setMessages([]);
       ws.send(JSON.stringify({ type: 'get_state' }));
+    }
+
+    // 切换历史会话：成功后清空并重新拉取该会话的消息
+    if (data.command === 'switch_session' && data.success) {
+      if (data.data?.cancelled) return;
+      this.currentAssistantId = null;
+      this.setMessages([]);
+      ws.send(JSON.stringify({ type: 'get_messages' }));
+      ws.send(JSON.stringify({ type: 'get_state' }));
+    }
+
+    // 重命名当前会话后，列表里的名字需要刷新
+    if (data.command === 'set_session_name' && data.success) {
+      ws.send(JSON.stringify({ type: 'list_sessions' }));
     }
 
     if (data.command === 'get_messages' && data.success && data.data?.messages) {

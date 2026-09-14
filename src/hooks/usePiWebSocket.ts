@@ -26,6 +26,8 @@ export function usePiWebSocket() {
       ws.send(JSON.stringify({ type: 'get_messages' }));
       ws.send(JSON.stringify({ type: 'get_available_models' }));
       ws.send(JSON.stringify({ type: 'get_available_thinking_levels' }));
+      // 连接建立后再拉历史会话，否则首屏调用时连接尚未就绪
+      ws.send(JSON.stringify({ type: 'list_sessions' }));
     }
   };
 
@@ -171,6 +173,31 @@ export function usePiWebSocket() {
     [sendCommand]
   );
 
+  const requestSessions = useCallback(() => {
+    sendCommand({ type: 'list_sessions' });
+  }, [sendCommand]);
+
+  const switchSession = useCallback(
+    (sessionPath: string) => {
+      sendCommand({ type: 'switch_session', sessionPath });
+    },
+    [sendCommand]
+  );
+
+  const renameSession = useCallback(
+    (sessionPath: string, name: string) => {
+      sendCommand({ type: 'rename_session', sessionPath, name });
+    },
+    [sendCommand]
+  );
+
+  const deleteSession = useCallback(
+    (sessionPath: string) => {
+      sendCommand({ type: 'delete_session', sessionPath });
+    },
+    [sendCommand]
+  );
+
   return {
     messages,
     status,
@@ -180,5 +207,9 @@ export function usePiWebSocket() {
     newSession,
     setModel,
     setThinkingLevel,
+    requestSessions,
+    switchSession,
+    renameSession,
+    deleteSession,
   };
 }
