@@ -234,6 +234,16 @@ describe('外壳高度确实由 JS 与 CSS 共同约定', () => {
     const morphRule = (css.match(/\.pi-stage\[data-morphing\][^{]*\{[^}]*\}/) ?? [''])[0];
     expect(morphRule).toMatch(/height\s+620ms/);
   });
+
+  it('输入框到上限后有看得见的滚动条', () => {
+    // 全局那套是「几乎透明、悬停才浮现」，在输入框里等于没有滚动条
+    expect(css).toMatch(
+      /\.pi-composer textarea::-webkit-scrollbar-thumb\s*\{[^}]*background:\s*var\(/
+    );
+    expect(css).toMatch(/\.pi-composer textarea\s*\{[^}]*scrollbar-width:\s*thin/);
+    // 预留滑块位置，避免它出现时文字重新折行而抖一下
+    expect(css).toMatch(/scrollbar-gutter:\s*stable/);
+  });
 });
 
 describe('高度过渡只在开场形变期间生效', () => {

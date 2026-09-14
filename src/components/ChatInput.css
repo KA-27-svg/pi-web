@@ -111,6 +111,26 @@
   transition: opacity 200ms ease 540ms;
 }
 
+/*
+ * 长到上限后要有滚动条，跟常见的聊天输入一致。
+ * 全局那套是「几乎看不见、悬停才浮现」，在输入框里等于没滚动条。
+ */
+.pi-composer textarea {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+  /* 预留滑块位置，避免它出现时文字重新折行而抖一下 */
+  scrollbar-gutter: stable;
+}
+
+.pi-composer textarea::-webkit-scrollbar {
+  width: 6px;
+}
+
+.pi-composer textarea::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 9999px;
+}
+
 .pi-composer.is-icon textarea,
 .pi-composer.is-icon .pi-controls {
   opacity: 0;
