@@ -30,6 +30,27 @@ const setScrollHeight = (value: number) => {
   Object.defineProperty(textarea(), 'scrollHeight', { configurable: true, value });
 };
 
+/**
+ * 在挂载前给整个 textarea 类钉上内容高度，模拟窄宽度下占位文字折行的测量结果。
+ * 返回还原函数，afterEach 里会调用。
+ */
+const stubScrollHeightForAll = (value: number) => {
+  const original = Object.getOwnPropertyDescriptor(
+    HTMLTextAreaElement.prototype,
+    'scrollHeight'
+  );
+  Object.defineProperty(HTMLTextAreaElement.prototype, 'scrollHeight', {
+    configurable: true,
+    get: () => value,
+  });
+  return () => {
+    if (original) Object.defineProperty(HTMLTextAreaElement.prototype, 'scrollHeight', original);
+    else delete (HTMLTextAreaElement.prototype as unknown as Record<string, unknown>).scrollHeight;
+  };
+};
+
+let restoreScrollHeight: (() => void) | undefined;
+
 /** 走 React 受控组件的正常路径改值 */
 const type = (value: string) => {
   const el = textarea();
@@ -59,6 +80,8 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount());
   host.remove();
+  restoreScrollHeight?.();
+  restoreScrollHeight = undefined;
   vi.useRealTimers();
 });
 
@@ -126,6 +149,58 @@ describe('输入框高度自适应', () => {
     type('第一行\n第二行');
 
     expect(onResize).toHaveBeenCalled();
+  });
+});
+
+describe('形变期间不受折行的占位文字影响', () => {
+  it('图标态按单行高度算，不采用折行后的错误高度', () => {
+    // 图标态外壳只有 112px 宽，减去左右内边距后文字区不到 50px，
+    // 占位文字会被折成好几行，scrollHeight 直接顶到上限
+    restoreScrollHeight = stubScrollHeightForAll(192);
+
+    mount({ showIcon: true });
+
+    expect(composerHeight()).toBe('53px');
+  });
+
+  it('形变进行中同理，不会先鼓起来再缩回去', () => {
+    vi.useFakeTimers();
+    restoreScrollHeight = stubScrollHeightForAll(192);
+
+    mount({ showIcon: true });
+    expect(composerHeight()).toBe('53px');
+
+    // 点击展开，宽度动画期间重测（这里直接渲染成非图标态模拟）
+    act(() => {
+      root.render(
+        <ChatInput onSend={noop} onStop={noop} isLoading={false} showIcon={false} />
+      );
+    });
+    expect(composerHeight()).toBe('53px');
+
+    act(() => {
+      vi.advanceTimersByTime(400);
+    });
+    expect(composerHeight()).toBe('53px');
+  });
+
+  it('形变结束后补测一次，采用真实内容高度', () => {
+    vi.useFakeTimers();
+    restoreScrollHeight = stubScrollHeightForAll(120);
+
+    mount({ showIcon: true });
+    expect(composerHeight()).toBe('53px');
+
+    act(() => {
+      root.render(
+        <ChatInput onSend={noop} onStop={noop} isLoading={false} showIcon={false} />
+      );
+    });
+    act(() => {
+      vi.advanceTimersByTime(800);
+    });
+
+    expect(composerHeight()).toBe('120px');
   });
 });
 

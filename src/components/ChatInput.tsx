@@ -39,18 +39,6 @@ export function ChatInput({
   const appliedHeightRef = useRef(0);
 
   // 标记形变窗口。用属性而不是自定义属性：transition 里引用变量会被任何变量变动打断。
-  useLayoutEffect(() => {
-    const stage = stageRef.current;
-    if (!stage) return;
-
-    if (showIcon) {
-      stage.setAttribute('data-morphing', 'true');
-      return;
-    }
-    const timer = window.setTimeout(() => stage.removeAttribute('data-morphing'), MORPH_MS);
-    return () => window.clearTimeout(timer);
-  }, [showIcon]);
-
   useEffect(() => {
     if (autoFocus) textareaRef.current?.focus();
   }, [autoFocus]);
@@ -64,15 +52,26 @@ export function ChatInput({
 
   const measure = useCallback(() => {
     const el = textareaRef.current;
-    if (!el) return;
+    const stage = stageRef.current;
+    if (!el || !stage) return;
 
-    // 必须先把高度复位到 auto，否则 scrollHeight 会被当前高度撑住，收回时量不准
-    el.style.height = 'auto';
-    const height = Math.min(
-      Math.max(el.scrollHeight, COMPOSER_MIN_HEIGHT),
-      COMPOSER_MAX_HEIGHT
-    );
-    // 文字区高度只影响绝对定位的外壳内部，写回去很便宜
+    let height: number;
+    if (stage.hasAttribute('data-morphing')) {
+      /*
+       * 图标态与形变期间外壳只有 112px 宽，减去左右内边距后文字区不到 50px，
+       * 占位文字会被折成好几行，scrollHeight 直接顶到上限；而这段时间输入必定为空，
+       * 正确高度就是单行高度。顺便也省掉一次强制布局（形变时 width 每帧都在变）。
+       */
+      height = COMPOSER_MIN_HEIGHT;
+    } else {
+      // 必须先把高度复位到 auto，否则 scrollHeight 会被当前高度撑住，收回时量不准
+      el.style.height = 'auto';
+      height = Math.min(
+        Math.max(el.scrollHeight, COMPOSER_MIN_HEIGHT),
+        COMPOSER_MAX_HEIGHT
+      );
+    }
+    // 总是写回，避免上面探针留在 auto 上把文字区收空
     el.style.height = `${height}px`;
 
     // 外壳高度会连带压缩整个对话区，所以只在真的变化时才写，
@@ -80,9 +79,29 @@ export function ChatInput({
     if (height === appliedHeightRef.current) return;
     appliedHeightRef.current = height;
 
-    stageRef.current?.style.setProperty('--composer-height', `${height}px`);
+    stage.style.setProperty('--composer-height', `${height}px`);
     onResize?.();
   }, [onResize]);
+
+  /**
+   * 形变窗口：图标态一直处于窗口内；展开后再持续一小段。
+   * 必须在 measure 之后声明，因为窗口结束时要用它补测一次。
+   */
+  useLayoutEffect(() => {
+    const stage = stageRef.current;
+    if (!stage) return;
+
+    if (showIcon) {
+      stage.setAttribute('data-morphing', 'true');
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      stage.removeAttribute('data-morphing');
+      // 形变期间不测量，结束后补一次，覆盖期间可能已经输入的内容
+      measure();
+    }, MORPH_MS);
+    return () => window.clearTimeout(timer);
+  }, [showIcon, measure]);
 
   useEffect(() => {
     measure();
