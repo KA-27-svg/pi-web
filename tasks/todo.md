@@ -1,5 +1,9 @@
 # Task Checklist: Pi-Web 极简对话核心 (Phase 1)
 
+> **历史归档 · 非当前实现**
+> 本文描述的是项目初期的「OpenAI 兼容 SSE」方案。该方案已被 `pi --mode rpc` 桥接取代，
+> 所列文件路径多数已不存在。当前架构见 [README](../README.md)。
+
 - [x] Task 1.1: 脚手架初始化与依赖安装
   - Acceptance: Vite + React + TS 项目初始化完成，安装 Tailwind CSS, Lucide-React 等必要依赖。
   - Verify: `npm run build` 成功。

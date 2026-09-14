@@ -1,5 +1,9 @@
 # Technical Implementation Plan: Pi-Web 极简对话核心 (Phase 1)
 
+> **历史归档 · 非当前实现**
+> 本文描述的是项目初期的「OpenAI 兼容 SSE」方案。该方案已被 `pi --mode rpc` 桥接取代。
+> 当前架构见 [README](../README.md)。
+
 ## Overview
 本计划将 Phase 1 分为 4 个垂直递进切片（Slices），严格遵循从底层骨架到核心交互，再到高级渲染与持久化的步骤，保证每个阶段都能独立验证并可运行。
 
