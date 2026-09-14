@@ -35,21 +35,19 @@ export function ChatInput({
   const [input, setInput] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
+  /** 上一次真正应用到外壳的高度，用来跳过无变化的写入 */
+  const appliedHeightRef = useRef(0);
 
-  // 只在开场形变期间让外壳高度参与过渡；平时打字必须立刻跟上文字。
-  // 用 CSS 变量而不是 class，避免 React 重写 className 时把标记冲掉。
+  // 标记形变窗口。用属性而不是自定义属性：transition 里引用变量会被任何变量变动打断。
   useLayoutEffect(() => {
     const stage = stageRef.current;
     if (!stage) return;
 
     if (showIcon) {
-      stage.style.setProperty('--composer-morph-ms', `${MORPH_MS}ms`);
+      stage.setAttribute('data-morphing', 'true');
       return;
     }
-    const timer = window.setTimeout(
-      () => stage.style.setProperty('--composer-morph-ms', '0ms'),
-      MORPH_MS
-    );
+    const timer = window.setTimeout(() => stage.removeAttribute('data-morphing'), MORPH_MS);
     return () => window.clearTimeout(timer);
   }, [showIcon]);
 
@@ -67,13 +65,21 @@ export function ChatInput({
   const measure = useCallback(() => {
     const el = textareaRef.current;
     if (!el) return;
+
+    // 必须先把高度复位到 auto，否则 scrollHeight 会被当前高度撑住，收回时量不准
     el.style.height = 'auto';
     const height = Math.min(
       Math.max(el.scrollHeight, COMPOSER_MIN_HEIGHT),
       COMPOSER_MAX_HEIGHT
     );
+    // 文字区高度只影响绝对定位的外壳内部，写回去很便宜
     el.style.height = `${height}px`;
-    // 外壳（.pi-stage 与 .pi-composer）跟着一起长高，否则文字会溢出圆角背景
+
+    // 外壳高度会连带压缩整个对话区，所以只在真的变化时才写，
+    // 否则开场形变期间每帧一次会让动画直接卡住
+    if (height === appliedHeightRef.current) return;
+    appliedHeightRef.current = height;
+
     stageRef.current?.style.setProperty('--composer-height', `${height}px`);
     onResize?.();
   }, [onResize]);

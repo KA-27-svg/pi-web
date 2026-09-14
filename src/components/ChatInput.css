@@ -14,11 +14,23 @@
   width: 100%;
   height: var(--composer-height, 53px);
   transform: translate(-50%, -50%);
-  /* 这里给高度的过渡时长留了变量：只有开场形变（112px 圆形 → 输入框）才给 620ms，
-     平时为 0——打字时外壳必须立即跟上文字，过渡会让文字短暂溢到背景外 */
+  /* 高度默认不参与过渡：打字时外壳必须立即跟上文字，过渡会让文字短暂溢到背景外 */
   transition:
     width 720ms cubic-bezier(0.76, 0, 0.24, 1),
-    height var(--composer-morph-ms, 0ms) cubic-bezier(0.76, 0, 0.24, 1),
+    border-radius 620ms cubic-bezier(0.76, 0, 0.24, 1),
+    background-color 320ms ease 240ms,
+    color 320ms ease 240ms;
+}
+
+/*
+ * 开场形变期间才让高度跟着过渡。
+ * 用属性选择器而不是把 var() 写进 transition：transition 里引用自定义属性后，
+ * 子树上任何自定义属性的变动都会让过渡被重新求值，动画期间每帧写变量会直接卡住。
+ */
+.pi-stage[data-morphing] .pi-composer {
+  transition:
+    width 720ms cubic-bezier(0.76, 0, 0.24, 1),
+    height 620ms cubic-bezier(0.76, 0, 0.24, 1),
     border-radius 620ms cubic-bezier(0.76, 0, 0.24, 1),
     background-color 320ms ease 240ms,
     color 320ms ease 240ms;
