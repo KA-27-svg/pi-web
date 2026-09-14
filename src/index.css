@@ -10,6 +10,8 @@
   --foreground: #1c1c1a;
   --muted: #8b8b85;
   --border: #e9e9e5;
+  /* 滚动条滑块：供需要常驻可见的滚动区（侧栏）使用 */
+  --scrollbar-thumb: #d2d2cc;
   /* 输入框占位文字：由 input::placeholder 与开场动画共用，保证两者渲染一致 */
   --placeholder: #9ca3af;
   --accent: #1c1c1a;
@@ -43,6 +45,7 @@
     --foreground: #ececea;
     --muted: #8f8f8a;
     --border: #2a2a2e;
+    --scrollbar-thumb: #3c3c42;
     --accent: #ececea;
     --accent-foreground: #17171a;
     --accent-hover: #ffffff;
@@ -116,6 +119,15 @@ body {
 }
 ::-webkit-scrollbar-thumb:hover {
   background: var(--muted) !important;
+}
+
+/* 常驻可见的滚动条：对话区刻意做得极淡，但侧栏要能一眼看出还能往下滚 */
+.scroll-visible {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+.scroll-visible::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
 }
 
 /* ── 代码语法着色（跟随主题变量）──────────────── */

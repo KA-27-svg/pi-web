@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import type { BridgeStatus } from '../types/pi';
+import { useRubberBandScroll } from '../hooks/useRubberBandScroll';
 import {
   PanelLeftClose,
   SquarePen,
@@ -57,6 +58,12 @@ export function Sidebar({
   const [renamingPath, setRenamingPath] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState('');
   const [confirmingPath, setConfirmingPath] = useState<string | null>(null);
+
+  const scrollRef = useRef<HTMLElement>(null);
+  const listRef = useRef<HTMLUListElement>(null);
+
+  // 与对话区同一套：到边界后继续滚轮可拉出阻尼位移，松手回弹；拖滚动条不触发
+  useRubberBandScroll(scrollRef, listRef, { enabled: sessions.length > 0 });
 
   const startRename = (path: string, current: string) => {
     setConfirmingPath(null);
@@ -126,11 +133,14 @@ export function Sidebar({
           </button>
         </div>
 
-        <nav className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
+        <nav
+          ref={scrollRef}
+          className="min-h-0 flex-1 overflow-y-auto px-2 pb-3 scroll-visible [scrollbar-gutter:stable]"
+        >
           {sessions.length === 0 ? (
             <p className="px-2 py-3 text-[11px] text-muted">暂无历史对话</p>
           ) : (
-            <ul className="space-y-0.5">
+            <ul ref={listRef} className="space-y-0.5">
               {sessions.map(session => {
                 const active = session.id === status.sessionId;
                 const title = session.name || session.preview || '未命名对话';
