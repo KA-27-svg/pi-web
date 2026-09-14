@@ -132,6 +132,15 @@ body {
   background: var(--scrollbar-thumb);
 }
 
+/* 完全隐藏原生滚动条，但仍可滚动（对话区改用自绘的短横线轨道） */
+.scrollbar-none {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+
 /* ── 代码语法着色（跟随主题变量）──────────────── */
 .token.comment,
 .token.prolog,

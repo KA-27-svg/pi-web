@@ -1,6 +1,7 @@
-import { useRef, useEffect, useState, useCallback } from 'react';
+import { useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import { usePiWebSocket } from './hooks/usePiWebSocket';
 import { useRubberBandScroll } from './hooks/useRubberBandScroll';
+import { ConversationScrollRail, type RailItem } from './components/ConversationScrollRail';
 import { SettingsPanel } from './components/SettingsPanel';
 import { Sidebar } from './components/Sidebar';
 import { PiMessageItem } from './components/PiMessageItem';
@@ -46,6 +47,18 @@ export default function App() {
 
   // 到底/到顶后继续滚轮可以再拉出一段阻尼位移，松手回弹；拖滚动条不触发
   useRubberBandScroll(scrollContainerRef, contentRef, { enabled: !isEmpty });
+
+  // 轨道悬停时的内容预览：先截断再压缩空白，避免对流式中的长文本反复做全文正则
+  const railItems = useMemo<RailItem[]>(
+    () =>
+      messages.map(message => ({
+        role: message.role === 'user' ? 'user' : 'assistant',
+        text:
+          message.content.replace(/\s+/g, ' ').trim().slice(0, 200) ||
+          (message.tools?.length ? `调用了 ${message.tools.length} 个工具` : '（无内容）'),
+      })),
+    [messages]
+  );
 
   // 展开侧栏时刷新一次，保证顺序与最新改动一致（首次拉取在连接建立时完成）
   useEffect(() => {
@@ -109,23 +122,33 @@ export default function App() {
           />
         )}
 
-        {/* 对话流：无框、无头像、无气泡边框 */}
-        {/* scrollbar-gutter both-edges：占位时两侧对称预留，正文不会因滚动条而偏离视口中心；
-            窄屏滚动条为 overlay，不需要预留，否则白白压窄正文 */}
-        <main
-          ref={scrollContainerRef}
-          onScroll={handleScroll}
-          className="flex-1 overflow-y-auto overflow-x-hidden overscroll-y-contain min-w-0 [scrollbar-gutter:stable_both-edges] max-sm:[scrollbar-gutter:auto]"
-        >
+        <div className="relative min-h-0 min-w-0 flex-1">
+          {/* 对话流：无框、无头像、无气泡边框 */}
+          {/* 原生滚动条隐藏，改用右侧的短横线轨道（ConversationScrollRail） */}
+          <main
+            id="conversation-scroll"
+            ref={scrollContainerRef}
+            onScroll={handleScroll}
+            className="scrollbar-none h-full overflow-y-auto overflow-x-hidden overscroll-y-contain"
+          >
+            {!isEmpty && (
+              <div ref={contentRef} className="max-w-content mx-auto px-5 sm:px-6 py-10 space-y-8">
+                {messages.map(msg => (
+                  <PiMessageItem key={msg.id} message={msg} />
+                ))}
+                <div ref={messagesEndRef} className="h-1" />
+              </div>
+            )}
+          </main>
+
           {!isEmpty && (
-            <div ref={contentRef} className="max-w-content mx-auto px-5 sm:px-6 py-10 space-y-8">
-              {messages.map(msg => (
-                <PiMessageItem key={msg.id} message={msg} />
-              ))}
-              <div ref={messagesEndRef} className="h-1" />
-            </div>
+            <ConversationScrollRail
+              containerRef={scrollContainerRef}
+              contentRef={contentRef}
+              items={railItems}
+            />
           )}
-        </main>
+        </div>
 
         {/* 输入区：开场图标态与展开态是同一个元素，原地形变，无交接 */}
         <footer
