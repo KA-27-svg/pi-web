@@ -14,11 +14,9 @@ export function usePiWebSocket() {
   const reconnectTimeoutRef = useRef<any>(null);
   const isMountedRef = useRef(true);
 
-  // 专属解耦的 RPC 事件处理器
-  const handlerRef = useRef<RpcEventHandler | null>(null);
-  if (!handlerRef.current) {
-    handlerRef.current = new RpcEventHandler(setMessages, setStatus);
-  }
+  // 专属解耦的 RPC 事件处理器：惰性初始化一次即可。用 useState 而不是渲染期间写 ref，
+  // setMessages/setStatus 来自 useState，引用是稳定的，所以处理器只需构造一次。
+  const [handler] = useState(() => new RpcEventHandler(setMessages, setStatus));
 
   const requestInitialState = (ws: WebSocket) => {
     if (ws.readyState === WebSocket.OPEN) {
@@ -31,7 +29,8 @@ export function usePiWebSocket() {
     }
   };
 
-  const connectWs = useCallback(() => {
+  // 命名函数表达式：让递归重连引用自身，而不是在初始化过程中引用 connectWs
+  const connectWs = useCallback(function connect() {
     if (!isMountedRef.current) return;
 
     // 已存在活着的连接（连接中或已打开）则直接复用，避免连接风暴
@@ -44,7 +43,9 @@ export function usePiWebSocket() {
       return;
     }
 
-    const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.hostname}:3001`);
+    const ws = new WebSocket(
+      `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.hostname}:3001`
+    );
     wsRef.current = ws;
 
     // 陈旧 socket 的事件一律忽略（StrictMode 双挂载 / 重连替换时至关重要）
@@ -63,7 +64,7 @@ export function usePiWebSocket() {
       setStatus(prev => ({ ...prev, connected: false, isStreaming: false }));
       clearTimeout(reconnectTimeoutRef.current);
       reconnectTimeoutRef.current = setTimeout(() => {
-        if (isMountedRef.current) connectWs();
+        if (isMountedRef.current) connect();
       }, 2000);
     };
 
@@ -75,12 +76,12 @@ export function usePiWebSocket() {
       if (isStale()) return;
       try {
         const data = JSON.parse(event.data);
-        handlerRef.current?.handleEvent(data, ws);
+        handler.handleEvent(data, ws);
       } catch (e) {
         console.error('[usePiWebSocket] Failed to process message', e);
       }
     };
-  }, []);
+  }, [handler]);
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -107,7 +108,7 @@ export function usePiWebSocket() {
     };
 
     const asstId = `asst-${Date.now()}`;
-    handlerRef.current?.setCurrentAssistantId(asstId);
+    handler.setCurrentAssistantId(asstId);
 
     const assistantMsg: PiMessage = {
       id: asstId,
@@ -129,7 +130,7 @@ export function usePiWebSocket() {
         message: text.trim(),
       })
     );
-  }, []);
+  }, [handler]);
 
   const abort = useCallback(() => {
     // 先本地立即响应，避免按钮状态迟滞
@@ -153,11 +154,11 @@ export function usePiWebSocket() {
 
   const newSession = useCallback(() => {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      handlerRef.current?.setCurrentAssistantId(null);
+      handler.setCurrentAssistantId(null);
       setMessages([]);
       wsRef.current.send(JSON.stringify({ type: 'new_session' }));
     }
-  }, []);
+  }, [handler]);
 
   const setModel = useCallback(
     (provider: string, modelId: string) => {
