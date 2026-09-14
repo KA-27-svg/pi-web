@@ -48,15 +48,22 @@ export default function App() {
   // 到底/到顶后继续滚轮可以再拉出一段阻尼位移，松手回弹；拖滚动条不触发
   useRubberBandScroll(scrollContainerRef, contentRef, { enabled: !isEmpty });
 
-  // 轨道悬停时的内容预览：先截断再压缩空白，避免对流式中的长文本反复做全文正则
+  // 轨道的一条横线 = 一次提问：悬停预览用户输入原文，点击跳到那一次
   const railItems = useMemo<RailItem[]>(
     () =>
-      messages.map(message => ({
-        role: message.role === 'user' ? 'user' : 'assistant',
-        text:
-          message.content.replace(/\s+/g, ' ').trim().slice(0, 200) ||
-          (message.tools?.length ? `调用了 ${message.tools.length} 个工具` : '（无内容）'),
-      })),
+      messages.flatMap((message, index) =>
+        message.role === 'user'
+          ? [
+              {
+                index,
+                // 先截断再压空白，避免对流式中的长文本反复做全文正则
+                text:
+                  message.content.slice(0, 400).replace(/\s+/g, ' ').trim().slice(0, 200) ||
+                  '（空消息）',
+              },
+            ]
+          : []
+      ),
     [messages]
   );
 

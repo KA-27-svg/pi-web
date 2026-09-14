@@ -10,28 +10,31 @@ const CLIENT_HEIGHT = 500;
 const SCROLL_HEIGHT = 2000;
 const MESSAGE_STEP = 100;
 const RAIL_PADDING = 16;
+const MESSAGE_COUNT = 20;
 
-const items: RailItem[] = Array.from({ length: 20 }, (_, i) => ({
-  role: i % 2 === 0 ? 'user' : 'assistant',
-  text: `M${i}`,
+// 5 次用户输入散落在 20 条消息里，下标 0 / 4 / 8 / 12 / 16
+const USER_MESSAGE_INDICES = [0, 4, 8, 12, 16];
+const items: RailItem[] = USER_MESSAGE_INDICES.map((index, i) => ({
+  index,
+  text: `提问 ${i}`,
 }));
 
-function Harness() {
+function Harness({ railItems = items }: { railItems?: RailItem[] }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   return (
     <>
       <div ref={containerRef} data-testid="container">
         <div ref={contentRef} data-testid="content">
-          {items.map((item, i) => (
-            <div key={i}>{item.text}</div>
+          {Array.from({ length: MESSAGE_COUNT }, (_, i) => (
+            <div key={i}>消息 {i}</div>
           ))}
         </div>
       </div>
       <ConversationScrollRail
         containerRef={containerRef}
         contentRef={contentRef}
-        items={items}
+        items={railItems}
       />
     </>
   );
@@ -85,23 +88,13 @@ const previewText = () =>
   host.querySelector('[role="scrollbar"]')?.parentElement?.querySelector('.line-clamp-3')
     ?.textContent ?? null;
 
-beforeEach(() => {
-  class ResizeObserverStub {
-    observe() {}
-    unobserve() {}
-    disconnect() {}
-  }
-  (globalThis as unknown as { ResizeObserver: unknown }).ResizeObserver = ResizeObserverStub;
-  Element.prototype.setPointerCapture = () => {};
-  Element.prototype.releasePointerCapture = () => {};
-  Element.prototype.hasPointerCapture = () => false;
+/** 第 index 条横线的中心 y */
+const dashY = (index: number) =>
+  RAIL_PADDING + ((CLIENT_HEIGHT - RAIL_PADDING * 2) * index) / (items.length - 1);
 
-  host = document.createElement('div');
-  document.body.appendChild(host);
-  root = createRoot(host);
-
+const mount = (railItems: RailItem[] = items) => {
   act(() => {
-    root.render(<Harness />);
+    root.render(<Harness railItems={railItems} />);
   });
 
   container = host.querySelector('[data-testid="container"]') as HTMLElement;
@@ -118,6 +111,23 @@ beforeEach(() => {
 
   const railEl = rail();
   if (railEl) stubRect(railEl, 0, CLIENT_HEIGHT);
+};
+
+beforeEach(() => {
+  class ResizeObserverStub {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  }
+  (globalThis as unknown as { ResizeObserver: unknown }).ResizeObserver = ResizeObserverStub;
+  Element.prototype.setPointerCapture = () => {};
+  Element.prototype.releasePointerCapture = () => {};
+  Element.prototype.hasPointerCapture = () => false;
+
+  host = document.createElement('div');
+  document.body.appendChild(host);
+  root = createRoot(host);
+  mount();
 });
 
 afterEach(() => {
@@ -125,9 +135,21 @@ afterEach(() => {
   host.remove();
 });
 
-const bottomY = () => RAIL_PADDING + (CLIENT_HEIGHT - RAIL_PADDING * 2);
+describe('横线数量', () => {
+  it('每条提问一条横线，数量与提问数一致', () => {
+    expect(dashes()).toHaveLength(items.length);
+  });
 
-describe('可滚动性', () => {
+  it('提问条数变化时横线跟着变', () => {
+    mount(items.slice(0, 3));
+    expect(dashes()).toHaveLength(3);
+  });
+
+  it('没有提问时不渲染轨道', () => {
+    mount([]);
+    expect(rail()).toBeNull();
+  });
+
   it('内容不足以滚动时不渲染轨道', () => {
     act(() => {
       Object.defineProperty(container, 'scrollHeight', { configurable: true, value: 400 });
@@ -135,106 +157,97 @@ describe('可滚动性', () => {
     });
     expect(rail()).toBeNull();
   });
-
-  it('可滚动时渲染一列短横线', () => {
-    expect(rail()).not.toBeNull();
-    expect(dashes()).toHaveLength(26);
-  });
-
-  it('暴露滚动条语义', () => {
-    const el = rail();
-    expect(el?.getAttribute('aria-orientation')).toBe('vertical');
-    expect(el?.getAttribute('aria-controls')).toBe('conversation-scroll');
-    expect(el?.getAttribute('aria-valuenow')).toBe('0');
-    expect(el?.getAttribute('tabindex')).toBe('0');
-  });
 });
 
-describe('悬停预览', () => {
-  it('悬停在顶部预览第一条消息', () => {
+describe('预览用户输入', () => {
+  it('悬停第一条预览第一次提问', () => {
     act(() => {
-      rail()!.dispatchEvent(pointer('pointermove', RAIL_PADDING));
+      rail()!.dispatchEvent(pointer('pointermove', dashY(0)));
     });
-    expect(previewText()).toBe('M0');
+    expect(previewText()).toBe('提问 0');
   });
 
-  it('悬停在底部预览该位置对应的消息（而非最后一条）', () => {
+  it('悬停最后一条预览最后一次提问', () => {
     act(() => {
-      rail()!.dispatchEvent(pointer('pointermove', bottomY()));
+      rail()!.dispatchEvent(pointer('pointermove', dashY(items.length - 1)));
     });
-    // 比例 1 → 目标滚动 1500 → 消息 15（每条 100px），不是最后一条
-    expect(previewText()).toBe('M15');
+    expect(previewText()).toBe('提问 4');
   });
 
-  it('悬停在某条短横线上时，预览对应该横线位置的消息', () => {
-    // 第 8 条横线（下标 8/25 = 32%）→ 目标滚动 480px → 消息 M4
-    const y = RAIL_PADDING + (CLIENT_HEIGHT - RAIL_PADDING * 2) * (8 / 25);
+  it('悬停中间某条预览对应的那一次提问', () => {
     act(() => {
-      rail()!.dispatchEvent(pointer('pointermove', y));
+      rail()!.dispatchEvent(pointer('pointermove', dashY(2)));
     });
-    expect(previewText()).toBe('M4');
+    expect(previewText()).toBe('提问 2');
   });
 
-  it('预览吸附到横线，但拖动跳转是连续的', () => {
-    // 光标落在两条横线之间：比例 = 100/468，既不是任何一条横线的位置
-    const y = RAIL_PADDING + 100;
+  it('落在两条之间时吸附到较近的一条', () => {
+    const between = (dashY(1) + dashY(2)) / 2 + 5;
     act(() => {
-      rail()!.dispatchEvent(pointer('pointerdown', y));
+      rail()!.dispatchEvent(pointer('pointermove', between));
     });
-    // 吸附后的横线是下标 5（0.2137×25≈5.34），但滚动位置必须是精确的原始比例
-    const expected = ((SCROLL_HEIGHT - CLIENT_HEIGHT) * 100) / (CLIENT_HEIGHT - RAIL_PADDING * 2);
-    expect(container.scrollTop).toBeCloseTo(expected, 4);
+    expect(previewText()).toBe('提问 2');
   });
 
   it('离开轨道后预览消失', () => {
     act(() => {
-      rail()!.dispatchEvent(pointer('pointermove', RAIL_PADDING));
+      rail()!.dispatchEvent(pointer('pointermove', dashY(0)));
     });
-    expect(previewText()).toBe('M0');
+    expect(previewText()).toBe('提问 0');
 
     // React 的 onPointerLeave 由原生 pointerout 合成
     act(() => {
-      rail()!.dispatchEvent(pointer('pointerout', RAIL_PADDING));
+      rail()!.dispatchEvent(pointer('pointerout', dashY(0)));
     });
     expect(previewText()).toBeNull();
   });
 });
 
 describe('跳转', () => {
-  it('按下轨道跳到对应比例的位置', () => {
+  it('点击某条横线滚到那次提问的位置', () => {
     act(() => {
-      rail()!.dispatchEvent(pointer('pointerdown', bottomY()));
+      rail()!.dispatchEvent(pointer('pointerdown', dashY(2)));
     });
-    expect(container.scrollTop).toBe(SCROLL_HEIGHT - CLIENT_HEIGHT);
+    // 提问 2 是第 8 条消息，每条 100px
+    expect(container.scrollTop).toBe(800);
   });
 
-  it('按下轨道顶部回到起点', () => {
-    container.scrollTop = 800;
+  it('点击第一条回到起点', () => {
+    container.scrollTop = 900;
     act(() => {
-      rail()!.dispatchEvent(pointer('pointerdown', RAIL_PADDING));
+      rail()!.dispatchEvent(pointer('pointerdown', dashY(0)));
     });
     expect(container.scrollTop).toBe(0);
+  });
+
+  it('点击最后一条滚到该提问处', () => {
+    act(() => {
+      rail()!.dispatchEvent(pointer('pointerdown', dashY(items.length - 1)));
+    });
+    expect(container.scrollTop).toBe(1600);
   });
 
   it('拖动过程中持续跟随', () => {
     act(() => {
-      rail()!.dispatchEvent(pointer('pointerdown', bottomY()));
+      rail()!.dispatchEvent(pointer('pointerdown', dashY(4)));
     });
+    expect(container.scrollTop).toBe(1600);
+
     act(() => {
-      rail()!.dispatchEvent(pointer('pointermove', RAIL_PADDING));
+      rail()!.dispatchEvent(pointer('pointermove', dashY(1)));
     });
-    expect(container.scrollTop).toBe(0);
+    expect(container.scrollTop).toBe(400);
   });
 
   it('未按下时移动不会改变滚动位置', () => {
     act(() => {
-      rail()!.dispatchEvent(pointer('pointermove', bottomY()));
+      rail()!.dispatchEvent(pointer('pointermove', dashY(3)));
     });
     expect(container.scrollTop).toBe(0);
   });
 });
 
-describe('键盘操作', () => {
+describe('键盘与语义', () => {
   it('方向键小步滚动', () => {
     const event = pressKey(rail()!, 'ArrowDown');
     expect(event.defaultPrevented).toBe(true);
@@ -255,5 +268,12 @@ describe('键盘操作', () => {
 
   it('未处理的按键不拦截', () => {
     expect(pressKey(rail()!, 'a').defaultPrevented).toBe(false);
+  });
+
+  it('暴露滚动条语义', () => {
+    const el = rail();
+    expect(el?.getAttribute('aria-orientation')).toBe('vertical');
+    expect(el?.getAttribute('aria-controls')).toBe('conversation-scroll');
+    expect(el?.getAttribute('tabindex')).toBe('0');
   });
 });

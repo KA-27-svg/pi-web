@@ -1,14 +1,12 @@
 import { useCallback, useEffect, useRef, useState, type RefObject } from 'react';
 
-/** 短横线的条数。位置按滚动比例均分，与消息条数无关，因此多少条对话都长一样 */
-const SEGMENTS = 26;
 /** 轨道上下留白，必须与下方 style 中的 padding 保持一致 */
 const RAIL_PADDING_PX = 16;
-/** 命中一个消息时允许的容差，避免目标正好落在段落间隙里 */
-const ITEM_TOLERANCE_PX = 8;
 
 export interface RailItem {
-  role: 'user' | 'assistant';
+  /** 该条在消息列表里的下标，用来量它在内容里的纵向位置 */
+  index: number;
+  /** 预览文本，即用户输入原文 */
   text: string;
 }
 
@@ -26,11 +24,9 @@ interface Metrics {
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
-const indexToFraction = (index: number) => index / (SEGMENTS - 1);
-
 /**
- * 对话区的滚动条：右侧一列短横线。
- * 悬停时横线变长变实，并在左侧预览该位置的内容；点击或拖动跳转。
+ * 对话区的滚动条：右侧一列短横线，一条对应一次用户输入。
+ * 悬停时横线变长，并在左侧预览这次输入的内容；点击或拖动跳到这一次提问。
  * 原生滚动条被 .scrollbar-none 隐藏，滚动本身仍然照常（滚轮 / 键盘 / 触控板）。
  */
 export function ConversationScrollRail({
@@ -45,7 +41,8 @@ export function ConversationScrollRail({
     scrollHeight: 0,
     clientHeight: 0,
   });
-  const [messageOffsets, setMessageOffsets] = useState<number[]>([]);
+  /** 每一条对应的纵向偏移，与当前滚动位置无关（基准里已减掉 scrollTop） */
+  const [anchors, setAnchors] = useState<number[]>([]);
   const [expanded, setExpanded] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
@@ -81,48 +78,31 @@ export function ConversationScrollRail({
     };
   }, [containerRef, contentRef, measure, items.length]);
 
-  const maxScroll = Math.max(0, metrics.scrollHeight - metrics.clientHeight);
-  const scrollable = maxScroll > 1;
-  const progress = maxScroll > 0 ? metrics.scrollTop / maxScroll : 0;
-  const visibleStart = metrics.scrollHeight > 0 ? metrics.scrollTop / metrics.scrollHeight : 0;
-  const visibleEnd =
-    metrics.scrollHeight > 0
-      ? (metrics.scrollTop + metrics.clientHeight) / metrics.scrollHeight
-      : 1;
-
   /**
-   * 每条消息在内容里的绝对纵向偏移。它不随滚动变化（基准里已经减掉 scrollTop），
-   * 所以只在内容尺寸变化时重算；放在 effect 里测量，渲染期不碰 ref。
+   * 量每条提问在内容里的位置。放在 effect 里而不是渲染期，渲染期读 ref 在并发渲染下不安全。
+   * 只在内容尺寸变化时重算，滚动本身不影响结果。
    */
   useEffect(() => {
     const container = containerRef.current;
     const content = contentRef.current;
     if (!container || !content) {
-      setMessageOffsets([]);
+      setAnchors([]);
       return;
     }
 
     const base = container.getBoundingClientRect().top - container.scrollTop;
-    const count = Math.min(content.children.length, items.length);
-    setMessageOffsets(
-      Array.from(
-        { length: count },
-        (_, i) => (content.children[i] as HTMLElement).getBoundingClientRect().top - base
-      )
+    setAnchors(
+      items.map(item => {
+        const child = content.children[item.index] as HTMLElement | undefined;
+        return child ? child.getBoundingClientRect().top - base : 0;
+      })
     );
-  }, [containerRef, contentRef, items.length, metrics.scrollHeight, metrics.clientHeight]);
+  }, [containerRef, contentRef, items, metrics.scrollHeight, metrics.clientHeight]);
 
-  /** 某个滚动比例处最靠近顶部的消息下标 */
-  const itemIndexAtFraction = (fraction: number) => {
-    if (messageOffsets.length === 0) return 0;
-
-    const target = fraction * maxScroll;
-    let found = 0;
-    for (let i = 0; i < messageOffsets.length; i += 1) {
-      if (messageOffsets[i] <= target + ITEM_TOLERANCE_PX) found = i;
-    }
-    return found;
-  };
+  const count = items.length;
+  const maxScroll = Math.max(0, metrics.scrollHeight - metrics.clientHeight);
+  const scrollable = maxScroll > 1;
+  const progress = maxScroll > 0 ? metrics.scrollTop / maxScroll : 0;
 
   const fractionFromClientY = (clientY: number) => {
     const rail = railRef.current;
@@ -132,29 +112,34 @@ export function ConversationScrollRail({
     return clamp((clientY - rect.top - RAIL_PADDING_PX) / usable, 0, 1);
   };
 
-  const scrollToFraction = (fraction: number) => {
+  const indexFromClientY = (clientY: number) => {
+    if (count <= 1) return 0;
+    return Math.round(fractionFromClientY(clientY) * (count - 1));
+  };
+
+  const scrollToIndex = (index: number) => {
     const container = containerRef.current;
-    if (!container) return;
-    const max = Math.max(0, container.scrollHeight - container.clientHeight);
-    container.scrollTop = clamp(fraction, 0, 1) * max;
+    const anchor = anchors[index];
+    if (!container || anchor === undefined) return;
+    container.scrollTop = anchor;
   };
 
   const track = (clientY: number) => {
-    const fraction = fractionFromClientY(clientY);
-    setHoveredIndex(Math.round(fraction * (SEGMENTS - 1)));
-    setHoverY(clamp(clientY - (railRef.current?.getBoundingClientRect().top ?? 0), 0, metrics.clientHeight));
-    return fraction;
+    const rail = railRef.current;
+    setHoveredIndex(indexFromClientY(clientY));
+    setHoverY(clamp(clientY - (rail?.getBoundingClientRect().top ?? 0), 0, metrics.clientHeight));
+    return indexFromClientY(clientY);
   };
 
   const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
     event.currentTarget.setPointerCapture?.(event.pointerId);
     setDragging(true);
-    scrollToFraction(track(event.clientY));
+    scrollToIndex(track(event.clientY));
   };
 
   const handlePointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
-    const fraction = track(event.clientY);
-    if (dragging) scrollToFraction(fraction);
+    const index = track(event.clientY);
+    if (dragging) scrollToIndex(index);
   };
 
   const endDrag = (event: React.PointerEvent<HTMLDivElement>) => {
@@ -201,18 +186,18 @@ export function ConversationScrollRail({
     const container = containerRef.current;
     if (!container) return;
     const delta =
-      event.deltaMode === 1 ? event.deltaY * 16 : event.deltaMode === 2 ? event.deltaY * container.clientHeight : event.deltaY;
+      event.deltaMode === 1
+        ? event.deltaY * 16
+        : event.deltaMode === 2
+          ? event.deltaY * container.clientHeight
+          : event.deltaY;
     container.scrollTop += delta;
   };
 
-  const preview =
-    hoveredIndex === null || items.length === 0
-      ? null
-      : items[itemIndexAtFraction(indexToFraction(hoveredIndex))];
-
-  if (!scrollable) return null;
+  if (!scrollable || count === 0) return null;
 
   const isOpen = expanded || dragging;
+  const preview = hoveredIndex === null ? null : items[hoveredIndex]?.text;
   const previewTop = clamp(hoverY, 48, Math.max(48, metrics.clientHeight - 48));
 
   return (
@@ -228,9 +213,7 @@ export function ConversationScrollRail({
         aria-valuenow={Math.round(progress * 100)}
         tabIndex={0}
         style={{ paddingTop: RAIL_PADDING_PX, paddingBottom: RAIL_PADDING_PX }}
-        className={`absolute inset-y-0 right-0 z-20 flex w-4 cursor-pointer flex-col items-end justify-between rounded-full outline-none transition-colors focus-visible:ring-2 focus-visible:ring-border ${
-          isOpen ? 'bg-surface/60' : ''
-        }`}
+        className="absolute inset-y-0 right-0 z-20 flex w-4 cursor-pointer flex-col items-center justify-between rounded-full outline-none focus-visible:ring-2 focus-visible:ring-border"
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={endDrag}
@@ -245,21 +228,14 @@ export function ConversationScrollRail({
         onKeyDown={handleKeyDown}
         onWheel={handleWheel}
       >
-        {Array.from({ length: SEGMENTS }, (_, index) => {
-          const fraction = indexToFraction(index);
-          const inView = fraction >= visibleStart - 0.001 && fraction <= visibleEnd + 0.001;
+        {items.map((item, index) => {
           const hovered = hoveredIndex === index;
-
           const width = hovered ? 'w-5' : isOpen ? 'w-3.5' : 'w-2.5';
-          const tone = hovered
-            ? 'bg-foreground'
-            : inView
-              ? 'bg-foreground/40'
-              : 'bg-border';
+          const tone = hovered ? 'bg-foreground' : 'bg-muted';
 
           return (
             <span
-              key={index}
+              key={item.index}
               aria-hidden="true"
               className={`h-[2px] shrink-0 rounded-full transition-all duration-150 ${width} ${tone}`}
             />
@@ -272,11 +248,9 @@ export function ConversationScrollRail({
           className="pointer-events-none absolute right-5 z-30 w-64 -translate-y-1/2 rounded-lg border border-border bg-background px-3 py-2 shadow-[0_4px_24px_-8px_rgba(0,0,0,0.18)]"
           style={{ top: previewTop }}
         >
-          <div className="text-[10.5px] text-muted">
-            {preview.role === 'user' ? '你' : 'Pi'}
-          </div>
+          <div className="text-[10.5px] text-muted">你</div>
           <p className="mt-0.5 line-clamp-3 text-[12px] leading-[1.65] text-foreground/90 break-words">
-            {preview.text}
+            {preview}
           </p>
         </div>
       )}
