@@ -1,9 +1,10 @@
-import { useRef, useEffect, useState, useCallback, useMemo } from 'react';
+import { useRef, useEffect, useState, useCallback, useMemo, useLayoutEffect } from 'react';
 import { usePiWebSocket } from './hooks/usePiWebSocket';
 import { useRubberBandScroll } from './hooks/useRubberBandScroll';
 import { ConversationScrollRail, type RailItem } from './components/ConversationScrollRail';
 import { ConversationThread } from './components/ConversationThread';
 import { isSidebarDismissClick } from './utils/sidebarDismiss';
+import { growWindow, initialWindow, visibleSlice } from './utils/threadWindow';
 
 /** 与 Tailwind 的 sm 断点一致：窄屏时侧栏是覆盖层，而不是并排的一栏 */
 const NARROW_VIEWPORT = '(max-width: 640px)';
@@ -30,6 +31,34 @@ export default function App() {
   // 切换会话时对话区不显示内容，但布局要按「有对话」算，
   // 否则底部输入区位置与开场图标都会跟着弹一次
   const isEmpty = messages.length === 0 && !switching;
+
+  // 只渲染最近一段消息（参考官方 pi-web：一次渲染整段历史会卡）
+  const [threadWindow, setThreadWindow] = useState(initialWindow);
+  // 历史每次加载都换一批 id，所以首条 id 能代表「这是哪一次加载」；
+  // 换会话时窗口自动回到一页，不必额外写重置逻辑
+  const historyKey = messages[0]?.id ?? '';
+  const { visible: visibleMessages, hasEarlier } = useMemo(
+    () => visibleSlice(messages, threadWindow, historyKey),
+    [messages, threadWindow, historyKey]
+  );
+
+  const scrollAdjustRef = useRef<number | null>(null);
+
+  // 往上补一页。补进来的内容会把视线推下去，所以先记下当前高度，
+  // 渲染后补回同样的量——否则既会跳动，sеntinel 也会一直可见而把整段历史拉完
+  const loadEarlier = useCallback(() => {
+    const el = scrollContainerRef.current;
+    scrollAdjustRef.current = el ? el.scrollHeight : null;
+    setThreadWindow(prev => growWindow(prev, historyKey, messages.length));
+  }, [historyKey, messages.length]);
+
+  useLayoutEffect(() => {
+    const el = scrollContainerRef.current;
+    const before = scrollAdjustRef.current;
+    if (before === null || !el) return;
+    scrollAdjustRef.current = null;
+    el.scrollTop += el.scrollHeight - before;
+  }, [visibleMessages.length]);
 
   const handleScroll = () => {
     const el = scrollContainerRef.current;
@@ -81,7 +110,8 @@ export default function App() {
   // 轨道的一条横线 = 一次提问：悬停预览用户输入原文，点击跳到那一次
   const railItems = useMemo<RailItem[]>(
     () =>
-      messages.flatMap((message, index) =>
+      // 轨道只能反映已经渲染出来的那段：没渲染的消息没有 DOM 锚点，跳不过去
+      visibleMessages.flatMap((message, index) =>
         message.role === 'user'
           ? [
               {
@@ -94,7 +124,7 @@ export default function App() {
             ]
           : []
       ),
-    [messages]
+    [visibleMessages]
   );
 
   // 展开侧栏时刷新一次，保证顺序与最新改动一致（首次拉取在连接建立时完成）
@@ -180,8 +210,11 @@ export default function App() {
           >
             {!isEmpty && (
               <ConversationThread
-                messages={messages}
+                messages={visibleMessages}
                 switching={switching}
+                hasEarlier={hasEarlier}
+                onLoadEarlier={loadEarlier}
+                scrollRef={scrollContainerRef}
                 contentRef={contentRef}
                 endRef={messagesEndRef}
               />
