@@ -73,6 +73,7 @@ export async function renameSession(sessionPath: string, name: string): Promise<
   await fs.appendFile(target, `${prefix}${JSON.stringify(entry)}\n`, 'utf-8');
 }
 
+/** 删除会话。仅用于彻底删除（回收箱清空 / 过期清理）；普通删除走 trash.ts */
 export async function deleteSession(sessionPath: string): Promise<void> {
   await fs.unlink(resolveSessionPath(sessionPath));
 }
@@ -203,7 +204,7 @@ async function readTail(file: string): Promise<string> {
   }
 }
 
-async function readSessionSummary(
+export async function readSessionSummary(
   file: string,
   mtimeMs: number
 ): Promise<SessionSummary> {

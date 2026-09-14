@@ -194,10 +194,32 @@ export function usePiWebSocket() {
 
   const deleteSession = useCallback(
     (sessionPath: string) => {
-      sendCommand({ type: 'delete_session', sessionPath });
+      sendCommand({ type: 'trash_session', sessionPath });
     },
     [sendCommand]
   );
+
+  const requestTrash = useCallback(() => {
+    sendCommand({ type: 'list_trash' });
+  }, [sendCommand]);
+
+  const restoreSession = useCallback(
+    (sessionPath: string) => {
+      sendCommand({ type: 'restore_session', sessionPath });
+    },
+    [sendCommand]
+  );
+
+  const purgeSession = useCallback(
+    (sessionPath: string) => {
+      sendCommand({ type: 'purge_session', sessionPath });
+    },
+    [sendCommand]
+  );
+
+  const emptyTrash = useCallback(() => {
+    sendCommand({ type: 'empty_trash' });
+  }, [sendCommand]);
 
   return {
     messages,
@@ -212,5 +234,9 @@ export function usePiWebSocket() {
     switchSession,
     renameSession,
     deleteSession,
+    requestTrash,
+    restoreSession,
+    purgeSession,
+    emptyTrash,
   };
 }

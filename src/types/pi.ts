@@ -34,6 +34,17 @@ export interface SessionSummary {
   cwd?: string;
 }
 
+/** 回收箱里的会话，比普通摘要多了删除/到期时间 */
+export interface TrashedSession {
+  path: string;
+  id: string;
+  name?: string;
+  preview: string;
+  cwd?: string;
+  deletedAt: number;
+  expiresAt: number;
+}
+
 export interface BridgeStatus {
   connected: boolean;
   cwd: string;
@@ -47,4 +58,5 @@ export interface BridgeStatus {
   sessions?: SessionSummary[];
   /** 磁盘上的会话总数；比 sessions.length 大说明列表被截断 */
   sessionsTotal?: number;
+  trashed?: TrashedSession[];
 }

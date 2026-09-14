@@ -102,10 +102,27 @@ export class RpcEventHandler {
       return;
     }
 
-    // 6. 重命名 / 删除会话后刷新列表
-    if (data.type === 'session_renamed' || data.type === 'session_deleted') {
+    if (data.type === 'trash_list') {
+      this.setStatus((prev: any) => ({ ...prev, trashed: data.sessions ?? [] }));
+      return;
+    }
+
+    // 6. 会话增删改后刷新列表
+    if (data.type === 'session_renamed') {
+      if (data.success) ws.send(JSON.stringify({ type: 'list_sessions' }));
+      return;
+    }
+
+    if (
+      data.type === 'session_trashed' ||
+      data.type === 'session_restored' ||
+      data.type === 'session_purged' ||
+      data.type === 'trash_emptied'
+    ) {
+      // 两个列表都可能变了：会话列表多/少一条，回收箱少/多一条
       if (data.success) {
         ws.send(JSON.stringify({ type: 'list_sessions' }));
+        ws.send(JSON.stringify({ type: 'list_trash' }));
       }
       return;
     }

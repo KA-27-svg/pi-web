@@ -229,4 +229,54 @@ describe('会话列表事件', () => {
     h.handler.handleEvent({ type: 'session_renamed', success: false }, h.ws);
     expect(h.ws.sent).toEqual([]);
   });
+
+  it('sessions_list 记录总数，便于提示列表被截断', () => {
+    const h = createHarness();
+    h.handler.handleEvent(
+      { type: 'sessions_list', sessions: [{ path: '/a.jsonl', id: 'a' }], total: 300 },
+      h.ws
+    );
+
+    expect(h.status().sessionsTotal).toBe(300);
+  });
+
+  it('没有 total 时退回按列表长度计', () => {
+    const h = createHarness();
+    h.handler.handleEvent({ type: 'sessions_list', sessions: [{ path: '/a.jsonl', id: 'a' }] }, h.ws);
+    expect(h.status().sessionsTotal).toBe(1);
+  });
+
+  it('trash_list 写入回收箱内容', () => {
+    const h = createHarness();
+    h.handler.handleEvent(
+      { type: 'trash_list', sessions: [{ path: '/t.jsonl', id: 't', preview: '删掉的' }] },
+      h.ws
+    );
+
+    expect(h.status().trashed).toEqual([{ path: '/t.jsonl', id: 't', preview: '删掉的' }]);
+  });
+
+  it('移入回收箱成功后两个列表都刷新', () => {
+    const h = createHarness();
+    h.handler.handleEvent({ type: 'session_trashed', success: true }, h.ws);
+
+    expect(h.ws.sent).toContain(JSON.stringify({ type: 'list_sessions' }));
+    expect(h.ws.sent).toContain(JSON.stringify({ type: 'list_trash' }));
+  });
+
+  it('移入回收箱失败时不刷新', () => {
+    const h = createHarness();
+    h.handler.handleEvent({ type: 'session_trashed', success: false }, h.ws);
+    expect(h.ws.sent).toEqual([]);
+  });
+
+  it('恢复 / 彻底删除 / 清空回收箱都会刷新两个列表', () => {
+    for (const type of ['session_restored', 'session_purged', 'trash_emptied']) {
+      const h = createHarness();
+      h.handler.handleEvent({ type, success: true }, h.ws);
+
+      expect(h.ws.sent, type).toContain(JSON.stringify({ type: 'list_sessions' }));
+      expect(h.ws.sent, type).toContain(JSON.stringify({ type: 'list_trash' }));
+    }
+  });
 });

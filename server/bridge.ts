@@ -3,7 +3,15 @@ import { WebSocketServer, WebSocket } from 'ws';
 import * as http from 'http';
 import * as path from 'path';
 import * as fs from 'fs/promises';
-import { listSessions, readSessionCwdSync, renameSession, deleteSession } from './sessions.js';
+import { listSessions, readSessionCwdSync, renameSession } from './sessions.js';
+import {
+  emptyTrash,
+  listTrash,
+  purgeSession,
+  restoreSession,
+  sweepTrash,
+  trashSession,
+} from './trash.js';
 
 const PORT = 3001;
 // 桥接能以任意 cwd 拉起 `pi --mode rpc`，等同于把本机命令执行能力开放出去，
@@ -31,6 +39,30 @@ function broadcast(msg: string) {
       client.send(msg);
     }
   });
+}
+
+/**
+ * 统一的「跑一个异步操作 → 回一条结果」封装。
+ * payload 用来把操作结果或原请求里的字段带回去。
+ */
+function reply<T>(
+  ws: WebSocket,
+  type: string,
+  run: () => Promise<T>,
+  payload?: (value: T) => Record<string, unknown>
+) {
+  run()
+    .then(value => {
+      if (ws.readyState !== WebSocket.OPEN) return;
+      ws.send(JSON.stringify({ type, success: true, ...(payload?.(value) ?? {}) }));
+    })
+    .catch(err => {
+      console.error(`[Pi Bridge] ${type} failed:`, err);
+      if (ws.readyState !== WebSocket.OPEN) return;
+      ws.send(
+        JSON.stringify({ type, success: false, error: String(err?.message ?? err) })
+      );
+    });
 }
 
 /**
@@ -212,44 +244,43 @@ wss.on('connection', (ws: WebSocket) => {
         return;
       }
 
-      // 重命名 / 删除历史会话（pi 的 RPC 不提供对任意会话的这两个操作）
+      // 历史会话的增删改：pi 的 RPC 只认当前会话，这些都得桥接直接操作文件
       if (data.type === 'rename_session') {
-        renameSession(data.sessionPath, String(data.name ?? '').trim())
-          .then(() =>
-            ws.send(
-              JSON.stringify({ type: 'session_renamed', success: true, sessionPath: data.sessionPath })
-            )
-          )
-          .catch(err =>
-            ws.send(
-              JSON.stringify({
-                type: 'session_renamed',
-                success: false,
-                sessionPath: data.sessionPath,
-                error: String(err?.message ?? err),
-              })
-            )
-          );
+        reply(ws, 'session_renamed', () => renameSession(data.sessionPath, String(data.name ?? '').trim()), () => ({
+          sessionPath: data.sessionPath,
+        }));
         return;
       }
 
-      if (data.type === 'delete_session') {
-        deleteSession(data.sessionPath)
-          .then(() =>
-            ws.send(
-              JSON.stringify({ type: 'session_deleted', success: true, sessionPath: data.sessionPath })
-            )
-          )
-          .catch(err =>
-            ws.send(
-              JSON.stringify({
-                type: 'session_deleted',
-                success: false,
-                sessionPath: data.sessionPath,
-                error: String(err?.message ?? err),
-              })
-            )
-          );
+      // 删除 = 移入回收箱（保留 30 天），所以可以一步到位、不需要二次确认
+      if (data.type === 'trash_session') {
+        reply(ws, 'session_trashed', () => trashSession(data.sessionPath), () => ({
+          sessionPath: data.sessionPath,
+        }));
+        return;
+      }
+
+      if (data.type === 'list_trash') {
+        reply(ws, 'trash_list', () => listTrash(), sessions => ({ sessions }));
+        return;
+      }
+
+      if (data.type === 'restore_session') {
+        reply(ws, 'session_restored', () => restoreSession(data.sessionPath), () => ({
+          sessionPath: data.sessionPath,
+        }));
+        return;
+      }
+
+      if (data.type === 'purge_session') {
+        reply(ws, 'session_purged', () => purgeSession(data.sessionPath), () => ({
+          sessionPath: data.sessionPath,
+        }));
+        return;
+      }
+
+      if (data.type === 'empty_trash') {
+        reply(ws, 'trash_emptied', () => emptyTrash(), removed => ({ removed }));
         return;
       }
 
@@ -272,4 +303,11 @@ wss.on('connection', (ws: WebSocket) => {
 server.listen(PORT, HOST, () => {
   console.log(`[Pi Bridge] Server listening on http://${HOST}:${PORT}`);
   console.log(`[Pi Bridge] WebSocket ready on ws://${HOST}:${PORT}`);
+
+  // 桥接不常驻，所以靠启动时扫一次来执行回收箱的 30 天保留期
+  sweepTrash()
+    .then(removed => {
+      if (removed > 0) console.log(`[Pi Bridge] Swept ${removed} expired trashed session(s)`);
+    })
+    .catch(err => console.error('[Pi Bridge] Trash sweep failed:', err));
 });
