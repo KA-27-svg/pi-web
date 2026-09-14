@@ -28,6 +28,21 @@ export class RpcEventHandler {
     this.currentAssistantId = id;
   }
 
+  /** 结束当前这一轮：复位执行状态，并把占位消息落定为完成或失败 */
+  private finishTurn(error?: string) {
+    this.setStatus((prev: any) => ({ ...prev, isStreaming: false, currentTool: undefined }));
+
+    const targetId = this.currentAssistantId;
+    if (!targetId) return;
+
+    this.setMessages(prev =>
+      prev.map(m =>
+        m.id === targetId ? { ...m, status: error ? 'error' : 'done', error } : m
+      )
+    );
+    this.currentAssistantId = null;
+  }
+
   public handleEvent(data: any, ws: WebSocket) {
     // 1. 桥接服务连接与目录变化
     if (data.type === 'bridge_status' || data.type === 'cwd_changed') {
@@ -47,15 +62,26 @@ export class RpcEventHandler {
       return;
     }
 
-    if (data.type === 'agent_end' || data.type === 'agent_settled') {
-      this.setStatus((prev: any) => ({ ...prev, isStreaming: false, currentTool: undefined }));
-      if (this.currentAssistantId) {
-        const targetId = this.currentAssistantId;
-        this.setMessages(prev =>
-          prev.map(m => (m.id === targetId ? { ...m, status: 'done' } : m))
-        );
-        this.currentAssistantId = null;
-      }
+    // agent_end 只代表一次底层 run 结束，后面还可能跟着自动重试、压缩重跑或排队消息，
+    // 只有 agent_settled 才是整轮真正收尾。在 agent_end 就收尾会让“停止生成”
+    // 按钮在重试期间闪一下又变回来，消息也会被提前标成完成。
+    if (data.type === 'agent_end') return;
+
+    if (data.type === 'agent_settled') {
+      this.finishTurn();
+      return;
+    }
+
+    // pi 进程崩溃或桥接报错：本地必须收尾，否则输入框会一直停在“生成中”
+    if (
+      data.type === 'pi_process_exit' ||
+      data.type === 'pi_process_error' ||
+      data.type === 'bridge_error'
+    ) {
+      console.error('[Pi]', data.error ?? data.type);
+      this.finishTurn(
+        data.error || `Pi 进程已退出（code ${data.code ?? '未知'}）`
+      );
       return;
     }
 
@@ -91,6 +117,8 @@ export class RpcEventHandler {
         thinkingLevel: state.thinkingLevel,
         sessionId: state.sessionId,
         model: toModelInfo(state.model),
+        // 本地已经有一条在生成的回复时，不让回包把状态改回“已停止”
+        isStreaming: this.currentAssistantId ? true : !!state.isStreaming,
       }));
     }
 

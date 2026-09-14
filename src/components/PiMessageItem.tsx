@@ -32,6 +32,12 @@ export function PiMessageItem({ message }: PiMessageItemProps) {
       />
 
       {message.content && <MarkdownView content={message.content} />}
+
+      {message.error && (
+        <p className="mt-2 text-[12.5px] leading-[1.7] text-rose-500 break-words">
+          {message.error}
+        </p>
+      )}
     </div>
   );
 }

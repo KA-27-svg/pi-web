@@ -44,7 +44,7 @@ export function usePiWebSocket() {
       return;
     }
 
-    const ws = new WebSocket('ws://localhost:3001');
+    const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.hostname}:3001`);
     wsRef.current = ws;
 
     // 陈旧 socket 的事件一律忽略（StrictMode 双挂载 / 重连替换时至关重要）

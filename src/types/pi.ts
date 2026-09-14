@@ -14,6 +14,8 @@ export interface PiMessage {
   tools?: ToolCallState[];
   timestamp: number;
   status?: 'streaming' | 'done' | 'error';
+  /** status 为 error 时的原因，用于直接展示给用户 */
+  error?: string;
 }
 
 export interface ModelInfo {
