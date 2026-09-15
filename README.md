@@ -36,7 +36,13 @@ npm run dev
 ```
 
 `npm run dev` 会同时启动桥接和 Vite，然后打开 http://localhost:5173 。
-Windows 上也可以直接双击 `start.bat`。
+
+Windows 上也可以直接双击 `start.bat`（或把它做成快捷方式放在桌面 / 开始菜单）。它会：
+
+- 先确认 Node 已安装，缺依赖时自动 `npm install`；
+- 服务已在运行时不再重复启动，直接打开页面；
+- 等端口真的监听后再开浏览器，避免先看到「无法访问」；
+- 关闭那个控制台窗口即停服务。
 
 ## 脚本
 
