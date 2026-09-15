@@ -14,6 +14,8 @@ interface ConversationThreadProps {
   /** 更早的消息还存在，只是没渲染 */
   hasEarlier?: boolean;
   onLoadEarlier?: () => void;
+  /** 点开文件附件时交回上层（用系统默认程序打开） */
+  onOpenFile?: (path: string) => void;
   scrollRef: RefObject<HTMLElement | null>;
   contentRef: RefObject<HTMLDivElement | null>;
   endRef: RefObject<HTMLDivElement | null>;
@@ -24,6 +26,7 @@ export function ConversationThread({
   switching = false,
   hasEarlier = false,
   onLoadEarlier,
+  onOpenFile,
   scrollRef,
   contentRef,
   endRef,
@@ -66,7 +69,7 @@ export function ConversationThread({
       )}
 
       {messages.map(message => (
-        <PiMessageItem key={message.id} message={message} />
+        <PiMessageItem key={message.id} message={message} onOpenFile={onOpenFile} />
       ))}
       <div ref={endRef} className="h-1" />
     </div>

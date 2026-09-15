@@ -16,7 +16,7 @@ import { ChatInput } from './components/ChatInput';
 import { Settings, PanelLeftOpen } from 'lucide-react';
 
 export default function App() {
-  const { messages, status, sendPrompt, abort, changeCwd, newSession, setModel, setThinkingLevel, requestSessions, requestStats, uploadFile, listDir, readAttachment, pickFile, switchSession, renameSession, deleteSession, requestTrash, restoreSession, purgeSession, emptyTrash } =
+  const { messages, status, sendPrompt, abort, changeCwd, newSession, setModel, setThinkingLevel, requestSessions, requestStats, uploadFile, listDir, readAttachment, pickFile, openAttachment, switchSession, renameSession, deleteSession, requestTrash, restoreSession, purgeSession, emptyTrash } =
     usePiWebSocket();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLElement>(null);
@@ -231,6 +231,7 @@ export default function App() {
                 switching={switching}
                 hasEarlier={hasEarlier}
                 onLoadEarlier={loadEarlier}
+                onOpenFile={path => void openAttachment(path).catch(() => undefined)}
                 scrollRef={scrollContainerRef}
                 contentRef={contentRef}
                 endRef={messagesEndRef}

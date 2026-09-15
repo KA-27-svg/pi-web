@@ -386,6 +386,16 @@ export function usePiWebSocket() {
     sendCommand({ type: 'list_trash' });
   }, [sendCommand]);
 
+  /**
+   * 用系统默认程序打开一个附件。
+   * 路径只允许工作目录内的，或用户刚在文件选择框里选过的。
+   */
+  const openAttachment = useCallback(
+    (filePath: string): Promise<void> =>
+      request<unknown>('open_attachment', { path: filePath }).then(() => undefined),
+    [request]
+  );
+
   const restoreSession = useCallback(
     (sessionPath: string) => {
       sendCommand({ type: 'restore_session', sessionPath });
@@ -419,6 +429,7 @@ export function usePiWebSocket() {
     listDir,
     readAttachment,
     pickFile,
+    openAttachment,
     switchSession,
     renameSession,
     deleteSession,

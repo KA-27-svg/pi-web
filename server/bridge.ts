@@ -6,7 +6,8 @@ import { listSessions, readSessionCwdSync, renameSession } from './sessions.js';
 import { saveUpload } from './uploads.js';
 import { listDirectory } from './browse.js';
 import { pickFiles } from './fileDialog.js';
-import { PickedFiles } from './pickedFiles.js';
+import { PickedFiles, pickedFilesStorePath } from './pickedFiles.js';
+import { openWithSystem } from './openFile.js';
 import { readAttachment, resolveAttachment } from './textAttachment.js';
 import { reply } from './reply.js';
 import { attachOriginGuard, parseAllowedOrigins } from './origin.js';
@@ -42,8 +43,8 @@ let currentCwd = process.cwd();
  */
 let pendingSwitchCwd: string | null = null;
 
-/** 用户亲手选过的文件路径（工作目录之外的只允许读这些） */
-const picked = new PickedFiles();
+/** 用户亲手选过的文件路径（工作目录之外的只允许读/打开这些） */
+const picked = new PickedFiles(pickedFilesStorePath());
 
 function broadcast(msg: string) {
   wss.clients.forEach(client => {
@@ -290,6 +291,25 @@ wss.on('connection', (ws: WebSocket) => {
         return;
       }
 
+      // 用系统默认程序打开一个附件。路径同样只允许工作目录内的，
+      // 或用户刚在文件选择框里选过的。
+      if (data.type === 'open_attachment') {
+        reply(
+          ws,
+          'attachment_opened',
+          async () => {
+            const target = resolveAttachment(currentCwd, data.path, p => picked.allows(p));
+            const stat = await fs.stat(target).catch(() => null);
+            if (!stat) throw new Error('文件不存在或已经被移动了');
+            await openWithSystem(target);
+            return {};
+          },
+          () => ({}),
+          () => ({ id: data.id })
+        );
+        return;
+      }
+
       // 转发指令给 Pi (prompt, abort, new_session, get_state, get_messages 等)
       sendToPi(ws, data);
     } catch (err: any) {
@@ -309,6 +329,12 @@ wss.on('connection', (ws: WebSocket) => {
 server.listen(PORT, HOST, () => {
   console.log(`[Pi Bridge] Server listening on http://${HOST}:${PORT}`);
   console.log(`[Pi Bridge] WebSocket ready on ws://${HOST}:${PORT}`);
+
+  // 读一次之前记住的文件名单：历史消息里那些「从电脑选择」的附件重启后才还能打开
+  void picked
+    .load()
+    .then(() => console.log(`[Pi Bridge] Remembered ${picked.size} picked file(s)`))
+    .catch(err => console.error('[Pi Bridge] Failed to load picked files:', err));
 
   // 桥接不常驻，所以靠启动时扫一次来执行回收箱的 30 天保留期
   sweepTrash()

@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import type { PiMessage } from '../types/pi';
@@ -87,7 +87,7 @@ describe('用户消息里的附件', () => {
       })
     );
 
-    const card = host.querySelector('[title=".pi-web-uploads/报告.docx"]');
+    const card = host.querySelector('button[title*=".pi-web-uploads/报告.docx"]');
     expect(card?.textContent).toContain('报告.docx');
     expect(host.querySelector('img')).toBeNull();
   });
@@ -117,5 +117,59 @@ describe('用户消息里的附件', () => {
 
     expect(host.textContent?.trim()).toBe('');
     expect(host.querySelector('img')).not.toBeNull();
+  });
+});
+
+describe('点开附件', () => {
+  const user = (over: Partial<PiMessage> = {}) =>
+    message({ role: 'user', content: '', ...over });
+  const image = { kind: 'image' as const, name: '截图', dataUrl: 'data:image/png;base64,QUJD' };
+  const file = { kind: 'file' as const, name: '报告.docx', path: '.pi-web-uploads/报告.docx' };
+
+  it('点图片会放大查看（出现遮罩对话框）', () => {
+    render(user({ attachments: [image] }));
+
+    expect(host.querySelector('[role="dialog"]')).toBeNull();
+
+    act(() => {
+      (host.querySelector('button[aria-label="放大查看 截图"]') as HTMLButtonElement).click();
+    });
+
+    const dialog = host.querySelector('[role="dialog"]');
+    expect(dialog).not.toBeNull();
+    expect(dialog?.querySelector('img')?.getAttribute('src')).toBe(image.dataUrl);
+  });
+
+  it('放大后按 Esc 关闭', () => {
+    render(user({ attachments: [image] }));
+    act(() => {
+      (host.querySelector('button[aria-label="放大查看 截图"]') as HTMLButtonElement).click();
+    });
+
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    });
+
+    expect(host.querySelector('[role="dialog"]')).toBeNull();
+  });
+
+  it('点文件卡片会把路径交给上层（系统默认程序打开）', () => {
+    const onOpenFile = vi.fn();
+    act(() => {
+      root.render(<PiMessageItem message={user({ attachments: [file] })} onOpenFile={onOpenFile} />);
+    });
+
+    act(() => {
+      (host.querySelector('button[title*="报告.docx"]') as HTMLButtonElement).click();
+    });
+
+    expect(onOpenFile).toHaveBeenCalledWith('.pi-web-uploads/报告.docx');
+  });
+
+  it('没有打开能力时文件卡片不可点', () => {
+    render(user({ attachments: [file] }));
+
+    const card = host.querySelector('button[title*="报告.docx"]') as HTMLButtonElement;
+    expect(card.disabled).toBe(true);
   });
 });
