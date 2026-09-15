@@ -4,6 +4,7 @@ import * as http from 'http';
 import * as path from 'path';
 import * as fs from 'fs/promises';
 import { listSessions, readSessionCwdSync, renameSession } from './sessions.js';
+import { attachOriginGuard, parseAllowedOrigins } from './origin.js';
 import {
   emptyTrash,
   listTrash,
@@ -22,7 +23,10 @@ const server = http.createServer((_req, res) => {
   res.end(JSON.stringify({ status: 'ok', name: 'pi-web-bridge' }));
 });
 
-const wss = new WebSocketServer({ server });
+// noServer + 自己处理 upgrade：握手阶段要校验 Origin。
+// 少了它，浏览器里打开的任何网页都能连上桥接执行本机命令（CSWSH）。
+const wss = new WebSocketServer({ noServer: true });
+attachOriginGuard(server, wss, parseAllowedOrigins());
 
 let piProcess: ChildProcessWithoutNullStreams | null = null;
 let currentCwd = process.cwd();

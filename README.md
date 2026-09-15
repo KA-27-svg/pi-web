@@ -62,16 +62,25 @@ Windows 上也可以直接双击 `start.bat`（或把它做成快捷方式放在
 | 环境变量 | 作用 | 默认 |
 | --- | --- | --- |
 | `PI_BRIDGE_HOST` | 桥接监听地址 | `127.0.0.1` |
+| `PI_BRIDGE_ORIGINS` | 允许连入的前端来源（逗号分隔，仅 `http://`） | `localhost` / `127.0.0.1` 的 5173、4173、3001 |
 
 > ⚠️ 桥接能以任意工作目录拉起 `pi --mode rpc`，等同于把本机命令执行能力开放出去。
 > 除非你完全清楚后果，否则不要把 `PI_BRIDGE_HOST` 设成 `0.0.0.0`。
+>
+> WebSocket **不受同源策略约束**，任何网页都能发起到 `ws://127.0.0.1:3001` 的连接，
+> 所以桥接在握手阶段校验 `Origin`（白名单外一律 403）。跨设备使用时，用
+> `PI_BRIDGE_ORIGINS` 显式列出来源，不要直接把校验关掉。
 
 ## 目录结构
 
 ```
 server/
-  bridge.ts        WebSocket 服务、pi 子进程生命周期、会话指令分发
+  bridge.ts        WebSocket 服务、会话指令分发
+  origin.ts        握手阶段的 Origin 白名单（挡 CSWSH）
+  pi.ts            pi 子进程生命周期（自愈重启、身份校验）
+  lines.ts         stdout 字节流 → 整行（多字节字符跨块安全）
   sessions.ts      会话列表 / 重命名 / 删除（含路径穿越防护）
+  trash.ts         回收箱：移入 / 恢复 / 彻底删除 / 过期清理
 src/
   components/      纯展示组件
   hooks/           连接与状态（usePiWebSocket）
@@ -89,6 +98,9 @@ npm test
 
 覆盖三块最容易静默改坏的地方：
 
+- `server/origin.test.ts` — Origin 白名单判定，以及真实 http + ws 握手下陌生来源被 403。
+- `server/pi.test.ts` — 子进程生命周期：自愈重启、**旧进程迟到退出不干扰新进程**、stdin 不可写时 `send` 返回 false。
+- `server/lines.test.ts` — 分块解码：多字节字符跨块、逐字节喂入。
 - `server/sessions.test.ts` — 会话扫描（含头部被注入内容撞满、多字节分块边界）、重命名追加、删除、路径穿越防护。
 - `src/services/rpcHandler.test.ts` — 一轮的生命周期（`agent_end` vs `agent_settled`）、`get_state` 竞态、崩溃收尾、工具调用状态机。
 - `src/utils/messageParser.test.ts` — 历史消息还原与稳定 ID（ID 不稳定会导致刷新时整段对话重新挂载并重播动画）。
