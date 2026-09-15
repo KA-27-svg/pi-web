@@ -10,6 +10,7 @@ interface SettingsPanelProps {
   onNewSession: () => void;
   onSelectModel: (provider: string, modelId: string) => void;
   onSelectThinkingLevel: (level: string) => void;
+  onSelectShellTool: (tool: 'bash' | 'powershell') => void;
 }
 
 function Row({
@@ -31,6 +32,61 @@ function Row({
 
 function modelKey(model: ModelInfo) {
   return `${model.provider}/${model.id}`;
+}
+
+/**
+ * agent 跑命令用哪个 shell。
+ *
+ * 两个选项都是 pi 内置的工具，模型看到的是不同名字的工具（`bash` / `powershell`），
+ * 所以语法是配套的——不是「把 bash 换成 powershell 去执行」。
+ */
+function ShellToolPicker({
+  status,
+  onSelectShellTool,
+}: {
+  status: BridgeStatus;
+  onSelectShellTool: (tool: 'bash' | 'powershell') => void;
+}) {
+  const current = status.shellTool ?? 'bash';
+  const options = [
+    { value: 'bash' as const, label: 'Bash' },
+    { value: 'powershell' as const, label: 'PowerShell' },
+  ];
+
+  return (
+    <div className="py-2">
+      <div className="mb-1.5 flex items-baseline justify-between gap-4">
+        <span className="text-[11px] text-muted">Shell 工具</span>
+        <span className="font-mono text-[11px] text-muted">{current}</span>
+      </div>
+
+      <div className="flex gap-1">
+        {options.map(option => {
+          const active = option.value === current;
+          return (
+            <button
+              key={option.value}
+              onClick={() => !active && onSelectShellTool(option.value)}
+              disabled={!status.connected}
+              aria-pressed={active}
+              className={`rounded px-2 py-1 text-[10.5px] transition-colors disabled:cursor-default ${
+                active
+                  ? 'bg-foreground text-background'
+                  : 'bg-surface text-muted hover:text-foreground'
+              }`}
+            >
+              {option.label}
+            </button>
+          );
+        })}
+      </div>
+
+      <p className="mt-1.5 text-[10.5px] leading-[1.6] text-muted">
+        agent 跑命令用哪个 shell。这项写进 pi 的全局设置（终端里的 pi 也生效），
+        改完会重启 pi——重启后自动切回当前会话。
+      </p>
+    </div>
+  );
 }
 
 function ModelPicker({
@@ -156,6 +212,7 @@ export function SettingsPanel({
   onNewSession,
   onSelectModel,
   onSelectThinkingLevel,
+  onSelectShellTool,
 }: SettingsPanelProps) {
   const [cwdDraft, setCwdDraft] = useState(status.cwd);
 
@@ -220,6 +277,8 @@ export function SettingsPanel({
               status={status}
               onSelectThinkingLevel={onSelectThinkingLevel}
             />
+
+            <ShellToolPicker status={status} onSelectShellTool={onSelectShellTool} />
 
             <Row label="本会话花费">
               <span title={costTitle}>{stats ? formatCost(stats.cost) : '—'}</span>

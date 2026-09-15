@@ -8,6 +8,7 @@ import { listDirectory } from './browse.js';
 import { pickFiles } from './fileDialog.js';
 import { PickedFiles } from './pickedFiles.js';
 import { readAttachment, resolveAttachment } from './textAttachment.js';
+import { readShellTool, writeShellTool, type ShellTool } from './settings.js';
 import { reply } from './reply.js';
 import { attachOriginGuard, parseAllowedOrigins } from './origin.js';
 import { PiSupervisor } from './pi.js';
@@ -42,6 +43,17 @@ let currentCwd = process.cwd();
  */
 let pendingSwitchCwd: string | null = null;
 
+/**
+ * 当前会话文件。
+ *
+ * 每次启动 pi 都是**全新会话**（实测三次启动的 sessionId 完全不同），所以任何重启
+ * 之后都得靠 `switch_session` 把原会话切回来，否则对话就断了。
+ */
+let currentSessionFile: string | null = null;
+
+/** 当前用哪个 shell 工具（来自 pi 的 settings.json） */
+let shellTool: ShellTool = 'bash';
+
 /** 用户亲手选过的文件路径（工作目录之外的只允许读这些） */
 const picked = new PickedFiles();
 
@@ -51,6 +63,22 @@ function broadcast(msg: string) {
       client.send(msg);
     }
   });
+}
+
+/**
+ * 从 pi 的输出里记下当前会话文件。只要 pi 回过一次 get_state 就知道了。
+ * 重启之后靠它把会话切回来。
+ */
+function trackSession(line: string) {
+  if (!line.includes('get_state')) return;
+
+  try {
+    const message = JSON.parse(line);
+    if (message?.type !== 'response' || message.command !== 'get_state') return;
+    if (typeof message.data?.sessionFile === 'string') currentSessionFile = message.data.sessionFile;
+  } catch {
+    // 不是完整 JSON，忽略
+  }
 }
 
 /**
@@ -86,6 +114,7 @@ function applyPendingSwitch(line: string) {
 const pi = new PiSupervisor(
   {
     onLine: line => {
+      trackSession(line);
       applyPendingSwitch(line);
       broadcast(line);
     },
@@ -131,6 +160,7 @@ wss.on('connection', (ws: WebSocket) => {
     type: 'bridge_status',
     cwd: currentCwd,
     running: pi.running,
+    shellTool,
   }));
 
   ws.on('message', (message: string) => {
@@ -290,6 +320,31 @@ wss.on('connection', (ws: WebSocket) => {
         return;
       }
 
+      // 换 shell 工具（bash ↔ powershell）。
+      // pi 的工具集在启动时就定下了，RPC 没有改设置的接口，所以只能改配置 + 重启。
+      if (data.type === 'set_shell_tool' && (data.tool === 'bash' || data.tool === 'powershell')) {
+        const tool = data.tool as ShellTool;
+        reply(
+          ws,
+          'shell_tool_set',
+          async () => {
+            await writeShellTool(tool);
+            shellTool = tool;
+
+            // 重启会开一个全新会话，所以紧接着把原来的会话切回来，
+            // 否则用户会看到对话凭空清空
+            pi.restart(currentCwd);
+            if (currentSessionFile) {
+              pi.send({ type: 'switch_session', sessionPath: currentSessionFile });
+            }
+            return { tool };
+          },
+          value => ({ ...value }),
+          () => ({ id: data.id })
+        );
+        return;
+      }
+
       // 转发指令给 Pi (prompt, abort, new_session, get_state, get_messages 等)
       sendToPi(ws, data);
     } catch (err: any) {
@@ -309,6 +364,14 @@ wss.on('connection', (ws: WebSocket) => {
 server.listen(PORT, HOST, () => {
   console.log(`[Pi Bridge] Server listening on http://${HOST}:${PORT}`);
   console.log(`[Pi Bridge] WebSocket ready on ws://${HOST}:${PORT}`);
+
+  // 读一次 pi 的 shell 工具设置，好让连接上来时就能告诉界面当前是什么
+  void readShellTool()
+    .then(tool => {
+      shellTool = tool;
+      console.log(`[Pi Bridge] Shell tool: ${tool}`);
+    })
+    .catch(err => console.error('[Pi Bridge] Failed to read shell tool setting:', err));
 
   // 桥接不常驻，所以靠启动时扫一次来执行回收箱的 30 天保留期
   sweepTrash()

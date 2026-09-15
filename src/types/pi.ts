@@ -118,6 +118,8 @@ export interface BridgeStatus {
   cwd: string;
   isStreaming: boolean;
   currentTool?: string;
+  /** agent 的 shell 工具：bash（Git Bash）或 powershell */
+  shellTool?: 'bash' | 'powershell';
   model?: ModelInfo;
   thinkingLevel?: string;
   sessionId?: string;
