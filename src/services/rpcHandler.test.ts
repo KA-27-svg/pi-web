@@ -532,3 +532,73 @@ describe('会话是否已载入', () => {
     expect(h.status().sessionLoaded).toBe(true);
   });
 });
+
+describe('会话用量', () => {
+  const statsEvent = (overrides: Record<string, unknown> = {}) => ({
+    type: 'response',
+    command: 'get_session_stats',
+    success: true,
+    data: {
+      tokens: { input: 7274, output: 714, cacheRead: 183040, cacheWrite: 0, total: 191028 },
+      cost: 0.00413724,
+      contextUsage: { tokens: 191028, contextWindow: 200000, percent: 95 },
+      ...overrides,
+    },
+  });
+
+  const requestedStats = (h: Harness) =>
+    h.ws.sent.filter(raw => raw.includes('get_session_stats'));
+
+  it('回包写入 status.stats', () => {
+    const h = createHarness();
+
+    h.handler.handleEvent(statsEvent(), h.ws);
+
+    expect(h.status().stats.cost).toBe(0.00413724);
+    expect(h.status().stats.tokens.cacheRead).toBe(183040);
+    expect(h.status().stats.contextUsage.percent).toBe(95);
+  });
+
+  it('一轮收尾（agent_settled）后自动重取，账目随回复更新', () => {
+    const h = createHarness();
+    startTurn(h);
+
+    h.handler.handleEvent({ type: 'agent_settled' }, h.ws);
+
+    expect(requestedStats(h)).toHaveLength(1);
+  });
+
+  it('新建会话后重取，避免还显示上一个会话的花费', () => {
+    const h = createHarness();
+
+    h.handler.handleEvent(
+      { type: 'response', command: 'new_session', success: true, data: {} },
+      h.ws
+    );
+
+    expect(requestedStats(h)).toHaveLength(1);
+  });
+
+  it('切换会话后重取', () => {
+    const h = createHarness();
+
+    h.handler.handleEvent(
+      { type: 'response', command: 'switch_session', success: true, data: {} },
+      h.ws
+    );
+
+    expect(requestedStats(h)).toHaveLength(1);
+  });
+
+  it('失败的回包不覆盖已有数据', () => {
+    const h = createHarness();
+    h.handler.handleEvent(statsEvent(), h.ws);
+
+    h.handler.handleEvent(
+      { type: 'response', command: 'get_session_stats', success: false, error: 'boom' },
+      h.ws
+    );
+
+    expect(h.status().stats.cost).toBe(0.00413724);
+  });
+});

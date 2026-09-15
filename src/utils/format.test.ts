@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { win32 } from 'node:path';
-import { formatRelativeTime, projectName, remainingDays } from '../utils/format';
+import { formatCost, formatRelativeTime, formatTokens, projectName, remainingDays } from '../utils/format';
 
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
@@ -58,5 +58,45 @@ describe('remainingDays', () => {
 
   it('已过期不会出现负数', () => {
     expect(remainingDays(now - 5 * DAY, now)).toBe(0);
+  });
+});
+
+describe('formatCost', () => {
+  it('小额保留 4 位，否则一次对话只显示 $0.00', () => {
+    // 实测一轮 deepseek-flash 大约 $0.0041，两位小数就看不见了
+    expect(formatCost(0.00413724)).toBe('$0.0041');
+  });
+
+  it('一元以下保留 3 位', () => {
+    expect(formatCost(0.456)).toBe('$0.456');
+  });
+
+  it('常规金额保留 2 位', () => {
+    expect(formatCost(1.2345)).toBe('$1.23');
+  });
+
+  it('零与非法值都给 $0.00，不显示 NaN', () => {
+    expect(formatCost(0)).toBe('$0.00');
+    expect(formatCost(-1)).toBe('$0.00');
+    expect(formatCost(Number.NaN)).toBe('$0.00');
+  });
+});
+
+describe('formatTokens', () => {
+  it('一千以下原样显示', () => {
+    expect(formatTokens(0)).toBe('0');
+    expect(formatTokens(999)).toBe('999');
+  });
+
+  it('千位保留一位小数', () => {
+    expect(formatTokens(7274)).toBe('7.3k');
+  });
+
+  it('十万位不再带小数，避免宽度跳动', () => {
+    expect(formatTokens(191028)).toBe('191k');
+  });
+
+  it('百万位保留两位', () => {
+    expect(formatTokens(1_234_567)).toBe('1.23M');
   });
 });

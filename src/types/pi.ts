@@ -27,6 +27,31 @@ export interface ModelInfo {
   contextWindow?: number;
 }
 
+/** pi 报上来的 token 用量；input/output/cacheRead/cacheWrite 都是累计值 */
+export interface TokenUsage {
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+  total: number;
+}
+
+export interface ContextUsage {
+  tokens: number;
+  contextWindow: number;
+  percent: number;
+}
+
+/**
+ * 当前会话的用量与花费（来自 pi 的 get_session_stats）。
+ * cost 是 pi 按 models.json 里配的单价算出来的估算值，不是供应商账单。
+ */
+export interface SessionStats {
+  cost: number;
+  tokens: TokenUsage;
+  contextUsage?: ContextUsage;
+}
+
 export interface SessionSummary {
   path: string;
   id: string;
@@ -57,6 +82,8 @@ export interface BridgeStatus {
   sessionId?: string;
   availableModels?: ModelInfo[];
   availableThinkingLevels?: string[];
+  /** 当前会话的累计用量与花费 */
+  stats?: SessionStats;
   sessions?: SessionSummary[];
   /** 磁盘上的会话总数；比 sessions.length 大说明列表被截断 */
   sessionsTotal?: number;

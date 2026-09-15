@@ -16,7 +16,7 @@ import { ChatInput } from './components/ChatInput';
 import { Settings, PanelLeftOpen } from 'lucide-react';
 
 export default function App() {
-  const { messages, status, sendPrompt, abort, changeCwd, newSession, setModel, setThinkingLevel, requestSessions, switchSession, renameSession, deleteSession, requestTrash, restoreSession, purgeSession, emptyTrash } =
+  const { messages, status, sendPrompt, abort, changeCwd, newSession, setModel, setThinkingLevel, requestSessions, requestStats, switchSession, renameSession, deleteSession, requestTrash, restoreSession, purgeSession, emptyTrash } =
     usePiWebSocket();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLElement>(null);
@@ -145,6 +145,12 @@ export default function App() {
     // 回收箱数量显示在侧栏底部，一并拉一下
     requestTrash();
   }, [sidebarOpen, requestSessions, requestTrash]);
+
+  // 打开设置面板时拉一次用量，保证花费是刚发生的（而不是上次收尾时的）
+  useEffect(() => {
+    if (!panelOpen) return;
+    requestStats();
+  }, [panelOpen, requestStats]);
 
   const startNewSession = () => {
     newSession();

@@ -24,6 +24,25 @@ export function projectName(cwd?: string): string | undefined {
   return parts[parts.length - 1];
 }
 
+/**
+ * 会话花费（美元）。金额往往很小——一轮对话大约 $0.004——两位小数会直接显示成 $0.00。
+ */
+export function formatCost(usd: number): string {
+  if (!Number.isFinite(usd) || usd <= 0) return '$0.00';
+  if (usd < 0.01) return `$${usd.toFixed(4)}`;
+  if (usd < 1) return `$${usd.toFixed(3)}`;
+  return `$${usd.toFixed(2)}`;
+}
+
+/** Token 数。十万位以上不再带小数，否则每轮数字宽度都在跳。 */
+export function formatTokens(count: number): string {
+  if (!Number.isFinite(count) || count <= 0) return '0';
+  if (count < 1_000) return String(Math.round(count));
+  if (count < 100_000) return `${(count / 1_000).toFixed(1)}k`;
+  if (count < 1_000_000) return `${Math.round(count / 1_000)}k`;
+  return `${(count / 1_000_000).toFixed(2)}M`;
+}
+
 /** 回收箱条目的剩余保留天数，向上取整 */
 export function remainingDays(expiresAt: number, now = Date.now()): number {
   return Math.max(0, Math.ceil((expiresAt - now) / DAY_MS));

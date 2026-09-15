@@ -24,6 +24,7 @@ export function usePiWebSocket() {
       ws.send(JSON.stringify({ type: 'get_messages' }));
       ws.send(JSON.stringify({ type: 'get_available_models' }));
       ws.send(JSON.stringify({ type: 'get_available_thinking_levels' }));
+      ws.send(JSON.stringify({ type: 'get_session_stats' }));
       // 连接建立后再拉历史会话，否则首屏调用时连接尚未就绪
       ws.send(JSON.stringify({ type: 'list_sessions' }));
     }
@@ -179,6 +180,10 @@ export function usePiWebSocket() {
     sendCommand({ type: 'list_sessions' });
   }, [sendCommand]);
 
+  const requestStats = useCallback(() => {
+    sendCommand({ type: 'get_session_stats' });
+  }, [sendCommand]);
+
   const switchSession = useCallback(
     (sessionPath: string) => {
       // 点下就进入「切换中」：对话区不再显示上一个会话，历史到达后原地换上
@@ -234,6 +239,7 @@ export function usePiWebSocket() {
     setModel,
     setThinkingLevel,
     requestSessions,
+    requestStats,
     switchSession,
     renameSession,
     deleteSession,

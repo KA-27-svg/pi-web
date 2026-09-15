@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { BridgeStatus, ModelInfo } from '../types/pi';
+import { formatCost, formatTokens } from '../utils/format';
 import { X, FolderGit2, PlusCircle, ChevronDown } from 'lucide-react';
 
 interface SettingsPanelProps {
@@ -163,9 +164,22 @@ export function SettingsPanel({
     if (next && next !== status.cwd) onChangeCwd(next);
   };
 
-  const contextK = status.model?.contextWindow
-    ? `${(status.model.contextWindow / 1000).toFixed(0)}K`
-    : '—';
+  const stats = status.stats;
+  const context = stats?.contextUsage;
+  const contextText = context
+    ? `${formatTokens(context.tokens)} / ${formatTokens(context.contextWindow)} · ${Math.round(context.percent)}%`
+    : status.model?.contextWindow
+      ? `— / ${formatTokens(status.model.contextWindow)}`
+      : '—';
+
+  // 悬停展开 token 明细，并说清楚这是估算而不是供应商账单
+  const costTitle = stats
+    ? [
+        `输入 ${formatTokens(stats.tokens.input)} · 输出 ${formatTokens(stats.tokens.output)}`,
+        `缓存读 ${formatTokens(stats.tokens.cacheRead)} · 缓存写 ${formatTokens(stats.tokens.cacheWrite)}`,
+        '按 models.json 里的单价估算，与供应商账单可能有出入',
+      ].join('\n')
+    : undefined;
 
   return (
     <>
@@ -207,7 +221,11 @@ export function SettingsPanel({
               onSelectThinkingLevel={onSelectThinkingLevel}
             />
 
-            <Row label="上下文">{contextK}</Row>
+            <Row label="本会话花费">
+              <span title={costTitle}>{stats ? formatCost(stats.cost) : '—'}</span>
+            </Row>
+
+            <Row label="上下文">{contextText}</Row>
           </div>
         </div>
 

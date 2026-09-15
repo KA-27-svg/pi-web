@@ -90,6 +90,8 @@ export class RpcEventHandler {
 
     if (data.type === 'agent_settled') {
       this.finishTurn();
+      // pi 在这一轮真正收尾后才把用量写入会话统计，所以账目要在这时重取
+      ws.send(JSON.stringify({ type: 'get_session_stats' }));
       return;
     }
 
@@ -195,6 +197,24 @@ export class RpcEventHandler {
       }));
     }
 
+    if (data.command === 'get_session_stats' && data.success && data.data) {
+      const stats = data.data;
+      this.setStatus((prev: BridgeStatus) => ({
+        ...prev,
+        stats: {
+          cost: stats.cost ?? 0,
+          tokens: stats.tokens ?? {
+            input: 0,
+            output: 0,
+            cacheRead: 0,
+            cacheWrite: 0,
+            total: 0,
+          },
+          contextUsage: stats.contextUsage,
+        },
+      }));
+    }
+
     // 切换模型后，agent 会重新解析该模型支持的思考档位，因此一并刷新
     if (data.command === 'set_model' && data.success) {
       const model = toModelInfo(data.data?.model ?? data.data);
@@ -216,6 +236,8 @@ export class RpcEventHandler {
       this.setMessages([]);
       this.setStatus((prev: BridgeStatus) => ({ ...prev, switching: false }));
       ws.send(JSON.stringify({ type: 'get_state' }));
+      // 新会话从零开始，不重取就会继续显示上一个会话的花费
+      ws.send(JSON.stringify({ type: 'get_session_stats' }));
     }
 
     // 切换历史会话：重新拉取该会话的消息。
@@ -227,6 +249,7 @@ export class RpcEventHandler {
         this.pendingHistory = true;
         ws.send(JSON.stringify({ type: 'get_messages' }));
         ws.send(JSON.stringify({ type: 'get_state' }));
+        ws.send(JSON.stringify({ type: 'get_session_stats' }));
         return;
       }
 
