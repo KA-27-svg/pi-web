@@ -20,6 +20,20 @@ export type SpawnCapture = (command: string, args: string[]) => Promise<SpawnRes
 const IMAGE_GLOB = '*.png;*.jpg;*.jpeg;*.gif;*.webp;*.bmp';
 
 /**
+ * 让 PowerShell 进程变成 DPI 感知。**必须在创建任何窗口之前调用**：一旦创建过窗口，
+ * Windows 就把这个进程的 DPI 感知锁死了。
+ *
+ * 不设的话，高分屏上整个对话框会被 Windows 位图拉伸——比如 2880×1800 / 200% 缩放的屏，
+ * 进程只看到 1440×900，对话框被放大 2 倍，字和图标都是糊的。
+ *
+ * 依次尝试：每屏 v2（Win10 1703+）→ 每屏（Win8.1+）→ 系统感知（Vista+）。
+ */
+const DPI_AWARENESS = [
+  "$api = Add-Type -MemberDefinition '[DllImport(\"user32.dll\")] public static extern bool SetProcessDpiAwarenessContext(System.IntPtr value); [DllImport(\"shcore.dll\")] public static extern int SetProcessDpiAwareness(int value); [DllImport(\"user32.dll\")] public static extern bool SetProcessDPIAware();' -Name DpiApi -Namespace Win32 -PassThru",
+  'try { [void]$api::SetProcessDpiAwarenessContext([IntPtr](-4)) } catch { try { [void]$api::SetProcessDpiAwareness(2) } catch { [void]$api::SetProcessDPIAware() } }',
+].join('; ');
+
+/**
  * Windows 上用 PowerShell 调 WinForms 的原生对话框。
  *
  * 脚本是**静态字符串**：选项只切换我们自己写死的片段，不拼接任何外部输入，
@@ -34,6 +48,8 @@ function windowsCommand(options: PickOptions): { command: string; args: string[]
   const script = [
     '[Console]::OutputEncoding = [System.Text.Encoding]::UTF8',
     'Add-Type -AssemblyName System.Windows.Forms',
+    DPI_AWARENESS,
+    '[System.Windows.Forms.Application]::EnableVisualStyles()',
     '$dialog = New-Object System.Windows.Forms.OpenFileDialog',
     "$dialog.Title = '选择要发给 Pi 的文件'",
     `$dialog.Multiselect = $${options.multiple === false ? 'false' : 'true'}`,

@@ -17,6 +17,25 @@ describe('dialogCommand', () => {
     expect(script).toContain('OutputEncoding');
   });
 
+  it('先设 DPI 感知，否则高分屏上整个对话框会被拉伸到发糊', () => {
+    const script = dialogCommand('win32', {}).args.join(' ');
+
+    expect(script).toContain('SetProcessDpiAwarenessContext');
+    // 必须在创建窗口之前调，所以得排在 OpenFileDialog 之前
+    expect(script.indexOf('SetProcessDpiAwarenessContext')).toBeLessThan(
+      script.indexOf('New-Object System.Windows.Forms.OpenFileDialog')
+    );
+    expect(script.indexOf('EnableVisualStyles')).toBeLessThan(
+      script.indexOf('New-Object System.Windows.Forms.OpenFileDialog')
+    );
+  });
+
+  it('DPI 接口逐个回退，老系统上也能用', () => {
+    const script = dialogCommand('win32', {}).args.join(' ');
+    expect(script).toContain('SetProcessDpiAwareness(2)');
+    expect(script).toContain('SetProcessDPIAware()');
+  });
+
   it('要求单图时收窄过滤器', () => {
     const script = dialogCommand('win32', { imagesOnly: true }).args.join(' ');
     expect(script).toContain('*.png');
