@@ -1,16 +1,19 @@
 import { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react';
-import { ArrowUp, FileText, FolderOpen, Loader2, Paperclip, Square, X } from 'lucide-react';
-import type { DirEntry, DirListing } from '../types/pi';
-import type { AttachmentText } from '../hooks/usePiWebSocket';
-import { FilePicker } from './FilePicker';
+import { ArrowUp, FileText, Loader2, Paperclip, Square, X } from 'lucide-react';
+import type { AttachmentContent, DirEntry, DirListing } from '../types/pi';
 import {
+  base64ToFile,
+  baseName,
   formatBytes,
   isImageFile,
+  isImagePath,
   prepareImageAttachment,
+  readInlineText,
   type PendingAttachment,
   type PromptDraft,
   type UploadedFile,
 } from '../utils/attachments';
+import { FilePicker } from './FilePicker';
 import './ChatInput.css';
 
 /** 单行时外壳的高度 */
@@ -31,12 +34,14 @@ interface ChatInputProps {
   onActivate?: () => void;
   /** 外壳高度变化（多行输入）时通知父级，便于贴底时重新对齐滚动位置 */
   onResize?: () => void;
-  /** 把文件交给桥接落到工作目录；不传就不显示附件入口 */
-  onUploadFile?: (file: File) => Promise<UploadedFile>;
-  /** 列工作目录，用于「从工作目录选文件」；不传就不显示那个入口 */
+  /** 弹系统原生的文件选择框，拿回绝对路径（不复制文件） */
+  onPickFile?: (imagesOnly?: boolean) => Promise<string[]>;
+  /** 列工作目录，用于「从项目里选」 */
   onListDir?: (path: string) => Promise<DirListing>;
-  /** 把文件当文本读出来（内联进 prompt）；不传则文件只给路径 */
-  onReadAttachment?: (path: string) => Promise<AttachmentText>;
+  /** 读附件内容：文本内联、图片 base64、二进制只报大小 */
+  onReadAttachment?: (path: string) => Promise<AttachmentContent>;
+  /** 落盘通道。只在拖进来一个二进制文件时用得上（那时拿不到路径） */
+  onUploadFile?: (file: File) => Promise<UploadedFile>;
 }
 
 export function ChatInput({
@@ -48,17 +53,18 @@ export function ChatInput({
   showIcon = false,
   onActivate,
   onResize,
-  onUploadFile,
+  onPickFile,
   onListDir,
   onReadAttachment,
+  onUploadFile,
 }: ChatInputProps) {
   const [input, setInput] = useState('');
   const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
   const [dragging, setDragging] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   /** 上一次真正应用到外壳的高度，用来跳过无变化的写入 */
   const appliedHeightRef = useRef(0);
 
@@ -147,27 +153,28 @@ export function ChatInput({
     return () => observer.disconnect();
   }, [measure]);
 
+  const newId = () => `att-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+  const patch = (id: string, changes: Partial<PendingAttachment>) => {
+    setAttachments(prev => prev.map(item => (item.id === id ? { ...item, ...changes } : item)));
+  };
+
   /**
    * 文本文件把内容读出来内联——模型一眼就看到，不必先花一轮去调 read。
-   * 二进制文件会回 binary: true，保留路径即可；读失败也当作普通文件，不影响附件本身。
+   * 读失败也当作普通文件，不影响附件本身。
    */
   const loadContent = useCallback(
-    async (id: string, relativePath: string) => {
+    async (id: string, path: string) => {
       if (!onReadAttachment) return;
 
       try {
-        const result = await onReadAttachment(relativePath);
-        if (result.binary || typeof result.text !== 'string') return;
+        const result = await onReadAttachment(path);
+        if (result.kind !== 'text') return;
 
         setAttachments(prev =>
           prev.map(item =>
             item.id === id
-              ? {
-                  ...item,
-                  content: result.text,
-                  truncated: result.truncated,
-                  bytes: result.bytes ?? item.bytes,
-                }
+              ? { ...item, content: result.text, truncated: result.truncated, bytes: result.bytes }
               : item
           )
         );
@@ -179,81 +186,146 @@ export function ChatInput({
   );
 
   /**
-   * 逐个处理。串行是故意的：顺序稳定，附件条的排列与用户拖进来的顺序一致。
-   * 单个失败只影响那一个，不打断其余的。
+   * 处理**文件对象**（拖拽 / 粘贴进来的）。
    *
-   * 图片**不上传**：直接读成 base64 走 pi 的原生附件通道，模型才真的「看得见」。
-   * 其它文件没有原生通道，只能先落盘换一个路径（文本还会额外内联内容）。
+   * 这些文件只有名字，没有路径——浏览器不会告诉我们。所以：
+   *  - 图片：读成 base64 走原生附件，不落盘
+   *  - 文本：内容直接在浏览器里读出来内联，**也不落盘**
+   *  - 其它（docx / pdf 等二进制）：没办法，只能走落盘通道
    */
   const addFiles = useCallback(
     async (files: Iterable<File>) => {
-      if (!onUploadFile) return;
-
       for (const file of files) {
-        const id = `att-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        const id = newId();
         const kind = isImageFile(file) ? 'image' : 'file';
         setAttachments(prev => [
           ...prev,
-          { id, name: file.name || 'file', bytes: file.size, kind, status: 'uploading' },
+          { id, name: file.name || 'file', bytes: file.size, kind, status: 'loading' },
         ]);
 
         try {
           if (kind === 'image') {
             const prepared = await prepareImageAttachment(file);
-            setAttachments(prev =>
-              prev.map(item => (item.id === id ? { ...item, ...prepared, status: 'ready' } : item))
-            );
-          } else {
-            const uploaded = await onUploadFile(file);
-            setAttachments(prev =>
-              prev.map(item =>
-                item.id === id
-                  ? {
-                      ...item,
-                      status: 'ready',
-                      name: uploaded.name,
-                      bytes: uploaded.bytes,
-                      relativePath: uploaded.relativePath,
-                    }
-                  : item
-              )
-            );
-            void loadContent(id, uploaded.relativePath);
+            patch(id, { ...prepared, status: 'ready' });
+            continue;
           }
+
+          const inline = await readInlineText(file);
+          if (inline) {
+            patch(id, { content: inline.text, truncated: inline.truncated, status: 'ready' });
+            continue;
+          }
+
+          if (!onUploadFile) throw new Error('这个文件需要落盘通道，但当前不可用');
+          const uploaded = await onUploadFile(file);
+          patch(id, { status: 'ready', name: uploaded.name, bytes: uploaded.bytes, path: uploaded.relativePath });
+          void loadContent(id, uploaded.relativePath);
         } catch (error) {
-          setAttachments(prev =>
-            prev.map(item =>
-              item.id === id
-                ? { ...item, status: 'error', error: (error as Error).message }
-                : item
-            )
-          );
+          patch(id, { status: 'error', error: (error as Error).message });
         }
       }
     },
     [onUploadFile, loadContent]
   );
 
-  const removeAttachment = (id: string) => {
-    setAttachments(prev => prev.filter(item => item.id !== id));
-  };
+  /**
+   * 从系统对话框选。**文件一个字节都不复制**——桥接拿回真实路径，我们只是
+   * 把路径记下来，需要内容（文本/图片）时才去读那一个文件。
+   */
+  const addFromComputer = useCallback(async () => {
+    if (!onPickFile) return;
 
-  /** 从工作目录挑的文件：只记路径，不需要传输字节 */
+    let paths: string[];
+    try {
+      paths = await onPickFile();
+    } catch (error) {
+      const id = newId();
+      // 没有文件名可显示时，把原因本身当成标签——比干巴巴一个「失败」有用
+      setAttachments(prev => [
+        ...prev,
+        {
+          id,
+          name: (error as Error).message,
+          bytes: 0,
+          kind: 'file',
+          status: 'error',
+          error: (error as Error).message,
+        },
+      ]);
+      return;
+    }
+
+    for (const absolute of paths) {
+      const id = newId();
+      const image = isImagePath(absolute);
+      setAttachments(prev => [
+        ...prev,
+        { id, name: baseName(absolute), bytes: 0, kind: image ? 'image' : 'file', status: 'loading' },
+      ]);
+
+      try {
+        const content = await onReadAttachment?.(absolute);
+        if (content?.kind === 'image') {
+          // 图片要真的发给模型，所以在浏览器里重新走一遍缩放管线
+          const file = base64ToFile(content.data, baseName(absolute), content.mimeType);
+          const prepared = await prepareImageAttachment(file);
+          patch(id, { ...prepared, bytes: content.bytes, status: 'ready' });
+        } else if (content?.kind === 'text') {
+          patch(id, {
+            path: absolute,
+            content: content.text,
+            truncated: content.truncated,
+            bytes: content.bytes,
+            status: 'ready',
+          });
+        } else {
+          patch(id, { path: absolute, bytes: content?.bytes ?? 0, status: 'ready' });
+        }
+      } catch (error) {
+        patch(id, { path: absolute, status: 'error', error: (error as Error).message });
+      }
+    }
+  }, [onPickFile, onReadAttachment]);
+
+  /** 从工作目录挑：文件已经在磁盘上，连内容都不必复制 */
   const addFromWorkspace = (entry: DirEntry) => {
-    const id = `att-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const id = newId();
+    const image = isImagePath(entry.path);
+
     setAttachments(prev => [
       ...prev,
       {
         id,
         name: entry.name,
         bytes: entry.bytes ?? 0,
-        kind: 'file',
-        status: 'ready',
-        relativePath: entry.path,
+        kind: image ? 'image' : 'file',
+        status: 'loading',
+        path: entry.path,
       },
     ]);
     setPickerOpen(false);
+
+    if (image) {
+      // 工作目录里的图片同样需要 base64 才能走原生通道
+      void (async () => {
+        try {
+          const content = await onReadAttachment?.(entry.path);
+          if (content?.kind !== 'image') throw new Error('读不到这张图片');
+          const file = base64ToFile(content.data, entry.name, content.mimeType);
+          patch(id, { ...(await prepareImageAttachment(file)), bytes: content.bytes, status: 'ready' });
+        } catch (error) {
+          patch(id, { status: 'error', error: (error as Error).message });
+        }
+      })();
+      return;
+    }
+
     void loadContent(id, entry.path);
+    patch(id, { status: 'ready' });
+  };
+
+  const removeAttachment = (id: string) => {
+    setAttachments(prev => prev.filter(item => item.id !== id));
   };
 
   const canSend = !!input.trim() || attachments.some(item => item.status === 'ready');
@@ -282,19 +354,22 @@ export function ChatInput({
     const ready = attachments.filter(item => item.status === 'ready');
     const images = ready
       .filter(item => item.kind === 'image' && item.data && item.mimeType)
-      .map(item => ({ name: item.name, data: item.data as string, mimeType: item.mimeType as string }));
-    const files = ready
-      .filter(item => item.kind === 'file' && item.relativePath)
       .map(item => ({
         name: item.name,
-        relativePath: item.relativePath as string,
+        data: item.data as string,
+        mimeType: item.mimeType as string,
+      }));
+    const files = ready
+      .filter(item => item.kind === 'file' && (item.path || item.content !== undefined))
+      .map(item => ({
+        name: item.name,
+        path: item.path,
         content: item.content,
         truncated: item.truncated,
       }));
 
     if (!input.trim() && images.length === 0 && files.length === 0) return;
 
-    // 交给 usePiWebSocket 分流：图片走 prompt.images，文件把路径写进正文
     onSend({ text: input, images, files });
     setInput('');
     setAttachments([]);
@@ -305,17 +380,17 @@ export function ChatInput({
     if (showIcon) onActivate?.();
   };
 
+  const canAttach = !!onPickFile || !!onListDir;
+
   return (
     <div
       className="w-full max-w-2xl mx-auto px-5 sm:px-6 pb-6 sm:pb-8"
       onDragOver={e => {
-        if (!onUploadFile) return;
         e.preventDefault();
         setDragging(true);
       }}
       onDragLeave={() => setDragging(false)}
       onDrop={e => {
-        if (!onUploadFile) return;
         e.preventDefault();
         setDragging(false);
         void addFiles(Array.from(e.dataTransfer.files));
@@ -326,7 +401,7 @@ export function ChatInput({
           {attachments.map(item => (
             <span
               key={item.id}
-              title={item.error}
+              title={item.error ?? item.path}
               className={`flex max-w-[16rem] items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11.5px] ${
                 item.status === 'error'
                   ? 'border-rose-400/40 text-rose-500'
@@ -339,7 +414,7 @@ export function ChatInput({
                   alt={item.name}
                   className="h-4 w-4 shrink-0 rounded object-cover"
                 />
-              ) : item.status === 'uploading' ? (
+              ) : item.status === 'loading' ? (
                 <Loader2 className="w-3 h-3 shrink-0 animate-spin" />
               ) : (
                 <FileText className="w-3 h-3 shrink-0" />
@@ -408,43 +483,52 @@ export function ChatInput({
             placeholder="给 Pi 发送消息…"
             rows={1}
             tabIndex={showIcon ? -1 : undefined}
-            className="w-full resize-none bg-transparent py-3.5 pl-4 pr-28 text-[14.5px] leading-[1.7] text-foreground placeholder:text-[color:var(--placeholder)] focus:outline-none max-h-48"
+            className="w-full resize-none bg-transparent py-3.5 pl-4 pr-24 text-[14.5px] leading-[1.7] text-foreground placeholder:text-[color:var(--placeholder)] focus:outline-none max-h-48"
           />
 
           <div className="pi-controls absolute right-2 bottom-2 flex items-center gap-1">
-            {onUploadFile && (
-              <>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  multiple
-                  className="hidden"
-                  onChange={e => {
-                    void addFiles(Array.from(e.target.files ?? []));
-                    // 清空 value：否则连续选同一个文件不会再触发 change
-                    e.target.value = '';
-                  }}
-                />
+            {canAttach && (
+              <div className="relative">
                 <button
-                  onClick={() => fileInputRef.current?.click()}
-                  className="p-2 rounded-full text-muted transition-colors hover:text-foreground"
+                  onClick={() => setMenuOpen(open => !open)}
+                  className="block p-2 rounded-full text-muted transition-colors hover:text-foreground"
                   title="添加附件"
                   aria-label="添加附件"
+                  aria-expanded={menuOpen}
                 >
                   <Paperclip className="w-4 h-4" />
                 </button>
-              </>
-            )}
 
-            {onListDir && (
-              <button
-                onClick={() => setPickerOpen(true)}
-                className="p-2 rounded-full text-muted transition-colors hover:text-foreground"
-                title="从工作目录选择"
-                aria-label="从工作目录选择"
-              >
-                <FolderOpen className="w-4 h-4" />
-              </button>
+                {menuOpen && (
+                  <>
+                    <div className="fixed inset-0 z-40" onClick={() => setMenuOpen(false)} />
+                    <div className="absolute bottom-full right-0 z-50 mb-2 w-52 overflow-hidden rounded-lg border border-border bg-background py-1 shadow-[0_4px_24px_-8px_rgba(0,0,0,0.18)]">
+                      {onPickFile && (
+                        <button
+                          onClick={() => {
+                            setMenuOpen(false);
+                            void addFromComputer();
+                          }}
+                          className="block w-full px-3 py-1.5 text-left text-[12.5px] text-foreground/90 transition-colors hover:bg-surface"
+                        >
+                          从电脑选择…
+                        </button>
+                      )}
+                      {onListDir && (
+                        <button
+                          onClick={() => {
+                            setMenuOpen(false);
+                            setPickerOpen(true);
+                          }}
+                          className="block w-full px-3 py-1.5 text-left text-[12.5px] text-foreground/90 transition-colors hover:bg-surface"
+                        >
+                          从项目里选择…
+                        </button>
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
             )}
 
             {isLoading ? (

@@ -1,5 +1,11 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import type { PiMessage, BridgeStatus, MessageAttachment, DirListing } from '../types/pi';
+import type {
+  PiMessage,
+  BridgeStatus,
+  MessageAttachment,
+  DirListing,
+  AttachmentContent,
+} from '../types/pi';
 import { RpcEventHandler } from '../services/rpcHandler';
 import {
   IMAGE_ONLY_INSTRUCTION,
@@ -18,15 +24,6 @@ interface PendingRequest {
 
 /** 桥接请求（上传 / 列目录）的超时；超过了就当作失败，不让界面一直等 */
 const REQUEST_TIMEOUT_MS = 60_000;
-
-/** 桥接把文件读成文本的结果 */
-export interface AttachmentText {
-  text?: string;
-  truncated?: boolean;
-  bytes?: number;
-  /** true 表示是二进制文件，不该内联 */
-  binary?: boolean;
-}
 
 export function usePiWebSocket() {
   const [messages, setMessages] = useState<PiMessage[]>([]);
@@ -121,12 +118,28 @@ export function usePiWebSocket() {
   );
 
   /**
-   * 把文件当文本读出来，供直接内联进 prompt。
-   * 二进制文件回 `binary: true`，调用方保留路径即可。
+   * 读一个附件：文本拿内容、图片拿 base64、二进制只要大小。
    */
   const readAttachment = useCallback(
-    (relativePath: string): Promise<AttachmentText> =>
-      request<AttachmentText>('read_attachment', 'attachment_content', { path: relativePath }),
+    (filePath: string): Promise<AttachmentContent> =>
+      request<AttachmentContent>('read_attachment', 'attachment_content', { path: filePath }),
+    [request]
+  );
+
+  /**
+   * 弹系统原生的文件选择框，拿回**绝对路径**。
+   *
+   * 关键：浏览器出于安全拿不到本地路径，但桥接就跑在同一台机器上，可以替用户
+   * 弹一个原生对话框。于是「选文件」不需要复制任何字节——文件原地不动，
+   * 我们只是知道了它在哪。用户取消时返回空数组。
+   */
+  const pickFile = useCallback(
+    async (imagesOnly = false): Promise<string[]> => {
+      const result = await request<{ paths?: string[] }>('pick_file', 'files_picked', {
+        imagesOnly,
+      });
+      return result.paths ?? [];
+    },
     [request]
   );
 
@@ -232,7 +245,8 @@ export function usePiWebSocket() {
       ...draft.files.map(file => ({
         kind: 'file' as const,
         name: file.name,
-        path: file.relativePath,
+        // 浏览器里内联的文本附件没有路径，用文件名当展示用的标识
+        path: file.path ?? file.name,
       })),
     ];
 
@@ -395,6 +409,7 @@ export function usePiWebSocket() {
     uploadFile,
     listDir,
     readAttachment,
+    pickFile,
     switchSession,
     renameSession,
     deleteSession,

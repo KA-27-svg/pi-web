@@ -5,7 +5,9 @@ import * as fs from 'fs/promises';
 import { listSessions, readSessionCwdSync, renameSession } from './sessions.js';
 import { saveUpload } from './uploads.js';
 import { listDirectory } from './browse.js';
-import { readTextAttachment } from './textAttachment.js';
+import { pickFiles } from './fileDialog.js';
+import { PickedFiles } from './pickedFiles.js';
+import { readAttachment, resolveAttachment } from './textAttachment.js';
 import { reply } from './reply.js';
 import { attachOriginGuard, parseAllowedOrigins } from './origin.js';
 import { PiSupervisor } from './pi.js';
@@ -39,6 +41,9 @@ let currentCwd = process.cwd();
  * RPC 的 get_state 也不返回它，所以桥接自己在转发前读出来，等 pi 确认成功后再应用。
  */
 let pendingSwitchCwd: string | null = null;
+
+/** 用户亲手选过的文件路径（工作目录之外的只允许读这些） */
+const picked = new PickedFiles();
 
 function broadcast(msg: string) {
   wss.clients.forEach(client => {
@@ -253,13 +258,33 @@ wss.on('connection', (ws: WebSocket) => {
         return;
       }
 
-      // 把文本文件读出来内联进 prompt。二进制返回 binary: true，前端保留路径不变。
+      // 弹系统原生的文件选择框。浏览器拿不到本地路径，但桥接就在同一台机器上，
+      // 于是「选文件」不需要复制任何字节——文件原地不动，我们只是知道了它在哪。
+      if (data.type === 'pick_file') {
+        reply(
+          ws,
+          'files_picked',
+          async () => {
+            const paths = await pickFiles({ imagesOnly: !!data.imagesOnly });
+            picked.remember(paths);
+            return { paths };
+          },
+          value => ({ ...value }),
+          () => ({ id: data.id })
+        );
+        return;
+      }
+
+      // 读附件内容：文本→内联，图片→base64，二进制→只报大小
       if (data.type === 'read_attachment') {
         reply(
           ws,
           'attachment_content',
-          () => readTextAttachment(currentCwd, data.path),
-          content => (content ? { ...content } : { binary: true }),
+          () => {
+            const target = resolveAttachment(currentCwd, data.path, p => picked.allows(p));
+            return readAttachment(target);
+          },
+          value => ({ ...value }),
           () => ({ id: data.id })
         );
         return;

@@ -45,6 +45,12 @@ export interface DirListing {
   entries: DirEntry[];
 }
 
+/** 桥接读一个附件的结果，按 kind 分流 */
+export type AttachmentContent =
+  | { kind: 'text'; text: string; truncated: boolean; bytes: number }
+  | { kind: 'image'; data: string; mimeType: string; bytes: number }
+  | { kind: 'binary'; bytes: number };
+
 /** pi 原生的图片附件（prompt.images 的元素），data 是不带 data URL 前缀的 base64 */
 export interface ImageContent {
   type: 'image';

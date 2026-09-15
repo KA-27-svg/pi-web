@@ -7,17 +7,21 @@ export interface UploadedFile {
   bytes: number;
 }
 
-/** 待发送的附件。图片直接带 base64 发给 pi，文件先上传换路径。 */
+/** 待发送的附件。 */
 export interface PendingAttachment {
   id: string;
   name: string;
   bytes: number;
   kind: 'image' | 'file';
-  status: 'uploading' | 'ready' | 'error';
+  status: 'loading' | 'ready' | 'error';
   error?: string;
-  /** 文件：上传成功后的相对路径 */
-  relativePath?: string;
-  /** 文件：读到的文本内容，会直接内联进 prompt（二进制文件没有这个） */
+  /**
+   * 写进消息里的路径。
+   * 从工作目录选的是相对路径；用系统对话框从电脑上选的是绝对路径。
+   * 图片不用它（走 prompt.images 原生通道）。
+   */
+  path?: string;
+  /** 文本文件读到的内容，会直接内联进 prompt */
   content?: string;
   /** content 只是文件开头（超过内联上限） */
   truncated?: boolean;
@@ -30,7 +34,8 @@ export interface PendingAttachment {
 /** 发送时每个文件附件带的信息 */
 export interface PromptFile {
   name: string;
-  relativePath: string;
+  /** 可能没有：拖进来的文本文件是在浏览器里内联的，从来没落过盘 */
+  path?: string;
   content?: string;
   truncated?: boolean;
 }
@@ -69,9 +74,27 @@ export const IMAGE_ONLY_INSTRUCTION = '请看这些图片。';
 /** 内容被截断时跟在围栏后面的一句；展示时一并去掉 */
 export const TRUNCATED_NOTE = '（以上只是开头，完整内容请用 read 工具读取该文件）';
 
-/** 图片走 pi 原生附件，文件走「把路径告诉 agent」 */
+/** 图片走 pi 原生附件，其它文件走「把路径告诉 agent」 */
 export function isImageFile(file: File): boolean {
   return typeof file.type === 'string' && file.type.startsWith('image/');
+}
+
+/** 桥接认得的图片扩展名，与 server/textAttachment.ts 的名单保持一致 */
+const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp']);
+
+/** 按扩展名判断是不是图片——从路径来的附件没有 MIME 可看 */
+export function isImagePath(filePath: string): boolean {
+  const dot = filePath.lastIndexOf('.');
+  if (dot < 0) return false;
+  return IMAGE_EXTENSIONS.has(filePath.slice(dot).toLowerCase());
+}
+
+/** base64 转回 File，好复用图片缩放那条已有的管线 */
+export function base64ToFile(data: string, name: string, mimeType: string): File {
+  const binary = atob(data);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+  return new File([bytes], name, { type: mimeType });
 }
 
 /** 从路径里取文件名，给文件卡片显示用 */
@@ -150,9 +173,10 @@ function fenceFor(content: string): string {
  */
 export function buildPromptWithAttachments(text: string, files: PromptFile[]): string {
   const refs = files
-    .filter(file => file.relativePath)
+    .filter(file => file.path || file.content !== undefined)
     .map(file => {
-      const header = `${ATTACHMENT_PREFIX}${file.relativePath}`;
+      // 没有路径的（浏览器里内联的文本）就用文件名代替
+      const header = `${ATTACHMENT_PREFIX}${file.path || file.name}`;
       if (file.content === undefined) return header;
 
       const fence = fenceFor(file.content);
@@ -260,6 +284,29 @@ export async function prepareImageAttachment(
   const data = await readFileAsBase64(blob);
   const mimeType = blob.type || 'image/jpeg';
   return { data, mimeType, dataUrl: `data:${mimeType};base64,${data}` };
+}
+
+/** 单个文本文件最多内联多少字符，与桥接侧保持一致 */
+export const MAX_INLINE_BYTES = 100 * 1024;
+
+/**
+ * 在浏览器里把一个 File 当文本读出来（拖拽/粘贴进来的文件只有字节，没有路径）。
+ *
+ * 开头有 NUL 就当作二进制——docx / pdf / zip 都是这样，省得白读一遍。
+ * 返回 null 表示「不是文本」，调用方走落盘那条路。
+ */
+export async function readInlineText(
+  file: File
+): Promise<{ text: string; truncated: boolean } | null> {
+  const head = await file.slice(0, MAX_INLINE_BYTES).arrayBuffer();
+  const bytes = new Uint8Array(head);
+
+  if (bytes.subarray(0, 8000).includes(0)) return null;
+
+  return {
+    text: new TextDecoder().decode(bytes),
+    truncated: file.size > bytes.length,
+  };
 }
 
 /**

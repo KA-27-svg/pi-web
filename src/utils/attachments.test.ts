@@ -15,7 +15,7 @@ import {
 } from './attachments';
 
 /** 只关心路径的文件附件 */
-const file = (relativePath: string) => ({ name: relativePath, relativePath });
+const file = (p: string) => ({ name: p, path: p });
 
 describe('formatBytes', () => {
   it('小于 1 KB 直接显示字节', () => {
@@ -66,7 +66,7 @@ describe('buildPromptWithAttachments', () => {
 
   it('有内容的文本文件直接内联，模型不必先去 read', () => {
     const built = buildPromptWithAttachments('解释一下', [
-      { name: 'a.ts', relativePath: 'src/a.ts', content: 'export const a = 1;\n' },
+      { name: 'a.ts', path: 'src/a.ts', content: 'export const a = 1;\n' },
     ]);
 
     expect(built).toBe('[附件] src/a.ts\n```\nexport const a = 1;\n\n```\n\n解释一下');
@@ -76,7 +76,7 @@ describe('buildPromptWithAttachments', () => {
     const content = '看这段：\n```ts\nlet a = 1\n```\n';
 
     const built = buildPromptWithAttachments('', [
-      { name: 'a.md', relativePath: 'a.md', content },
+      { name: 'a.md', path: 'a.md', content },
     ]);
 
     // 否则文件里的 ``` 会提前把我们的围栏关掉
@@ -86,7 +86,7 @@ describe('buildPromptWithAttachments', () => {
 
   it('内容被截断时明确告知，避免模型对剩下的内容瞎猜', () => {
     const built = buildPromptWithAttachments('', [
-      { name: 'a.log', relativePath: 'a.log', content: 'head', truncated: true },
+      { name: 'a.log', path: 'a.log', content: 'head', truncated: true },
     ]);
 
     expect(built).toContain(TRUNCATED_NOTE);
@@ -153,7 +153,7 @@ describe('parseFileAttachments', () => {
 
   it('内联进来的文件内容会被丢掉，不重复铺在气泡里', () => {
     const wire = buildPromptWithAttachments('看看', [
-      { name: 'a.ts', relativePath: 'src/a.ts', content: 'export const a = 1;\n' },
+      { name: 'a.ts', path: 'src/a.ts', content: 'export const a = 1;\n' },
     ]);
 
     const parsed = parseFileAttachments(wire);
@@ -166,7 +166,7 @@ describe('parseFileAttachments', () => {
   it('内容里带着围栏的也能完整丢掉', () => {
     const content = '```ts\nlet a = 1\n```\n';
     const wire = buildPromptWithAttachments('', [
-      { name: 'a.md', relativePath: 'a.md', content },
+      { name: 'a.md', path: 'a.md', content },
     ]);
 
     const parsed = parseFileAttachments(wire);
@@ -177,7 +177,7 @@ describe('parseFileAttachments', () => {
 
   it('截断提示也一并丢掉', () => {
     const wire = buildPromptWithAttachments('', [
-      { name: 'a.log', relativePath: 'a.log', content: 'head', truncated: true },
+      { name: 'a.log', path: 'a.log', content: 'head', truncated: true },
     ]);
 
     const parsed = parseFileAttachments(wire);
@@ -188,8 +188,8 @@ describe('parseFileAttachments', () => {
 
   it('多个文件里有的内联有的只给路径，都能还原', () => {
     const wire = buildPromptWithAttachments('一起看', [
-      { name: 'a.ts', relativePath: 'a.ts', content: 'let a = 1\n' },
-      { name: 'b.pdf', relativePath: 'b.pdf' },
+      { name: 'a.ts', path: 'a.ts', content: 'let a = 1\n' },
+      { name: 'b.pdf', path: 'b.pdf' },
     ]);
 
     const parsed = parseFileAttachments(wire);
