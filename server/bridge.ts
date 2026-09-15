@@ -1,10 +1,10 @@
-import { spawn, type ChildProcessWithoutNullStreams } from 'child_process';
 import { WebSocketServer, WebSocket } from 'ws';
 import * as http from 'http';
 import * as path from 'path';
 import * as fs from 'fs/promises';
 import { listSessions, readSessionCwdSync, renameSession } from './sessions.js';
 import { attachOriginGuard, parseAllowedOrigins } from './origin.js';
+import { PiSupervisor } from './pi.js';
 import {
   emptyTrash,
   listTrash,
@@ -28,7 +28,6 @@ const server = http.createServer((_req, res) => {
 const wss = new WebSocketServer({ noServer: true });
 attachOriginGuard(server, wss, parseAllowedOrigins());
 
-let piProcess: ChildProcessWithoutNullStreams | null = null;
 let currentCwd = process.cwd();
 /**
  * 刚请求切换到的会话的工作目录。
@@ -95,98 +94,58 @@ function applyPendingSwitch(line: string) {
   broadcast(JSON.stringify({ type: 'cwd_changed', cwd: currentCwd }));
 }
 
-function ensurePiRpc(cwd: string) {
-  if (piProcess && piProcess.exitCode === null && !piProcess.killed) {
-    return;
+/**
+ * pi 子进程的持有者。句柄归属、自愈重启与按行解码都在 PiSupervisor 里，
+ * 这里只把它的回调翻译成广播。
+ */
+const pi = new PiSupervisor(
+  {
+    onLine: line => {
+      applyPendingSwitch(line);
+      broadcast(line);
+    },
+    onStderr: message => {
+      console.error(`[Pi STDERR]: ${message}`);
+      broadcast(JSON.stringify({ type: 'pi_stderr', message }));
+    },
+    onExit: code => {
+      console.log(`[Pi Bridge] Pi process exited with code ${code}`);
+      broadcast(JSON.stringify({ type: 'pi_process_exit', code }));
+    },
+    onError: message => {
+      console.error('[Pi Bridge] Process error:', message);
+      broadcast(JSON.stringify({ type: 'pi_process_error', error: message }));
+    },
+  },
+  currentCwd
+);
+
+/**
+ * 把指令写给 pi。写不进去时必须报错：
+ * 静默丢弃会让前端永远等不到回包（例如切会话后对话区一直空着）。
+ */
+function sendToPi(ws: WebSocket, command: object): boolean {
+  if (pi.send(command)) return true;
+
+  const type = (command as { type?: string }).type ?? 'unknown';
+  console.warn(`[Pi Bridge] Pi process not ready, dropped command: ${type}`);
+  if (ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: 'bridge_error', error: 'Pi 进程未就绪，指令没有送达' }));
   }
-
-  console.log(`[Pi Bridge] Spawning pi --mode rpc in: ${cwd}`);
-  
-  // shell: true 是 Windows 上运行 npm 全局 CLI（pi.cmd）所必需的；
-  // 命令行参数是静态字面量，cwd 也只通过 spawn 的 cwd 选项传递，不经过 shell 拼接。
-  piProcess = spawn('pi', ['--mode', 'rpc'], {
-    cwd,
-    shell: true,
-    env: { ...process.env, FORCE_COLOR: '0' },
-  });
-
-  let lineBuffer = '';
-
-  piProcess.stdout.on('data', (chunk: Buffer) => {
-    lineBuffer += chunk.toString('utf-8');
-    const lines = lineBuffer.split('\n');
-    lineBuffer = lines.pop() || '';
-
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed) continue;
-      applyPendingSwitch(trimmed);
-      broadcast(trimmed);
-    }
-  });
-
-  piProcess.stderr.on('data', (chunk: Buffer) => {
-    const errText = chunk.toString('utf-8');
-    console.error(`[Pi STDERR]: ${errText}`);
-    broadcast(JSON.stringify({
-      type: 'pi_stderr',
-      message: errText,
-    }));
-  });
-
-  piProcess.on('close', (code) => {
-    console.log(`[Pi Bridge] Pi process exited with code ${code}`);
-    broadcast(JSON.stringify({
-      type: 'pi_process_exit',
-      code,
-    }));
-    piProcess = null;
-  });
-
-  piProcess.on('error', (err) => {
-    console.error(`[Pi Bridge] Process error:`, err);
-    broadcast(JSON.stringify({
-      type: 'pi_process_error',
-      error: err.message,
-    }));
-    piProcess = null;
-  });
-}
-
-function restartPi(cwd: string) {
-  if (piProcess) {
-    try {
-      piProcess.kill();
-    } catch {}
-    piProcess = null;
-  }
-  ensurePiRpc(cwd);
-}
-
-function sendToPi(jsonCommand: object) {
-  // 保证进程可用，不可用时自愈重启
-  ensurePiRpc(currentCwd);
-
-  if (!piProcess || !piProcess.stdin.writable) {
-    console.warn('[Pi Bridge] Pi process not ready after ensure, cannot send command');
-    return false;
-  }
-  const payload = JSON.stringify(jsonCommand) + '\n';
-  piProcess.stdin.write(payload, 'utf-8');
-  return true;
+  return false;
 }
 
 wss.on('connection', (ws: WebSocket) => {
   console.log('[Pi Bridge] Client connected via WebSocket');
 
   // 保证 Pi 运行时已拉起
-  ensurePiRpc(currentCwd);
+  pi.ensure(currentCwd);
 
   // 发送初始桥接状态
   ws.send(JSON.stringify({
     type: 'bridge_status',
     cwd: currentCwd,
-    running: !!piProcess,
+    running: pi.running,
   }));
 
   ws.on('message', (message: string) => {
@@ -200,7 +159,7 @@ wss.on('connection', (ws: WebSocket) => {
           .then(stat => {
             if (!stat.isDirectory()) throw new Error('not a directory');
             currentCwd = target;
-            restartPi(currentCwd);
+            pi.restart(currentCwd);
             broadcast(JSON.stringify({ type: 'cwd_changed', cwd: currentCwd }));
           })
           .catch(err => {
@@ -217,7 +176,7 @@ wss.on('connection', (ws: WebSocket) => {
 
       // 重启 Pi 进程
       if (data.type === 'restart_pi') {
-        restartPi(currentCwd);
+        pi.restart(currentCwd);
         return;
       }
 
@@ -244,7 +203,7 @@ wss.on('connection', (ws: WebSocket) => {
       // 否则设置面板显示的是旧目录，pi 崩溃自愈重启也会在错的目录里拉起
       if (data.type === 'switch_session' && typeof data.sessionPath === 'string') {
         pendingSwitchCwd = readSessionCwdSync(data.sessionPath);
-        sendToPi(data);
+        sendToPi(ws, data);
         return;
       }
 
@@ -289,7 +248,7 @@ wss.on('connection', (ws: WebSocket) => {
       }
 
       // 转发指令给 Pi (prompt, abort, new_session, get_state, get_messages 等)
-      sendToPi(data);
+      sendToPi(ws, data);
     } catch (err: any) {
       console.error('[Pi Bridge] Error handling client message:', err);
       ws.send(JSON.stringify({
