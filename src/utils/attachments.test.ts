@@ -2,11 +2,13 @@ import { describe, expect, it } from 'vitest';
 import {
   ATTACHMENT_INSTRUCTION,
   MAX_IMAGE_BYTES,
+  MAX_IMAGE_EDGE,
   baseName,
   buildPromptWithAttachments,
   formatBytes,
   isImageFile,
   parseFileAttachments,
+  planImageResize,
   prepareImageAttachment,
   readFileAsBase64,
 } from './attachments';
@@ -130,12 +132,56 @@ describe('prepareImageAttachment', () => {
     );
   });
 
-  it('超过上限的图片直接拒绝，并说清楚怎么办', async () => {
+  it('读不出尺寸的环境（Node）下，超大图只能请你先压缩', async () => {
     const huge = new File([new Uint8Array(MAX_IMAGE_BYTES + 10)], 'big.png', {
       type: 'image/png',
     });
 
     await expect(prepareImageAttachment(huge)).rejects.toThrow(/压缩/);
+  });
+});
+
+describe('planImageResize', () => {
+  const small = 200 * 1024;
+
+  it('尺寸和体积都合规就原样发，不重编码', () => {
+    // 重编码会掉画质、丢动画、丢透明，能不动就不动
+    expect(planImageResize(1200, 800, small)).toEqual({
+      width: 1200,
+      height: 800,
+      reencode: false,
+    });
+  });
+
+  it('最长边超限就按比例缩，短边跟着走', () => {
+    expect(planImageResize(4000, 3000, small)).toEqual({
+      width: 2000,
+      height: 1500,
+      reencode: true,
+    });
+  });
+
+  it('横图按宽度算，竖图按高度算', () => {
+    expect(planImageResize(8000, 2000, small)).toMatchObject({ width: 2000, height: 500 });
+    expect(planImageResize(2000, 8000, small)).toMatchObject({ width: 500, height: 2000 });
+  });
+
+  it('尺寸合规但体积超限也要重编码（尺寸不变）', () => {
+    expect(planImageResize(1200, 800, MAX_IMAGE_BYTES + 1)).toEqual({
+      width: 1200,
+      height: 800,
+      reencode: true,
+    });
+  });
+
+  it('已经是上限尺寸时不缩', () => {
+    expect(planImageResize(MAX_IMAGE_EDGE, MAX_IMAGE_EDGE, small).reencode).toBe(false);
+  });
+
+  it('极端长条图不会缩出 0 像素', () => {
+    const plan = planImageResize(1, 9000, small);
+    expect(plan.width).toBeGreaterThanOrEqual(1);
+    expect(plan.height).toBe(MAX_IMAGE_EDGE);
   });
 });
 
