@@ -13,6 +13,7 @@
       "vite/client"
     ],
     "skipLibCheck": true,
+    "strict": true,
     "noEmit": true,
     "jsx": "react-jsx",
     "noUnusedLocals": true,
