@@ -3,6 +3,7 @@ import {
   ATTACHMENT_INSTRUCTION,
   MAX_IMAGE_BYTES,
   MAX_IMAGE_EDGE,
+  TRUNCATED_NOTE,
   baseName,
   buildPromptWithAttachments,
   formatBytes,
@@ -12,6 +13,9 @@ import {
   prepareImageAttachment,
   readFileAsBase64,
 } from './attachments';
+
+/** 只关心路径的文件附件 */
+const file = (relativePath: string) => ({ name: relativePath, relativePath });
 
 describe('formatBytes', () => {
   it('小于 1 KB 直接显示字节', () => {
@@ -38,8 +42,8 @@ describe('buildPromptWithAttachments', () => {
 
   it('附件路径排在正文之前，一行一个', () => {
     const built = buildPromptWithAttachments('总结一下', [
-      '.pi-web-uploads/a.docx',
-      '.pi-web-uploads/b.png',
+      file('.pi-web-uploads/a.docx'),
+      file('.pi-web-uploads/b.png'),
     ]);
 
     expect(built).toBe(
@@ -48,16 +52,44 @@ describe('buildPromptWithAttachments', () => {
   });
 
   it('用户没写正文时补一句，确保 agent 会去读', () => {
-    const built = buildPromptWithAttachments('   ', ['.pi-web-uploads/a.docx']);
+    const built = buildPromptWithAttachments('   ', [file('.pi-web-uploads/a.docx')]);
 
     expect(built).toContain('[附件] .pi-web-uploads/a.docx');
     expect(built).toContain(ATTACHMENT_INSTRUCTION);
   });
 
   it('忽略空路径', () => {
-    expect(buildPromptWithAttachments('看下', ['', '.pi-web-uploads/a.txt'])).toBe(
+    expect(buildPromptWithAttachments('看下', [file(''), file('.pi-web-uploads/a.txt')])).toBe(
       '[附件] .pi-web-uploads/a.txt\n\n看下'
     );
+  });
+
+  it('有内容的文本文件直接内联，模型不必先去 read', () => {
+    const built = buildPromptWithAttachments('解释一下', [
+      { name: 'a.ts', relativePath: 'src/a.ts', content: 'export const a = 1;\n' },
+    ]);
+
+    expect(built).toBe('[附件] src/a.ts\n```\nexport const a = 1;\n\n```\n\n解释一下');
+  });
+
+  it('内容里本来就有围栏时，用更长的围栏包住它', () => {
+    const content = '看这段：\n```ts\nlet a = 1\n```\n';
+
+    const built = buildPromptWithAttachments('', [
+      { name: 'a.md', relativePath: 'a.md', content },
+    ]);
+
+    // 否则文件里的 ``` 会提前把我们的围栏关掉
+    expect(built).toContain('````');
+    expect(built).toContain(content);
+  });
+
+  it('内容被截断时明确告知，避免模型对剩下的内容瞎猜', () => {
+    const built = buildPromptWithAttachments('', [
+      { name: 'a.log', relativePath: 'a.log', content: 'head', truncated: true },
+    ]);
+
+    expect(built).toContain(TRUNCATED_NOTE);
   });
 });
 
@@ -117,6 +149,53 @@ describe('parseFileAttachments', () => {
 
     expect(parsed.paths).toEqual([]);
     expect(parsed.text).toBe('我说的附件 是这个词');
+  });
+
+  it('内联进来的文件内容会被丢掉，不重复铺在气泡里', () => {
+    const wire = buildPromptWithAttachments('看看', [
+      { name: 'a.ts', relativePath: 'src/a.ts', content: 'export const a = 1;\n' },
+    ]);
+
+    const parsed = parseFileAttachments(wire);
+
+    expect(parsed.paths).toEqual(['src/a.ts']);
+    expect(parsed.text).toBe('看看');
+    expect(parsed.text).not.toContain('export const');
+  });
+
+  it('内容里带着围栏的也能完整丢掉', () => {
+    const content = '```ts\nlet a = 1\n```\n';
+    const wire = buildPromptWithAttachments('', [
+      { name: 'a.md', relativePath: 'a.md', content },
+    ]);
+
+    const parsed = parseFileAttachments(wire);
+
+    expect(parsed.paths).toEqual(['a.md']);
+    expect(parsed.text).toBe('');
+  });
+
+  it('截断提示也一并丢掉', () => {
+    const wire = buildPromptWithAttachments('', [
+      { name: 'a.log', relativePath: 'a.log', content: 'head', truncated: true },
+    ]);
+
+    const parsed = parseFileAttachments(wire);
+
+    expect(parsed.paths).toEqual(['a.log']);
+    expect(parsed.text).not.toContain(TRUNCATED_NOTE);
+  });
+
+  it('多个文件里有的内联有的只给路径，都能还原', () => {
+    const wire = buildPromptWithAttachments('一起看', [
+      { name: 'a.ts', relativePath: 'a.ts', content: 'let a = 1\n' },
+      { name: 'b.pdf', relativePath: 'b.pdf' },
+    ]);
+
+    const parsed = parseFileAttachments(wire);
+
+    expect(parsed.paths).toEqual(['a.ts', 'b.pdf']);
+    expect(parsed.text).toBe('一起看');
   });
 });
 

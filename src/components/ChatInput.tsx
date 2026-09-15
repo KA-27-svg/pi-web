@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react';
 import { ArrowUp, FileText, FolderOpen, Loader2, Paperclip, Square, X } from 'lucide-react';
 import type { DirEntry, DirListing } from '../types/pi';
+import type { AttachmentText } from '../hooks/usePiWebSocket';
 import { FilePicker } from './FilePicker';
 import {
   formatBytes,
@@ -34,6 +35,8 @@ interface ChatInputProps {
   onUploadFile?: (file: File) => Promise<UploadedFile>;
   /** 列工作目录，用于「从工作目录选文件」；不传就不显示那个入口 */
   onListDir?: (path: string) => Promise<DirListing>;
+  /** 把文件当文本读出来（内联进 prompt）；不传则文件只给路径 */
+  onReadAttachment?: (path: string) => Promise<AttachmentText>;
 }
 
 export function ChatInput({
@@ -47,6 +50,7 @@ export function ChatInput({
   onResize,
   onUploadFile,
   onListDir,
+  onReadAttachment,
 }: ChatInputProps) {
   const [input, setInput] = useState('');
   const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
@@ -144,11 +148,42 @@ export function ChatInput({
   }, [measure]);
 
   /**
+   * 文本文件把内容读出来内联——模型一眼就看到，不必先花一轮去调 read。
+   * 二进制文件会回 binary: true，保留路径即可；读失败也当作普通文件，不影响附件本身。
+   */
+  const loadContent = useCallback(
+    async (id: string, relativePath: string) => {
+      if (!onReadAttachment) return;
+
+      try {
+        const result = await onReadAttachment(relativePath);
+        if (result.binary || typeof result.text !== 'string') return;
+
+        setAttachments(prev =>
+          prev.map(item =>
+            item.id === id
+              ? {
+                  ...item,
+                  content: result.text,
+                  truncated: result.truncated,
+                  bytes: result.bytes ?? item.bytes,
+                }
+              : item
+          )
+        );
+      } catch {
+        // 读不到就当普通文件处理
+      }
+    },
+    [onReadAttachment]
+  );
+
+  /**
    * 逐个处理。串行是故意的：顺序稳定，附件条的排列与用户拖进来的顺序一致。
    * 单个失败只影响那一个，不打断其余的。
    *
    * 图片**不上传**：直接读成 base64 走 pi 的原生附件通道，模型才真的「看得见」。
-   * 其它文件没有原生通道，只能先落盘换一个路径。
+   * 其它文件没有原生通道，只能先落盘换一个路径（文本还会额外内联内容）。
    */
   const addFiles = useCallback(
     async (files: Iterable<File>) => {
@@ -183,6 +218,7 @@ export function ChatInput({
                   : item
               )
             );
+            void loadContent(id, uploaded.relativePath);
           }
         } catch (error) {
           setAttachments(prev =>
@@ -195,7 +231,7 @@ export function ChatInput({
         }
       }
     },
-    [onUploadFile]
+    [onUploadFile, loadContent]
   );
 
   const removeAttachment = (id: string) => {
@@ -204,10 +240,11 @@ export function ChatInput({
 
   /** 从工作目录挑的文件：只记路径，不需要传输字节 */
   const addFromWorkspace = (entry: DirEntry) => {
+    const id = `att-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     setAttachments(prev => [
       ...prev,
       {
-        id: `att-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        id,
         name: entry.name,
         bytes: entry.bytes ?? 0,
         kind: 'file',
@@ -216,6 +253,7 @@ export function ChatInput({
       },
     ]);
     setPickerOpen(false);
+    void loadContent(id, entry.path);
   };
 
   const canSend = !!input.trim() || attachments.some(item => item.status === 'ready');
@@ -247,7 +285,12 @@ export function ChatInput({
       .map(item => ({ name: item.name, data: item.data as string, mimeType: item.mimeType as string }));
     const files = ready
       .filter(item => item.kind === 'file' && item.relativePath)
-      .map(item => ({ name: item.name, relativePath: item.relativePath as string }));
+      .map(item => ({
+        name: item.name,
+        relativePath: item.relativePath as string,
+        content: item.content,
+        truncated: item.truncated,
+      }));
 
     if (!input.trim() && images.length === 0 && files.length === 0) return;
 
@@ -303,7 +346,11 @@ export function ChatInput({
               )}
               <span className="truncate">{item.name}</span>
               <span className="shrink-0 text-muted/70">
-                {item.status === 'error' ? '失败' : formatBytes(item.bytes)}
+                {item.status === 'error'
+                  ? '失败'
+                  : item.content !== undefined
+                    ? '已内联'
+                    : formatBytes(item.bytes)}
               </span>
               <button
                 onClick={() => removeAttachment(item.id)}

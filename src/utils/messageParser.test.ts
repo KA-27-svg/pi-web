@@ -164,6 +164,18 @@ describe('历史里的附件', () => {
     expect(parsed[0].attachments?.map(a => a.kind)).toEqual(['image', 'file']);
   });
 
+  it('内容被内联进消息的文本附件，仍然渲染成文件卡片而不是一大块代码', () => {
+    // 不处理的话，刷新页面后气泡里会直接铺开文件内容
+    const parsed = MessageParser.parseHistory([
+      user('[附件] src/a.ts\n```\nexport const a = 1;\n```\n\n看看这个'),
+    ]);
+
+    expect(parsed[0].content).toBe('看看这个');
+    expect(parsed[0].attachments).toEqual([
+      { kind: 'file', name: 'a.ts', path: 'src/a.ts' },
+    ]);
+  });
+
   it('只发附件时正文为空，不把自动补的提示句漏出来', () => {
     const parsed = MessageParser.parseHistory([
       user('[附件] .pi-web-uploads/a.docx\n\n（请读取以上附件）'),

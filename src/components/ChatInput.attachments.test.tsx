@@ -309,3 +309,70 @@ describe('从工作目录选文件', () => {
     ]);
   });
 });
+
+describe('文本文件内联内容', () => {
+  const readOk = vi.fn(async () => ({ text: 'export const a = 1;\n', truncated: false, bytes: 21 }));
+
+  it('文字文件读回内容后，附件条标出「已内联」', async () => {
+    mount({ onUploadFile: uploadOk('a.ts'), onReadAttachment: readOk });
+
+    await drop([new File(['x'], 'a.ts')]);
+    await act(async () => {});
+
+    expect(readOk).toHaveBeenCalledWith('.pi-web-uploads/a.ts');
+    expect(host.textContent).toContain('已内联');
+  });
+
+  it('发送时内容跟着一起走，模型不用再自己去读', async () => {
+    const onSend = vi.fn();
+    mount({ onUploadFile: uploadOk('a.ts'), onReadAttachment: readOk, onSend });
+
+    await drop([new File(['x'], 'a.ts')]);
+    await act(async () => {});
+    type('看看');
+    act(() => sendButton()?.click());
+
+    expect(onSend.mock.calls[0][0].files).toEqual([
+      {
+        name: 'a.ts',
+        relativePath: '.pi-web-uploads/a.ts',
+        content: 'export const a = 1;\n',
+        truncated: false,
+      },
+    ]);
+  });
+
+  it('二进制文件不带内容，只留路径', async () => {
+    const onSend = vi.fn();
+    const readBinary = vi.fn(async () => ({ binary: true }));
+    mount({ onUploadFile: uploadOk('a.docx'), onReadAttachment: readBinary, onSend });
+
+    await drop([new File(['x'], 'a.docx')]);
+    await act(async () => {});
+    type('看看');
+    act(() => sendButton()?.click());
+
+    expect(host.textContent).not.toContain('已内联');
+    expect(onSend.mock.calls[0][0].files[0].content).toBeUndefined();
+  });
+
+  it('读取失败不影响附件本身', async () => {
+    const onSend = vi.fn();
+    const readFails = vi.fn(async () => {
+      throw new Error('读不到');
+    });
+    mount({ onUploadFile: uploadOk('a.ts'), onReadAttachment: readFails, onSend });
+
+    await drop([new File(['x'], 'a.ts')]);
+    await act(async () => {});
+
+    // 读失败不该把附件也弄丢
+    expect(chipNames()).toContain('a.ts');
+
+    type('看看');
+    act(() => sendButton()?.click());
+
+    expect(onSend.mock.calls[0][0].files[0].relativePath).toBe('.pi-web-uploads/a.ts');
+    expect(onSend.mock.calls[0][0].files[0].content).toBeUndefined();
+  });
+});

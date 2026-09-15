@@ -19,6 +19,15 @@ interface PendingRequest {
 /** 桥接请求（上传 / 列目录）的超时；超过了就当作失败，不让界面一直等 */
 const REQUEST_TIMEOUT_MS = 60_000;
 
+/** 桥接把文件读成文本的结果 */
+export interface AttachmentText {
+  text?: string;
+  truncated?: boolean;
+  bytes?: number;
+  /** true 表示是二进制文件，不该内联 */
+  binary?: boolean;
+}
+
 export function usePiWebSocket() {
   const [messages, setMessages] = useState<PiMessage[]>([]);
   const [status, setStatus] = useState<BridgeStatus>({
@@ -108,6 +117,16 @@ export function usePiWebSocket() {
   const listDir = useCallback(
     (relativePath = ''): Promise<DirListing> =>
       request<DirListing>('list_dir', 'dir_listing', { path: relativePath }),
+    [request]
+  );
+
+  /**
+   * 把文件当文本读出来，供直接内联进 prompt。
+   * 二进制文件回 `binary: true`，调用方保留路径即可。
+   */
+  const readAttachment = useCallback(
+    (relativePath: string): Promise<AttachmentText> =>
+      request<AttachmentText>('read_attachment', 'attachment_content', { path: relativePath }),
     [request]
   );
 
@@ -243,9 +262,10 @@ export function usePiWebSocket() {
     // 立即置为执行中，确保“停止生成”按钮无需等待 agent_start 事件即出现
     setStatus(prev => ({ ...prev, isStreaming: true }));
 
-    // 正文：文件路径拼进去；只有图片时给一句中性的话，避免发出空消息
+    // 正文：文件路径拼进去（文本文件连内容一起内联）；
+    // 只有图片时给一句中性的话，避免发出空消息
     const wireText =
-      buildPromptWithAttachments(text, draft.files.map(file => file.relativePath)) ||
+      buildPromptWithAttachments(text, draft.files) ||
       (draft.images.length > 0 ? IMAGE_ONLY_INSTRUCTION : '');
 
     wsRef.current.send(
@@ -374,6 +394,7 @@ export function usePiWebSocket() {
     requestStats,
     uploadFile,
     listDir,
+    readAttachment,
     switchSession,
     renameSession,
     deleteSession,

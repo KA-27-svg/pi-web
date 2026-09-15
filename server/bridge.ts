@@ -5,6 +5,7 @@ import * as fs from 'fs/promises';
 import { listSessions, readSessionCwdSync, renameSession } from './sessions.js';
 import { saveUpload } from './uploads.js';
 import { listDirectory } from './browse.js';
+import { readTextAttachment } from './textAttachment.js';
 import { reply } from './reply.js';
 import { attachOriginGuard, parseAllowedOrigins } from './origin.js';
 import { PiSupervisor } from './pi.js';
@@ -247,6 +248,18 @@ wss.on('connection', (ws: WebSocket) => {
           'dir_listing',
           () => listDirectory(currentCwd, data.path),
           listing => ({ ...listing }),
+          () => ({ id: data.id })
+        );
+        return;
+      }
+
+      // 把文本文件读出来内联进 prompt。二进制返回 binary: true，前端保留路径不变。
+      if (data.type === 'read_attachment') {
+        reply(
+          ws,
+          'attachment_content',
+          () => readTextAttachment(currentCwd, data.path),
+          content => (content ? { ...content } : { binary: true }),
           () => ({ id: data.id })
         );
         return;

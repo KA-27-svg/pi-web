@@ -17,17 +17,29 @@ export interface PendingAttachment {
   error?: string;
   /** 文件：上传成功后的相对路径 */
   relativePath?: string;
+  /** 文件：读到的文本内容，会直接内联进 prompt（二进制文件没有这个） */
+  content?: string;
+  /** content 只是文件开头（超过内联上限） */
+  truncated?: boolean;
   /** 图片：base64（不带 data URL 前缀）与 MIME，直接进 prompt.images */
   data?: string;
   mimeType?: string;
   dataUrl?: string;
 }
 
+/** 发送时每个文件附件带的信息 */
+export interface PromptFile {
+  name: string;
+  relativePath: string;
+  content?: string;
+  truncated?: boolean;
+}
+
 /** 输入框交给发送逻辑的一整份草稿 */
 export interface PromptDraft {
   text: string;
   images: { name: string; data: string; mimeType: string }[];
-  files: { name: string; relativePath: string }[];
+  files: PromptFile[];
 }
 
 /** 单张图片的字节兑底上限。缩放之后正常都远低于它，只在无法解码时才拦。 */
@@ -54,6 +66,9 @@ export const ATTACHMENT_INSTRUCTION = '（请读取以上附件）';
 /** 同上，但用于「只有图片、没有正文」的情况 */
 export const IMAGE_ONLY_INSTRUCTION = '请看这些图片。';
 
+/** 内容被截断时跟在围栏后面的一句；展示时一并去掉 */
+export const TRUNCATED_NOTE = '（以上只是开头，完整内容请用 read 工具读取该文件）';
+
 /** 图片走 pi 原生附件，文件走「把路径告诉 agent」 */
 export function isImageFile(file: File): boolean {
   return typeof file.type === 'string' && file.type.startsWith('image/');
@@ -65,23 +80,35 @@ export function baseName(filePath: string): string {
 }
 
 /**
- * 从消息文本里取回附件路径，并把那几行从正文里去掉。
+ * 从消息文本里取回附件路径，并把附件那几行从正文里去掉。
  *
- * pi 的会话文件里，用户消息只是带 `[附件] 路径` 的纯文本（RPC 没有通用附件字段），
- * 所以展示时得反过来解析一遍——这样刷新页面后重新加载的历史也能渲染成卡片。
+ * pi 的会话文件里，用户消息只是纯文本（RPC 没有通用附件字段），所以展示时得
+ * 反过来解析一遍：这样刷新页面后重新加载的历史也能渲染成卡片，而不是一大块代码。
  */
 export function parseFileAttachments(content: string): { text: string; paths: string[] } {
   const paths: string[] = [];
   const kept: string[] = [];
+  const lines = content.split('\n');
 
-  for (const line of content.split('\n')) {
-    const trimmed = line.trim();
+  for (let i = 0; i < lines.length; i += 1) {
+    const trimmed = lines[i].trim();
+
     if (trimmed.startsWith(ATTACHMENT_PREFIX)) {
       const path = trimmed.slice(ATTACHMENT_PREFIX.length).trim();
       if (path) paths.push(path);
+
+      // 紧随其后的围栏块是内联进来的文件内容，展示时不必再铺一遍
+      const opener = lines[i + 1]?.trim();
+      if (opener && /^`{3,}$/.test(opener)) {
+        i += 1;
+        while (i + 1 < lines.length && lines[i + 1].trim() !== opener) i += 1;
+        i += 1;
+        if (lines[i + 1]?.trim() === TRUNCATED_NOTE) i += 1;
+      }
       continue;
     }
-    kept.push(line);
+
+    kept.push(lines[i]);
   }
 
   let text = kept.join('\n').replace(/\n{3,}/g, '\n\n').trim();
@@ -106,14 +133,33 @@ export function formatBytes(bytes: number): string {
 }
 
 /**
- * 把文件路径拼进消息。
- *
- * 只有**文件**走这条路：pi 的 RPC 没有通用附件字段，只能告诉 agent 路径，
- * 它有 read/bash，自己会去读（和 Codex 的 /mention 一个思路）。
- * 图片走 `prompt.images` 原生通道，不进正文。
+ * 给内联内容挑围栏：比内容里最长的连续反引号再长一个。
+ * 否则文件本身写着 ``` 就会把围栏提前关掉。
  */
-export function buildPromptWithAttachments(text: string, relativePaths: string[]): string {
-  const refs = relativePaths.filter(Boolean).map(p => `${ATTACHMENT_PREFIX}${p}`);
+function fenceFor(content: string): string {
+  const longest = (content.match(/`+/g) ?? []).reduce((max, run) => Math.max(max, run.length), 0);
+  return '`'.repeat(Math.max(3, longest + 1));
+}
+
+/**
+ * 把附件拼进消息。
+ *
+ * 文本文件把**内容直接内联**进来，模型一眼就看到，不必先花一轮去调 read；
+ * 二进制文件（docx / pdf 等）只能给路径，由 agent 自己用工具处理。
+ * 图片不走这里——它们走 `prompt.images` 原生通道。
+ */
+export function buildPromptWithAttachments(text: string, files: PromptFile[]): string {
+  const refs = files
+    .filter(file => file.relativePath)
+    .map(file => {
+      const header = `${ATTACHMENT_PREFIX}${file.relativePath}`;
+      if (file.content === undefined) return header;
+
+      const fence = fenceFor(file.content);
+      const block = `${header}\n${fence}\n${file.content}\n${fence}`;
+      return file.truncated ? `${block}\n${TRUNCATED_NOTE}` : block;
+    });
+
   if (refs.length === 0) return text;
 
   const head = refs.join('\n');
