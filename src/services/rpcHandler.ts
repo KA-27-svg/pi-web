@@ -1,5 +1,5 @@
 import { MessageParser } from '../utils/messageParser';
-import type { PiMessage, ToolCallState, ModelInfo } from '../types/pi';
+import type { PiMessage, ToolCallState, ModelInfo, BridgeStatus } from '../types/pi';
 
 function toModelInfo(model: any): ModelInfo | undefined {
   if (!model) return undefined;
@@ -16,11 +16,11 @@ export class RpcEventHandler {
   /** 刚发出 switch_session，下一次 get_messages 要直接替换而不是「仅在本空时填充」 */
   private pendingHistory = false;
   private setMessages: React.Dispatch<React.SetStateAction<PiMessage[]>>;
-  private setStatus: React.Dispatch<React.SetStateAction<any>>;
+  private setStatus: React.Dispatch<React.SetStateAction<BridgeStatus>>;
 
   constructor(
     setMessages: React.Dispatch<React.SetStateAction<PiMessage[]>>,
-    setStatus: React.Dispatch<React.SetStateAction<any>>
+    setStatus: React.Dispatch<React.SetStateAction<BridgeStatus>>
   ) {
     this.setMessages = setMessages;
     this.setStatus = setStatus;
@@ -37,12 +37,21 @@ export class RpcEventHandler {
   public beginSwitch() {
     this.pendingHistory = true;
     this.currentAssistantId = null;
-    this.setStatus((prev: any) => ({ ...prev, switching: true, notice: undefined }));
+    this.setStatus((prev: BridgeStatus) => ({ ...prev, switching: true, notice: undefined }));
+  }
+
+  /**
+   * 用户点了停止。本地立刻收尾，不等 agent_settled：
+   * 否则在收到回包之前，任何一次 get_state 都会因为「本地还有进行中的回复」
+   * 把 isStreaming 又置回 true，按钮闪回「停止生成」。
+   */
+  public abortTurn() {
+    this.finishTurn();
   }
 
   /** 结束当前这一轮：复位执行状态，并把占位消息落定为完成或失败 */
   private finishTurn(error?: string) {
-    this.setStatus((prev: any) => ({ ...prev, isStreaming: false, currentTool: undefined }));
+    this.setStatus((prev: BridgeStatus) => ({ ...prev, isStreaming: false, currentTool: undefined }));
 
     const targetId = this.currentAssistantId;
     if (!targetId) return;
@@ -58,7 +67,7 @@ export class RpcEventHandler {
   public handleEvent(data: any, ws: WebSocket) {
     // 1. 桥接服务连接与目录变化
     if (data.type === 'bridge_status' || data.type === 'cwd_changed') {
-      this.setStatus((prev: any) => ({ ...prev, cwd: data.cwd }));
+      this.setStatus((prev: BridgeStatus) => ({ ...prev, cwd: data.cwd }));
       return;
     }
 
@@ -70,7 +79,7 @@ export class RpcEventHandler {
 
     // 3. Agent 执行生命周期
     if (data.type === 'agent_start') {
-      this.setStatus((prev: any) => ({ ...prev, isStreaming: true }));
+      this.setStatus((prev: BridgeStatus) => ({ ...prev, isStreaming: true }));
       return;
     }
 
@@ -91,8 +100,13 @@ export class RpcEventHandler {
       data.type === 'bridge_error'
     ) {
       console.error('[Pi]', data.error ?? data.type);
-      // 出错时要放开「切换中」，否则对话区会一直空着
-      this.setStatus((prev: any) => ({ ...prev, switching: false }));
+      // 出错时要放开「切换中」，否则对话区会一直空着；
+      // 同时留一条可见提示，否则没有占位消息可写 error（例如切工作目录失败）时等于没反应
+      this.setStatus((prev: BridgeStatus) => ({
+        ...prev,
+        switching: false,
+        notice: data.error || `Pi 进程已退出（code ${data.code ?? '未知'}）`,
+      }));
       this.finishTurn(
         data.error || `Pi 进程已退出（code ${data.code ?? '未知'}）`
       );
@@ -107,7 +121,7 @@ export class RpcEventHandler {
 
     // 5. 桥接扫描会话目录的结果
     if (data.type === 'sessions_list') {
-      this.setStatus((prev: any) => ({
+      this.setStatus((prev: BridgeStatus) => ({
         ...prev,
         sessions: data.sessions ?? [],
         sessionsTotal:
@@ -117,7 +131,7 @@ export class RpcEventHandler {
     }
 
     if (data.type === 'trash_list') {
-      this.setStatus((prev: any) => ({ ...prev, trashed: data.sessions ?? [] }));
+      this.setStatus((prev: BridgeStatus) => ({ ...prev, trashed: data.sessions ?? [] }));
       return;
     }
 
@@ -130,7 +144,7 @@ export class RpcEventHandler {
       data.type === 'trash_emptied'
     ) {
       if (!data.success) {
-        this.setStatus((prev: any) => ({ ...prev, notice: data.error ?? '操作失败' }));
+        this.setStatus((prev: BridgeStatus) => ({ ...prev, notice: data.error ?? '操作失败' }));
         return;
       }
 
@@ -149,7 +163,7 @@ export class RpcEventHandler {
   private handleResponse(data: any, ws: WebSocket) {
     if (data.command === 'get_state' && data.success && data.data) {
       const state = data.data;
-      this.setStatus((prev: any) => ({
+      this.setStatus((prev: BridgeStatus) => ({
         ...prev,
         thinkingLevel: state.thinkingLevel,
         sessionId: state.sessionId,
@@ -164,7 +178,7 @@ export class RpcEventHandler {
       data.success &&
       Array.isArray(data.data?.models)
     ) {
-      this.setStatus((prev: any) => ({
+      this.setStatus((prev: BridgeStatus) => ({
         ...prev,
         availableModels: data.data.models.map(toModelInfo).filter(Boolean),
       }));
@@ -175,7 +189,7 @@ export class RpcEventHandler {
       data.success &&
       Array.isArray(data.data?.levels)
     ) {
-      this.setStatus((prev: any) => ({
+      this.setStatus((prev: BridgeStatus) => ({
         ...prev,
         availableThinkingLevels: data.data.levels,
       }));
@@ -185,7 +199,7 @@ export class RpcEventHandler {
     if (data.command === 'set_model' && data.success) {
       const model = toModelInfo(data.data?.model ?? data.data);
       if (model) {
-        this.setStatus((prev: any) => ({ ...prev, model }));
+        this.setStatus((prev: BridgeStatus) => ({ ...prev, model }));
       }
       ws.send(JSON.stringify({ type: 'get_available_thinking_levels' }));
       ws.send(JSON.stringify({ type: 'get_state' }));
@@ -200,7 +214,7 @@ export class RpcEventHandler {
       this.currentAssistantId = null;
       this.pendingHistory = false;
       this.setMessages([]);
-      this.setStatus((prev: any) => ({ ...prev, switching: false }));
+      this.setStatus((prev: BridgeStatus) => ({ ...prev, switching: false }));
       ws.send(JSON.stringify({ type: 'get_state' }));
     }
 
@@ -218,7 +232,7 @@ export class RpcEventHandler {
 
       // 会话记录里的项目目录被删掉时 pi 会直接拒绝，以前这里是静默的。
       // 此时 pi 实际还停在原来的会话上，重新拉一次把界面换回去。
-      this.setStatus((prev: any) => ({
+      this.setStatus((prev: BridgeStatus) => ({
         ...prev,
         notice: data.success
           ? '该会话切换被扩展取消'
@@ -239,13 +253,13 @@ export class RpcEventHandler {
 
       // 到这里才真正知道这个会话是不是空的：
       // 在此之前不能把界面当作「空白态」，否则刷新已有对话时会先演一遍开场形变
-      this.setStatus((prev: any) => ({ ...prev, sessionLoaded: true }));
+      this.setStatus((prev: BridgeStatus) => ({ ...prev, sessionLoaded: true }));
 
       // 刚切换过会话：这份历史就是要替换掉旧会话的内容
       if (this.pendingHistory) {
         this.pendingHistory = false;
         this.setMessages(restored);
-        this.setStatus((prev: any) => ({ ...prev, switching: false }));
+        this.setStatus((prev: BridgeStatus) => ({ ...prev, switching: false }));
         return;
       }
 
@@ -287,7 +301,7 @@ export class RpcEventHandler {
         status: 'running',
       };
 
-      this.setStatus((prev: any) => ({ ...prev, currentTool: data.toolName }));
+      this.setStatus((prev: BridgeStatus) => ({ ...prev, currentTool: data.toolName }));
 
       if (targetId) {
         this.setMessages(prev =>
@@ -322,7 +336,7 @@ export class RpcEventHandler {
     }
 
     if (data.type === 'tool_execution_end') {
-      this.setStatus((prev: any) => ({ ...prev, currentTool: undefined }));
+      this.setStatus((prev: BridgeStatus) => ({ ...prev, currentTool: undefined }));
       if (targetId) {
         this.setMessages(prev =>
           prev.map(m => {

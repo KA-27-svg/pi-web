@@ -174,6 +174,78 @@ describe('失败路径', () => {
     expect(h.messages()[0].status).toBe('error');
     expect(h.messages()[0].error).toContain('不存在');
   });
+
+  it('桥接报错时也留一条可见提示，即使没有进行中的消息', () => {
+    // 例如切换工作目录失败：没有占位消息可写 error，不提示就等于点了没反应
+    const h = createHarness();
+    h.setMessages([{ id: 'old', role: 'assistant', content: '旧内容', status: 'done' }]);
+
+    h.handler.handleEvent({ type: 'bridge_error', error: '无法切换工作目录：X 不存在或不是目录' }, h.ws);
+
+    expect(h.status().notice).toContain('不存在');
+    expect(h.messages()[0].status).toBe('done');
+  });
+});
+
+describe('用户中止', () => {
+  const stateEvent = (isStreaming: boolean) => ({
+    type: 'response',
+    command: 'get_state',
+    success: true,
+    data: { isStreaming, thinkingLevel: 'high', sessionId: 's1', model: { id: 'm', name: 'M', provider: 'p' } },
+  });
+
+  it('本地立刻收尾，并把占位消息落定为完成', () => {
+    const h = createHarness();
+    startTurn(h);
+    h.handler.handleEvent(
+      { type: 'message_update', assistantMessageEvent: { type: 'text_delta', delta: '说到一半' } },
+      h.ws
+    );
+
+    h.handler.abortTurn();
+
+    expect(h.status().isStreaming).toBe(false);
+    expect(h.messages()[0].status).toBe('done');
+    expect(h.messages()[0].content).toBe('说到一半');
+  });
+
+  it('停止之后迟到的 get_state 不会把状态改回生成中', () => {
+    // abort 之后任何一次 get_state（例如切模型触发）都会重算 isStreaming；
+    // 如果还留着 currentAssistantId，按钮会闪回「停止生成」
+    const h = createHarness();
+    startTurn(h);
+
+    h.handler.abortTurn();
+    h.handler.handleEvent(stateEvent(false), h.ws);
+
+    expect(h.status().isStreaming).toBe(false);
+  });
+
+  it('停止之后迟到的增量被忽略', () => {
+    const h = createHarness();
+    startTurn(h);
+    h.handler.abortTurn();
+
+    h.handler.handleEvent(
+      { type: 'message_update', assistantMessageEvent: { type: 'text_delta', delta: '不要了' } },
+      h.ws
+    );
+
+    expect(h.messages()[0].content).toBe('');
+  });
+
+  it('随后到达的 agent_settled 不会把消息改成失败或重复收尾', () => {
+    const h = createHarness();
+    startTurn(h);
+    h.handler.abortTurn();
+    const before = h.messages();
+
+    h.handler.handleEvent({ type: 'agent_settled' }, h.ws);
+
+    expect(h.messages()).toEqual(before);
+    expect(h.messages()[0].status).toBe('done');
+  });
 });
 
 describe('工具调用', () => {

@@ -133,12 +133,13 @@ export function usePiWebSocket() {
   }, [handler]);
 
   const abort = useCallback(() => {
-    // 先本地立即响应，避免按钮状态迟滞
-    setStatus(prev => ({ ...prev, isStreaming: false, currentTool: undefined }));
+    // 本地立刻收尾（含清掉 currentAssistantId），而不是只改写 isStreaming：
+    // 否则停止之后任何一次 get_state 都会把按钮改回「停止生成」
+    handler.abortTurn();
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({ type: 'abort' }));
     }
-  }, []);
+  }, [handler]);
 
   const changeCwd = useCallback((newCwd: string) => {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {

@@ -27,7 +27,6 @@ export function PiMessageItem({ message }: PiMessageItemProps) {
   return (
     <div className={enter}>
       <ExecutionCollapse
-        key={message.id}
         reasoning={message.reasoning}
         tools={message.tools}
         isStreaming={isStreaming}
