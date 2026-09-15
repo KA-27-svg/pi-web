@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import type { ToolCallState } from '../types/pi';
 import { ToolCallCard } from './ToolCallCard';
-import { ChevronRight } from 'lucide-react';
+import { reasoningParagraphs } from '../utils/format';
+import { ChevronRight, Sparkles } from 'lucide-react';
 
 interface ExecutionCollapseProps {
   reasoning?: string;
@@ -52,8 +53,22 @@ export function ExecutionCollapse({
       {isOpen && (
         <div className="mt-3 ml-[5px] pl-4 border-l border-border space-y-4">
           {hasReasoning && (
-            <div className="text-[13px] leading-[1.75] text-muted whitespace-pre-wrap break-words">
-              {reasoning}
+            <div className="rounded-lg bg-surface/50 px-3.5 py-3">
+              <div className="mb-2 flex items-center gap-1.5 text-[10.5px] text-muted/70">
+                <Sparkles className="w-3 h-3 shrink-0" />
+                思考过程
+              </div>
+
+              <div className="space-y-2.5">
+                {reasoningParagraphs(reasoning as string).map((paragraph, index) => (
+                  <p
+                    key={index}
+                    className="text-[13px] leading-[1.85] text-muted whitespace-pre-wrap break-words"
+                  >
+                    {paragraph}
+                  </p>
+                ))}
+              </div>
             </div>
           )}
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { win32 } from 'node:path';
-import { formatCost, formatRelativeTime, formatTokens, projectName, remainingDays } from '../utils/format';
+import { formatCost, formatRelativeTime, formatTokens, projectName, reasoningParagraphs, remainingDays } from '../utils/format';
 
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
@@ -58,6 +58,40 @@ describe('remainingDays', () => {
 
   it('已过期不会出现负数', () => {
     expect(remainingDays(now - 5 * DAY, now)).toBe(0);
+  });
+});
+
+describe('reasoningParagraphs', () => {
+  it('按空行切段', () => {
+    expect(reasoningParagraphs('第一段\n\n第二段')).toEqual(['第一段', '第二段']);
+  });
+
+  it('连续的多个空行只算一个分隔', () => {
+    expect(reasoningParagraphs('甲\n\n\n\n乙')).toEqual(['甲', '乙']);
+  });
+
+  it('段内的单个换行会保留', () => {
+    expect(reasoningParagraphs('第一行\n第二行\n\n下一段')).toEqual([
+      '第一行\n第二行',
+      '下一段',
+    ]);
+  });
+
+  it('去掉首尾空白与空段', () => {
+    expect(reasoningParagraphs('\n\n  甲  \n\n  \n\n乙\n\n')).toEqual(['甲', '乙']);
+  });
+
+  it('空内容得到空数组', () => {
+    expect(reasoningParagraphs('')).toEqual([]);
+    expect(reasoningParagraphs('   \n\n  ')).toEqual([]);
+  });
+
+  it('Windows 的 \\r\\n 也能切', () => {
+    expect(reasoningParagraphs('甲\r\n\r\n乙')).toEqual(['甲', '乙']);
+  });
+
+  it('只有一段时原样返回', () => {
+    expect(reasoningParagraphs('就一段话')).toEqual(['就一段话']);
   });
 });
 

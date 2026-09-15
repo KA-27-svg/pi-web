@@ -34,6 +34,20 @@ export function formatCost(usd: number): string {
   return `$${usd.toFixed(2)}`;
 }
 
+/**
+ * 把思考内容按空行切成段落。
+ *
+ * 之前整段用 whitespace-pre-wrap 渲染，模型输出里的空行只表现为一个空白行，
+ * 一段长思考读起来就是一整块。切成段落后用间距区分，可读性高很多。
+ * 段内的单个换行会保留（渲染时还是 whitespace-pre-wrap）。
+ */
+export function reasoningParagraphs(text: string): string[] {
+  return text
+    .split(/\r?\n\s*\r?\n/)
+    .map(paragraph => paragraph.trim())
+    .filter(Boolean);
+}
+
 /** Token 数。十万位以上不再带小数，否则每轮数字宽度都在跳。 */
 export function formatTokens(count: number): string {
   if (!Number.isFinite(count) || count <= 0) return '0';
