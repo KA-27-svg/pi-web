@@ -3,6 +3,8 @@ import * as http from 'http';
 import * as path from 'path';
 import * as fs from 'fs/promises';
 import { listSessions, readSessionCwdSync, renameSession } from './sessions.js';
+import { saveUpload } from './uploads.js';
+import { reply } from './reply.js';
 import { attachOriginGuard, parseAllowedOrigins } from './origin.js';
 import { PiSupervisor } from './pi.js';
 import {
@@ -42,30 +44,6 @@ function broadcast(msg: string) {
       client.send(msg);
     }
   });
-}
-
-/**
- * 统一的「跑一个异步操作 → 回一条结果」封装。
- * payload 用来把操作结果或原请求里的字段带回去。
- */
-function reply<T>(
-  ws: WebSocket,
-  type: string,
-  run: () => Promise<T>,
-  payload?: (value: T) => Record<string, unknown>
-) {
-  run()
-    .then(value => {
-      if (ws.readyState !== WebSocket.OPEN) return;
-      ws.send(JSON.stringify({ type, success: true, ...(payload?.(value) ?? {}) }));
-    })
-    .catch(err => {
-      console.error(`[Pi Bridge] ${type} failed:`, err);
-      if (ws.readyState !== WebSocket.OPEN) return;
-      ws.send(
-        JSON.stringify({ type, success: false, error: String(err?.message ?? err) })
-      );
-    });
 }
 
 /**
@@ -244,6 +222,20 @@ wss.on('connection', (ws: WebSocket) => {
 
       if (data.type === 'empty_trash') {
         reply(ws, 'trash_emptied', () => emptyTrash(), removed => ({ removed }));
+        return;
+      }
+
+      // 附件上传：浏览器拿不到本地路径，只能把字节传上来落到工作目录，
+      // 再把路径交给 pi（agent 自己用工具读）。和 Codex 的 /mention 一个思路。
+      if (data.type === 'upload_file') {
+        reply(
+          ws,
+          'file_uploaded',
+          () => saveUpload(currentCwd, data.name, data.data),
+          result => ({ ...result }),
+          // id 必须在失败时也带回去，否则前端配不上号，只能等超时
+          () => ({ id: data.id })
+        );
         return;
       }
 

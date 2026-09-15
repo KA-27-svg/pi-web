@@ -1,5 +1,11 @@
 import { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react';
-import { ArrowUp, Square } from 'lucide-react';
+import { ArrowUp, FileText, Loader2, Paperclip, Square, X } from 'lucide-react';
+import {
+  buildPromptWithAttachments,
+  formatBytes,
+  type PendingAttachment,
+  type UploadedFile,
+} from '../utils/attachments';
 import './ChatInput.css';
 
 /** 单行时外壳的高度 */
@@ -20,6 +26,8 @@ interface ChatInputProps {
   onActivate?: () => void;
   /** 外壳高度变化（多行输入）时通知父级，便于贴底时重新对齐滚动位置 */
   onResize?: () => void;
+  /** 把文件交给桥接落到工作目录；不传就不显示附件入口 */
+  onUploadFile?: (file: File) => Promise<UploadedFile>;
 }
 
 export function ChatInput({
@@ -31,10 +39,14 @@ export function ChatInput({
   showIcon = false,
   onActivate,
   onResize,
+  onUploadFile,
 }: ChatInputProps) {
   const [input, setInput] = useState('');
+  const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
+  const [dragging, setDragging] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   /** 上一次真正应用到外壳的高度，用来跳过无变化的写入 */
   const appliedHeightRef = useRef(0);
 
@@ -123,6 +135,58 @@ export function ChatInput({
     return () => observer.disconnect();
   }, [measure]);
 
+  /**
+   * 逐个上传。串行是故意的：顺序稳定，chip 的排列与用户拖进来的顺序一致。
+   * 单个失败只影响那一个 chip，不打断其余的。
+   */
+  const addFiles = useCallback(
+    async (files: Iterable<File>) => {
+      if (!onUploadFile) return;
+
+      for (const file of files) {
+        const id = `att-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        setAttachments(prev => [
+          ...prev,
+          { id, name: file.name || 'file', bytes: file.size, status: 'uploading' },
+        ]);
+
+        try {
+          const uploaded = await onUploadFile(file);
+          setAttachments(prev =>
+            prev.map(item =>
+              item.id === id
+                ? {
+                    ...item,
+                    status: 'ready',
+                    name: uploaded.name,
+                    bytes: uploaded.bytes,
+                    relativePath: uploaded.relativePath,
+                  }
+                : item
+            )
+          );
+        } catch (error) {
+          setAttachments(prev =>
+            prev.map(item =>
+              item.id === id
+                ? { ...item, status: 'error', error: (error as Error).message }
+                : item
+            )
+          );
+        }
+      }
+    },
+    [onUploadFile]
+  );
+
+  const removeAttachment = (id: string) => {
+    setAttachments(prev => prev.filter(item => item.id !== id));
+  };
+
+  const readyPaths = attachments
+    .filter(item => item.status === 'ready' && item.relativePath)
+    .map(item => item.relativePath as string);
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     // 中文输入法选词时的 Enter 不触发发送
     if (e.nativeEvent.isComposing) return;
@@ -132,10 +196,24 @@ export function ChatInput({
     }
   };
 
+  const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const files = Array.from(e.clipboardData?.files ?? []);
+    if (files.length === 0) return;
+
+    // 截图直接粘进来：拦掉默认行为，否则文件名会被当文本插进输入框
+    e.preventDefault();
+    void addFiles(files);
+  };
+
   const handleSend = () => {
-    if (!input.trim() || isLoading) return;
-    onSend(input);
+    if (isLoading) return;
+    if (!input.trim() && readyPaths.length === 0) return;
+
+    // 文件靠「把路径写进消息」交给 agent——pi 的 RPC 没有通用附件字段，
+    // 它有 read/bash，会自己去读（与 Codex 的 /mention 同一思路）
+    onSend(buildPromptWithAttachments(input, readyPaths));
     setInput('');
+    setAttachments([]);
     if (textareaRef.current) textareaRef.current.style.height = 'auto';
   };
 
@@ -143,11 +221,62 @@ export function ChatInput({
     if (showIcon) onActivate?.();
   };
 
-  const canSend = !!input.trim();
+  const canSend = !!input.trim() || readyPaths.length > 0;
 
   return (
-    <div className="w-full max-w-2xl mx-auto px-5 sm:px-6 pb-6 sm:pb-8">
-      <div className="pi-stage" ref={stageRef}>
+    <div
+      className="w-full max-w-2xl mx-auto px-5 sm:px-6 pb-6 sm:pb-8"
+      onDragOver={e => {
+        if (!onUploadFile) return;
+        e.preventDefault();
+        setDragging(true);
+      }}
+      onDragLeave={() => setDragging(false)}
+      onDrop={e => {
+        if (!onUploadFile) return;
+        e.preventDefault();
+        setDragging(false);
+        void addFiles(Array.from(e.dataTransfer.files));
+      }}
+    >
+      {attachments.length > 0 && (
+        <div className="mb-2 flex flex-wrap gap-1.5">
+          {attachments.map(item => (
+            <span
+              key={item.id}
+              title={item.error}
+              className={`flex max-w-[16rem] items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11.5px] ${
+                item.status === 'error'
+                  ? 'border-rose-400/40 text-rose-500'
+                  : 'border-border text-muted'
+              }`}
+            >
+              {item.status === 'uploading' ? (
+                <Loader2 className="w-3 h-3 shrink-0 animate-spin" />
+              ) : (
+                <FileText className="w-3 h-3 shrink-0" />
+              )}
+              <span className="truncate">{item.name}</span>
+              <span className="shrink-0 text-muted/70">
+                {item.status === 'error' ? '失败' : formatBytes(item.bytes)}
+              </span>
+              <button
+                onClick={() => removeAttachment(item.id)}
+                className="shrink-0 rounded p-0.5 transition-colors hover:text-foreground"
+                aria-label={`移除 ${item.name}`}
+                title="移除"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+
+      <div
+        className={`pi-stage rounded-2xl ${dragging ? 'ring-1 ring-foreground/25' : ''}`}
+        ref={stageRef}
+      >
         <div
           className={`pi-composer relative flex items-end rounded-2xl bg-surface ${
             showIcon ? 'is-icon' : ''
@@ -182,14 +311,39 @@ export function ChatInput({
             value={input}
             onChange={e => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
+            onPaste={handlePaste}
             onPointerDown={() => onFocusChange?.(true)}
             placeholder="给 Pi 发送消息…"
             rows={1}
             tabIndex={showIcon ? -1 : undefined}
-            className="w-full resize-none bg-transparent py-3.5 pl-4 pr-12 text-[14.5px] leading-[1.7] text-foreground placeholder:text-[color:var(--placeholder)] focus:outline-none max-h-48"
+            className="w-full resize-none bg-transparent py-3.5 pl-4 pr-20 text-[14.5px] leading-[1.7] text-foreground placeholder:text-[color:var(--placeholder)] focus:outline-none max-h-48"
           />
 
-          <div className="pi-controls absolute right-2 bottom-2">
+          <div className="pi-controls absolute right-2 bottom-2 flex items-center gap-1">
+            {onUploadFile && (
+              <>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  multiple
+                  className="hidden"
+                  onChange={e => {
+                    void addFiles(Array.from(e.target.files ?? []));
+                    // 清空 value：否则连续选同一个文件不会再触发 change
+                    e.target.value = '';
+                  }}
+                />
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  className="p-2 rounded-full text-muted transition-colors hover:text-foreground"
+                  title="添加附件"
+                  aria-label="添加附件"
+                >
+                  <Paperclip className="w-4 h-4" />
+                </button>
+              </>
+            )}
+
             {isLoading ? (
               <button
                 onClick={onStop}
