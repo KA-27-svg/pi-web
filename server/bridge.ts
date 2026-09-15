@@ -7,6 +7,7 @@ import { saveUpload } from './uploads.js';
 import { listDirectory } from './browse.js';
 import { pickFiles } from './fileDialog.js';
 import { PickedFiles, pickedFilesStorePath } from './pickedFiles.js';
+import { ATTACHMENT_PREFIX, attachmentPathsInMessages } from './attachmentPaths.js';
 import { openWithSystem } from './openFile.js';
 import { readAttachment, resolveAttachment } from './textAttachment.js';
 import { reply } from './reply.js';
@@ -55,6 +56,29 @@ function broadcast(msg: string) {
 }
 
 /**
+ * 从 pi 回传的会话内容里认领附件路径。
+ *
+ * 这是「附件能不能被打开」的第三种依据，也是最可靠的一种：用户确实把
+ * `C:\...\报告.docx` 贴进过这个对话，他想点开它再自然不过。
+ *
+ * 不这么做的话，换个工作目录或重启一次桥接，历史里所有工作目录外的附件
+ * 就全失效了——白名单是易失的，而转录里的事实是稳定的。
+ */
+function claimAttachments(line: string) {
+  if (!line.includes('get_messages') || !line.includes(ATTACHMENT_PREFIX)) return;
+
+  try {
+    const message = JSON.parse(line);
+    if (message?.type !== 'response' || message.command !== 'get_messages') return;
+
+    const paths = attachmentPathsInMessages(message.data?.messages);
+    if (paths.length > 0) picked.remember(paths);
+  } catch {
+    // 不是完整 JSON，忽略
+  }
+}
+
+/**
  * pi 确认会话切换成功后，把桥接的 currentCwd 一并换掉。
  * 失败或被扩展取消时 pi 的工作目录没变，必须保持原样。
  */
@@ -87,6 +111,7 @@ function applyPendingSwitch(line: string) {
 const pi = new PiSupervisor(
   {
     onLine: line => {
+      claimAttachments(line);
       applyPendingSwitch(line);
       broadcast(line);
     },
