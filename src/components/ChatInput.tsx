@@ -1,5 +1,7 @@
 import { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react';
-import { ArrowUp, FileText, Loader2, Paperclip, Square, X } from 'lucide-react';
+import { ArrowUp, FileText, FolderOpen, Loader2, Paperclip, Square, X } from 'lucide-react';
+import type { DirEntry, DirListing } from '../types/pi';
+import { FilePicker } from './FilePicker';
 import {
   formatBytes,
   isImageFile,
@@ -30,6 +32,8 @@ interface ChatInputProps {
   onResize?: () => void;
   /** 把文件交给桥接落到工作目录；不传就不显示附件入口 */
   onUploadFile?: (file: File) => Promise<UploadedFile>;
+  /** 列工作目录，用于「从工作目录选文件」；不传就不显示那个入口 */
+  onListDir?: (path: string) => Promise<DirListing>;
 }
 
 export function ChatInput({
@@ -42,10 +46,12 @@ export function ChatInput({
   onActivate,
   onResize,
   onUploadFile,
+  onListDir,
 }: ChatInputProps) {
   const [input, setInput] = useState('');
   const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
   const [dragging, setDragging] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -196,6 +202,22 @@ export function ChatInput({
     setAttachments(prev => prev.filter(item => item.id !== id));
   };
 
+  /** 从工作目录挑的文件：只记路径，不需要传输字节 */
+  const addFromWorkspace = (entry: DirEntry) => {
+    setAttachments(prev => [
+      ...prev,
+      {
+        id: `att-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        name: entry.name,
+        bytes: entry.bytes ?? 0,
+        kind: 'file',
+        status: 'ready',
+        relativePath: entry.path,
+      },
+    ]);
+    setPickerOpen(false);
+  };
+
   const canSend = !!input.trim() || attachments.some(item => item.status === 'ready');
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -339,7 +361,7 @@ export function ChatInput({
             placeholder="给 Pi 发送消息…"
             rows={1}
             tabIndex={showIcon ? -1 : undefined}
-            className="w-full resize-none bg-transparent py-3.5 pl-4 pr-20 text-[14.5px] leading-[1.7] text-foreground placeholder:text-[color:var(--placeholder)] focus:outline-none max-h-48"
+            className="w-full resize-none bg-transparent py-3.5 pl-4 pr-28 text-[14.5px] leading-[1.7] text-foreground placeholder:text-[color:var(--placeholder)] focus:outline-none max-h-48"
           />
 
           <div className="pi-controls absolute right-2 bottom-2 flex items-center gap-1">
@@ -365,6 +387,17 @@ export function ChatInput({
                   <Paperclip className="w-4 h-4" />
                 </button>
               </>
+            )}
+
+            {onListDir && (
+              <button
+                onClick={() => setPickerOpen(true)}
+                className="p-2 rounded-full text-muted transition-colors hover:text-foreground"
+                title="从工作目录选择"
+                aria-label="从工作目录选择"
+              >
+                <FolderOpen className="w-4 h-4" />
+              </button>
             )}
 
             {isLoading ? (
@@ -394,6 +427,14 @@ export function ChatInput({
           </div>
         </div>
       </div>
+
+      {pickerOpen && onListDir && (
+        <FilePicker
+          onList={onListDir}
+          onPick={addFromWorkspace}
+          onClose={() => setPickerOpen(false)}
+        />
+      )}
     </div>
   );
 }

@@ -4,6 +4,7 @@ import * as path from 'path';
 import * as fs from 'fs/promises';
 import { listSessions, readSessionCwdSync, renameSession } from './sessions.js';
 import { saveUpload } from './uploads.js';
+import { listDirectory } from './browse.js';
 import { reply } from './reply.js';
 import { attachOriginGuard, parseAllowedOrigins } from './origin.js';
 import { PiSupervisor } from './pi.js';
@@ -234,6 +235,18 @@ wss.on('connection', (ws: WebSocket) => {
           () => saveUpload(currentCwd, data.name, data.data),
           result => ({ ...result }),
           // id 必须在失败时也带回去，否则前端配不上号，只能等超时
+          () => ({ id: data.id })
+        );
+        return;
+      }
+
+      // 列工作目录（挑文件用）：只看不写，路径必须落在工作目录内
+      if (data.type === 'list_dir') {
+        reply(
+          ws,
+          'dir_listing',
+          () => listDirectory(currentCwd, data.path),
+          listing => ({ ...listing }),
           () => ({ id: data.id })
         );
         return;

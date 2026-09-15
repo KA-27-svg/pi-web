@@ -29,6 +29,22 @@ export interface ModelInfo {
   contextWindow?: number;
 }
 
+/** 工作目录里的一个条目（桥接列目录的结果） */
+export interface DirEntry {
+  name: string;
+  /** 相对工作目录的路径，正斜杠 */
+  path: string;
+  isDir: boolean;
+  bytes?: number;
+}
+
+export interface DirListing {
+  path: string;
+  /** 上一级；已经是工作目录根时为 null */
+  parent: string | null;
+  entries: DirEntry[];
+}
+
 /** pi 原生的图片附件（prompt.images 的元素），data 是不带 data URL 前缀的 base64 */
 export interface ImageContent {
   type: 'image';

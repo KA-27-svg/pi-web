@@ -263,3 +263,49 @@ describe('图片走原生附件', () => {
     ]);
   });
 });
+
+describe('从工作目录选文件', () => {
+  const workspace = (path: string) =>
+    vi.fn(async () => ({
+      path,
+      parent: null,
+      entries: [{ name: 'a.ts', path: 'src/a.ts', isDir: false, bytes: 10 }],
+    }));
+
+  it('没提供列目录能力时不显示入口', () => {
+    mount({ onUploadFile: uploadOk('x.txt') });
+
+    expect(host.querySelector('button[aria-label="从工作目录选择"]')).toBeNull();
+  });
+
+  it('选中的文件不需要上传字节，直接用它的路径', async () => {
+    const onUploadFile = vi.fn();
+    const onSend = vi.fn();
+    const onListDir = workspace('');
+    mount({ onUploadFile, onListDir, onSend });
+
+    act(() => {
+      (host.querySelector('button[aria-label="从工作目录选择"]') as HTMLButtonElement).click();
+    });
+    // 等 FilePicker 的首次列举落地
+    await act(async () => {});
+
+    const row = Array.from(host.querySelectorAll('button')).find(b =>
+      b.textContent?.includes('a.ts')
+    );
+    act(() => {
+      row?.click();
+    });
+
+    // 关键：根本没走上传——文件已经在磁盘上了
+    expect(onUploadFile).not.toHaveBeenCalled();
+    expect(chipNames()).toContain('a.ts');
+
+    type('看下这个');
+    act(() => sendButton()?.click());
+
+    expect(onSend.mock.calls[0][0].files).toEqual([
+      { name: 'a.ts', relativePath: 'src/a.ts' },
+    ]);
+  });
+});

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import type { PiMessage, BridgeStatus, MessageAttachment } from '../types/pi';
+import type { PiMessage, BridgeStatus, MessageAttachment, DirListing } from '../types/pi';
 import { RpcEventHandler } from '../services/rpcHandler';
 import {
   IMAGE_ONLY_INSTRUCTION,
@@ -9,13 +9,15 @@ import {
   type UploadedFile,
 } from '../utils/attachments';
 
-interface PendingUpload {
-  resolve: (value: UploadedFile) => void;
+interface PendingRequest {
+  expectedType: string;
+  resolve: (value: any) => void;
   reject: (reason: Error) => void;
   timer: number;
 }
 
-const UPLOAD_TIMEOUT_MS = 60_000;
+/** 桥接请求（上传 / 列目录）的超时；超过了就当作失败，不让界面一直等 */
+const REQUEST_TIMEOUT_MS = 60_000;
 
 export function usePiWebSocket() {
   const [messages, setMessages] = useState<PiMessage[]>([]);
@@ -29,11 +31,11 @@ export function usePiWebSocket() {
   const reconnectTimeoutRef = useRef<any>(null);
   const isMountedRef = useRef(true);
   /**
-   * 等待回包的上传请求。
-   * rpcHandler 处理的是「pi 推来的事件」，而上传是「桥接对我这次请求的回答」，
-   * 需要按 id 配对，所以放在这里而不是 rpcHandler 里。
+   * 等待回包的桥接请求。
+   * rpcHandler 处理的是「pi 推来的事件」，而上传 / 列目录是「桥接对我这次请求的回答」，
+   * 需要按 id 配对，所以单独一套。
    */
-  const pendingUploadsRef = useRef(new Map<string, PendingUpload>());
+  const pendingRequestsRef = useRef(new Map<string, PendingRequest>());
 
   // 专属解耦的 RPC 事件处理器：惰性初始化一次即可。用 useState 而不是渲染期间写 ref，
   // setMessages/setStatus 来自 useState，引用是稳定的，所以处理器只需构造一次。
@@ -51,47 +53,63 @@ export function usePiWebSocket() {
     }
   };
 
-  /** 按 id 把桥接的回包交给等待中的 Promise */
-  const settleUpload = useCallback((data: any) => {
-    const pending = pendingUploadsRef.current.get(data.id);
-    if (!pending) return;
+  /** 按 id 把回包交给等待中的 Promise；配不上号就返回 false，交给 rpcHandler */
+  const settleRequest = useCallback((data: any): boolean => {
+    const pending =
+      typeof data?.id === 'string' ? pendingRequestsRef.current.get(data.id) : undefined;
+    if (!pending || pending.expectedType !== data.type) return false;
 
-    pendingUploadsRef.current.delete(data.id);
+    pendingRequestsRef.current.delete(data.id);
     window.clearTimeout(pending.timer);
 
-    if (data.success) {
-      pending.resolve({
-        path: data.path,
-        relativePath: data.relativePath,
-        name: data.name,
-        bytes: data.bytes,
-      });
-    } else {
-      pending.reject(new Error(data.error ?? '上传失败'));
-    }
+    if (data.success) pending.resolve(data);
+    else pending.reject(new Error(data.error ?? '桥接操作失败'));
+    return true;
   }, []);
+
+  /** 发一条桥接指令并等它的回包 */
+  const request = useCallback(
+    <T,>(type: string, responseType: string, payload: Record<string, unknown> = {}): Promise<T> => {
+      const ws = wsRef.current;
+      if (!ws || ws.readyState !== WebSocket.OPEN) {
+        return Promise.reject(new Error('未连接到桥接服务'));
+      }
+
+      return new Promise<T>((resolve, reject) => {
+        const id = `req-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        const timer = window.setTimeout(() => {
+          pendingRequestsRef.current.delete(id);
+          reject(new Error('请求超时'));
+        }, REQUEST_TIMEOUT_MS);
+
+        pendingRequestsRef.current.set(id, { expectedType: responseType, resolve, reject, timer });
+        ws.send(JSON.stringify({ type, id, ...payload }));
+      });
+    },
+    []
+  );
 
   /**
    * 把文件交给桥接落到工作目录，拿回相对路径。
-   * 浏览器出于安全不会告诉页面文件的本地路径，所以只能把字节传上去——这就是「上传」。
+   * 浏览器出于安全不会告诉页面文件的本地路径，所以字节只能传上去。
    */
-  const uploadFile = useCallback(async (file: File): Promise<UploadedFile> => {
-    const ws = wsRef.current;
-    if (!ws || ws.readyState !== WebSocket.OPEN) throw new Error('未连接到桥接服务');
+  const uploadFile = useCallback(
+    async (file: File): Promise<UploadedFile> => {
+      const data = await readFileAsBase64(file);
+      return request<UploadedFile>('upload_file', 'file_uploaded', {
+        name: file.name,
+        data,
+      });
+    },
+    [request]
+  );
 
-    const data = await readFileAsBase64(file);
-
-    return new Promise<UploadedFile>((resolve, reject) => {
-      const id = `up-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-      const timer = window.setTimeout(() => {
-        pendingUploadsRef.current.delete(id);
-        reject(new Error('上传超时'));
-      }, UPLOAD_TIMEOUT_MS);
-
-      pendingUploadsRef.current.set(id, { resolve, reject, timer });
-      ws.send(JSON.stringify({ type: 'upload_file', id, name: file.name, data }));
-    });
-  }, []);
+  /** 列工作目录。给「从工作目录选文件」用——只读路径，不传字节。 */
+  const listDir = useCallback(
+    (relativePath = ''): Promise<DirListing> =>
+      request<DirListing>('list_dir', 'dir_listing', { path: relativePath }),
+    [request]
+  );
 
   // 命名函数表达式：让递归重连引用自身，而不是在初始化过程中引用 connectWs
   const connectWs = useCallback(function connect() {
@@ -140,33 +158,30 @@ export function usePiWebSocket() {
       if (isStale()) return;
       try {
         const data = JSON.parse(event.data);
-        if (data.type === 'file_uploaded') {
-          settleUpload(data);
-          return;
-        }
+        if (settleRequest(data)) return;
         handler.handleEvent(data, ws);
       } catch (e) {
         console.error('[usePiWebSocket] Failed to process message', e);
       }
     };
-  }, [handler, settleUpload]);
+  }, [handler, settleRequest]);
 
   useEffect(() => {
     isMountedRef.current = true;
     connectWs();
 
     // 捕获这个 Map 本身（引用终身不变），cleanup 里就不必再读 ref.current
-    const pendingUploads = pendingUploadsRef.current;
+    const pendingRequests = pendingRequestsRef.current;
 
     return () => {
       isMountedRef.current = false;
       clearTimeout(reconnectTimeoutRef.current);
-      // 断线时把还在等的上传一并拒掉，否则那些 Promise 会悬在那里
-      pendingUploads.forEach(pending => {
+      // 断线时把还在等的请求一并拒掉，否则那些 Promise 会悬在那里
+      pendingRequests.forEach(pending => {
         window.clearTimeout(pending.timer);
         pending.reject(new Error('连接已关闭'));
       });
-      pendingUploads.clear();
+      pendingRequests.clear();
       if (wsRef.current) {
         wsRef.current.close();
       }
@@ -358,6 +373,7 @@ export function usePiWebSocket() {
     requestSessions,
     requestStats,
     uploadFile,
+    listDir,
     switchSession,
     renameSession,
     deleteSession,
