@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { ChatInput } from './ChatInput';
-import type { UploadedFile } from '../utils/attachments';
+import { MAX_IMAGE_BYTES, type UploadedFile } from '../utils/attachments';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -101,7 +101,11 @@ describe('拖入文件', () => {
     type('总结一下');
     act(() => sendButton()?.click());
 
-    expect(onSend).toHaveBeenCalledWith('[附件] .pi-web-uploads/报告.docx\n\n总结一下');
+    expect(onSend).toHaveBeenCalledWith({
+      text: '总结一下',
+      images: [],
+      files: [{ name: '报告.docx', relativePath: '.pi-web-uploads/报告.docx' }],
+    });
   });
 
   it('上传中显示占位，完成后换成落盘后的文件名', async () => {
@@ -191,9 +195,71 @@ describe('粘贴与移除', () => {
 
     act(() => sendButton()?.click());
 
-    expect(onSend).toHaveBeenCalledWith(
-      '[附件] .pi-web-uploads/a.txt\n\n（请读取以上附件）'
-    );
+    expect(onSend).toHaveBeenCalledWith({
+      text: '',
+      images: [],
+      files: [{ name: 'a.txt', relativePath: '.pi-web-uploads/a.txt' }],
+    });
     expect(chipNames()).toEqual([]);
+  });
+});
+
+const png = (name = 'shot.png', bytes = [137, 80, 78, 71]) =>
+  new File([new Uint8Array(bytes)], name, { type: 'image/png' });
+
+describe('图片走原生附件', () => {
+  it('图片不落盘，直接以 base64 进 draft.images', async () => {
+    const onUploadFile = vi.fn();
+    const onSend = vi.fn();
+    mount({ onUploadFile, onSend });
+
+    await drop([png()]);
+
+    // 关键分歧点：图片不应该被写成文件、也不应该只传一个路径
+    expect(onUploadFile).not.toHaveBeenCalled();
+
+    type('这个报错怎么修');
+    act(() => sendButton()?.click());
+
+    const draft = onSend.mock.calls[0][0];
+    expect(draft.text).toBe('这个报错怎么修');
+    expect(draft.files).toEqual([]);
+    expect(draft.images).toHaveLength(1);
+    expect(draft.images[0].mimeType).toBe('image/png');
+    expect(atob(draft.images[0].data)).toBe('\u0089PNG');
+  });
+
+  it('附件条里直接显示缩略图', async () => {
+    mount({ onUploadFile: vi.fn() });
+
+    await drop([png()]);
+
+    const thumb = host.querySelector('img');
+    expect(thumb?.getAttribute('src')).toMatch(/^data:image\/png;base64,/);
+  });
+
+  it('超过 5 MB 的图片当场报错，而不是发出去等 provider 拒', async () => {
+    mount({ onUploadFile: vi.fn() });
+
+    await drop([png('big.png', new Array(MAX_IMAGE_BYTES + 10).fill(1))]);
+
+    expect(host.textContent).toContain('失败');
+    expect(sendButton()?.disabled).toBe(true);
+  });
+
+  it('图片和文件混发时分别进入两条通道', async () => {
+    const onUploadFile = uploadOk('报告.docx');
+    const onSend = vi.fn();
+    mount({ onUploadFile, onSend });
+
+    await drop([png(), new File(['x'], '报告.docx')]);
+    type('一起看');
+    act(() => sendButton()?.click());
+
+    const draft = onSend.mock.calls[0][0];
+    expect(draft.images).toHaveLength(1);
+    expect(draft.files).toEqual([
+      { name: '报告.docx', relativePath: '.pi-web-uploads/报告.docx' },
+    ]);
   });
 });

@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
+  ATTACHMENT_INSTRUCTION,
+  MAX_IMAGE_BYTES,
+  baseName,
   buildPromptWithAttachments,
   formatBytes,
+  isImageFile,
+  parseFileAttachments,
+  prepareImageAttachment,
   readFileAsBase64,
 } from './attachments';
 
@@ -43,13 +49,93 @@ describe('buildPromptWithAttachments', () => {
     const built = buildPromptWithAttachments('   ', ['.pi-web-uploads/a.docx']);
 
     expect(built).toContain('[附件] .pi-web-uploads/a.docx');
-    expect(built).toMatch(/读取/);
+    expect(built).toContain(ATTACHMENT_INSTRUCTION);
   });
 
   it('忽略空路径', () => {
     expect(buildPromptWithAttachments('看下', ['', '.pi-web-uploads/a.txt'])).toBe(
       '[附件] .pi-web-uploads/a.txt\n\n看下'
     );
+  });
+});
+
+describe('isImageFile', () => {
+  it('按 MIME 判断图片', () => {
+    expect(isImageFile(new File(['x'], 'a.png', { type: 'image/png' }))).toBe(true);
+    expect(isImageFile(new File(['x'], 'a.pdf', { type: 'application/pdf' }))).toBe(false);
+  });
+
+  it('拿不到 MIME 时当作普通文件', () => {
+    expect(isImageFile(new File(['x'], 'a'))).toBe(false);
+  });
+});
+
+describe('baseName', () => {
+  it('正斜杠与反斜杠都能取到文件名', () => {
+    expect(baseName('.pi-web-uploads/a.docx')).toBe('a.docx');
+    expect(baseName('C:\\work\\.pi-web-uploads\\报告.pdf')).toBe('报告.pdf');
+  });
+});
+
+describe('parseFileAttachments', () => {
+  it('取出附件路径，并把那几行从正文里去掉', () => {
+    const parsed = parseFileAttachments('[附件] .pi-web-uploads/a.docx\n\n帮我总结');
+
+    expect(parsed.paths).toEqual(['.pi-web-uploads/a.docx']);
+    expect(parsed.text).toBe('帮我总结');
+  });
+
+  it('多个附件都能取回', () => {
+    const parsed = parseFileAttachments(
+      '[附件] .pi-web-uploads/a.txt\n[附件] .pi-web-uploads/b.pdf\n看下这两个'
+    );
+
+    expect(parsed.paths).toEqual(['.pi-web-uploads/a.txt', '.pi-web-uploads/b.pdf']);
+    expect(parsed.text).toBe('看下这两个');
+  });
+
+  it('没有附件的消息原样返回', () => {
+    const parsed = parseFileAttachments('普通消息\n第二行');
+
+    expect(parsed.paths).toEqual([]);
+    expect(parsed.text).toBe('普通消息\n第二行');
+  });
+
+  it('只有附件时正文为空，不会把自动补的那句话显示出来', () => {
+    const parsed = parseFileAttachments(
+      `[附件] .pi-web-uploads/a.docx\n\n${ATTACHMENT_INSTRUCTION}`
+    );
+
+    expect(parsed.paths).toHaveLength(1);
+    expect(parsed.text).toBe('');
+  });
+
+  it('正文里恰好提到附件字样但格式不对时不受影响', () => {
+    const parsed = parseFileAttachments('我说的附件 是这个词');
+
+    expect(parsed.paths).toEqual([]);
+    expect(parsed.text).toBe('我说的附件 是这个词');
+  });
+});
+
+describe('prepareImageAttachment', () => {
+  it('产出 data URL 和原始 base64', async () => {
+    const file = new File([new Uint8Array([1, 2, 3])], 'a.png', { type: 'image/png' });
+    const prepared = await prepareImageAttachment(file);
+
+    expect(prepared.mimeType).toBe('image/png');
+    expect(prepared.dataUrl).toBe(`data:image/png;base64,${prepared.data}`);
+    expect(Uint8Array.from(atob(prepared.data), c => c.charCodeAt(0))).toEqual(
+      new Uint8Array([1, 2, 3])
+    );
+  });
+
+  it('超过上限的图片直接拒绝，并说清楚怎么办', async () => {
+    const huge = new File([new Uint8Array(MAX_IMAGE_BYTES + 10)], 'big.png', {
+      type: 'image/png',
+    });
+
+    await expect(prepareImageAttachment(huge)).rejects.toThrow(/压缩/);
   });
 });
 

@@ -1,4 +1,5 @@
-import type { PiMessage, ToolCallState } from '../types/pi';
+import type { PiMessage, ToolCallState, MessageAttachment } from '../types/pi';
+import { IMAGE_ONLY_INSTRUCTION, baseName, parseFileAttachments } from './attachments';
 
 export class MessageParser {
   /**
@@ -19,21 +20,48 @@ export class MessageParser {
       const id = (kind: string) => `hist-${loadId}-${kind}-${index}`;
 
       if (rm.role === 'user') {
-        const userContent = typeof rm.content === 'string'
-          ? rm.content
-          : Array.isArray(rm.content)
-          ? rm.content.map((c: any) => c.text || '').join('\n')
-          : '';
+        const blocks = Array.isArray(rm.content) ? rm.content : null;
+        const rawText = blocks
+          ? blocks
+              .filter((c: any) => c?.type === 'text')
+              .map((c: any) => c.text || '')
+              .join('\n')
+          : typeof rm.content === 'string'
+            ? rm.content
+            : '';
 
         // 屏蔽底层转译给模型的 bash 调试上下文包装
-        if (userContent.startsWith('Ran `') && userContent.includes('```')) {
+        if (rawText.startsWith('Ran `') && rawText.includes('```')) {
           return;
         }
+
+        // 图片以 ImageContent 形式存在会话里（没有文件名），需要重新拼成 data URL
+        const images: MessageAttachment[] = (blocks ?? [])
+          .filter((b: any) => b?.type === 'image' && typeof b.data === 'string')
+          .map((b: any, imageIndex: number) => ({
+            kind: 'image' as const,
+            name: `图片 ${imageIndex + 1}`,
+            dataUrl: `data:${b.mimeType || 'image/png'};base64,${b.data}`,
+          }));
+
+        // 文件在会话里只是一行 `[附件] 路径` 文本，所以展示时反过来解析一遍
+        const { text, paths } = parseFileAttachments(rawText);
+        const files: MessageAttachment[] = paths.map(p => ({
+          kind: 'file' as const,
+          name: baseName(p),
+          path: p,
+        }));
+
+        const attachments = [...images, ...files];
+        // 图片可以在没有正文的情况下单独发出，那句占位提示不该显示在气泡里
+        const displayText =
+          images.length > 0 && text === IMAGE_ONLY_INSTRUCTION ? '' : text;
 
         restored.push({
           id: id('user'),
           role: 'user',
-          content: userContent,
+          content: displayText,
+          attachments: attachments.length > 0 ? attachments : undefined,
           timestamp: rm.timestamp || 0,
           status: 'done',
           fromHistory: true,

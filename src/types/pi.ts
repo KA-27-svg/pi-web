@@ -12,6 +12,8 @@ export interface PiMessage {
   content: string;
   reasoning?: string;
   tools?: ToolCallState[];
+  /** 用户消息随行的附件（图片 / 文件） */
+  attachments?: MessageAttachment[];
   timestamp: number;
   status?: 'streaming' | 'done' | 'error';
   /** status 为 error 时的原因，用于直接展示给用户 */
@@ -25,6 +27,23 @@ export interface ModelInfo {
   name: string;
   provider: string;
   contextWindow?: number;
+}
+
+/** pi 原生的图片附件（prompt.images 的元素），data 是不带 data URL 前缀的 base64 */
+export interface ImageContent {
+  type: 'image';
+  data: string;
+  mimeType: string;
+}
+
+/** 对话里展示的附件：图片渲染成缩略图，文件渲染成卡片 */
+export interface MessageAttachment {
+  kind: 'image' | 'file';
+  name: string;
+  /** 图片的 data URL，直接给 <img src>；拼接一次存下来，避免每帧重生成长串 */
+  dataUrl?: string;
+  /** 文件在会话工作目录里的相对路径 */
+  path?: string;
 }
 
 /** pi 报上来的 token 用量；input/output/cacheRead/cacheWrite 都是累计值 */

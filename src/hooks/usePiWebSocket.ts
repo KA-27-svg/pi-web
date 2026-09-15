@@ -1,7 +1,13 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import type { PiMessage, BridgeStatus } from '../types/pi';
+import type { PiMessage, BridgeStatus, MessageAttachment } from '../types/pi';
 import { RpcEventHandler } from '../services/rpcHandler';
-import { readFileAsBase64, type UploadedFile } from '../utils/attachments';
+import {
+  IMAGE_ONLY_INSTRUCTION,
+  buildPromptWithAttachments,
+  readFileAsBase64,
+  type PromptDraft,
+  type UploadedFile,
+} from '../utils/attachments';
 
 interface PendingUpload {
   resolve: (value: UploadedFile) => void;
@@ -167,13 +173,40 @@ export function usePiWebSocket() {
     };
   }, [connectWs]);
 
-  const sendPrompt = useCallback((text: string) => {
-    if (!text.trim() || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
+  /**
+   * 发一轮对话。
+   *
+   * 图片走 pi 原生的 `prompt.images`（模型真的「看见」它），
+   * 文件没有原生通道，只能把路径写进正文让 agent 自己去读——两条路必须在
+   * 这里分开，否则图片也会退化成一行路径。
+   *
+   * 界面上的 user 消息只存干净的正文 + 结构化 attachments，不存那行路径，
+   * 这样气泡里能渲染成图片 / 文件卡片而不是一堆文字。
+   */
+  const sendPrompt = useCallback((draft: PromptDraft) => {
+    const text = draft.text.trim();
+    const hasAttachments = draft.images.length > 0 || draft.files.length > 0;
+    if (!text && !hasAttachments) return;
+    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
+
+    const attachments: MessageAttachment[] = [
+      ...draft.images.map(image => ({
+        kind: 'image' as const,
+        name: image.name,
+        dataUrl: `data:${image.mimeType};base64,${image.data}`,
+      })),
+      ...draft.files.map(file => ({
+        kind: 'file' as const,
+        name: file.name,
+        path: file.relativePath,
+      })),
+    ];
 
     const userMsg: PiMessage = {
       id: `user-${Date.now()}`,
       role: 'user',
-      content: text.trim(),
+      content: text,
+      attachments: attachments.length > 0 ? attachments : undefined,
       timestamp: Date.now(),
       status: 'done',
     };
@@ -195,10 +228,24 @@ export function usePiWebSocket() {
     // 立即置为执行中，确保“停止生成”按钮无需等待 agent_start 事件即出现
     setStatus(prev => ({ ...prev, isStreaming: true }));
 
+    // 正文：文件路径拼进去；只有图片时给一句中性的话，避免发出空消息
+    const wireText =
+      buildPromptWithAttachments(text, draft.files.map(file => file.relativePath)) ||
+      (draft.images.length > 0 ? IMAGE_ONLY_INSTRUCTION : '');
+
     wsRef.current.send(
       JSON.stringify({
         type: 'prompt',
-        message: text.trim(),
+        message: wireText,
+        ...(draft.images.length > 0
+          ? {
+              images: draft.images.map(image => ({
+                type: 'image',
+                data: image.data,
+                mimeType: image.mimeType,
+              })),
+            }
+          : {}),
       })
     );
   }, [handler]);

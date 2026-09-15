@@ -1,9 +1,11 @@
 import { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react';
 import { ArrowUp, FileText, Loader2, Paperclip, Square, X } from 'lucide-react';
 import {
-  buildPromptWithAttachments,
   formatBytes,
+  isImageFile,
+  prepareImageAttachment,
   type PendingAttachment,
+  type PromptDraft,
   type UploadedFile,
 } from '../utils/attachments';
 import './ChatInput.css';
@@ -16,7 +18,7 @@ const COMPOSER_MAX_HEIGHT = 192;
 const MORPH_MS = 760;
 
 interface ChatInputProps {
-  onSend: (text: string) => void;
+  onSend: (draft: PromptDraft) => void;
   onStop: () => void;
   isLoading: boolean;
   onFocusChange?: (focused: boolean) => void;
@@ -136,8 +138,11 @@ export function ChatInput({
   }, [measure]);
 
   /**
-   * 逐个上传。串行是故意的：顺序稳定，chip 的排列与用户拖进来的顺序一致。
-   * 单个失败只影响那一个 chip，不打断其余的。
+   * 逐个处理。串行是故意的：顺序稳定，附件条的排列与用户拖进来的顺序一致。
+   * 单个失败只影响那一个，不打断其余的。
+   *
+   * 图片**不上传**：直接读成 base64 走 pi 的原生附件通道，模型才真的「看得见」。
+   * 其它文件没有原生通道，只能先落盘换一个路径。
    */
   const addFiles = useCallback(
     async (files: Iterable<File>) => {
@@ -145,26 +150,34 @@ export function ChatInput({
 
       for (const file of files) {
         const id = `att-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        const kind = isImageFile(file) ? 'image' : 'file';
         setAttachments(prev => [
           ...prev,
-          { id, name: file.name || 'file', bytes: file.size, status: 'uploading' },
+          { id, name: file.name || 'file', bytes: file.size, kind, status: 'uploading' },
         ]);
 
         try {
-          const uploaded = await onUploadFile(file);
-          setAttachments(prev =>
-            prev.map(item =>
-              item.id === id
-                ? {
-                    ...item,
-                    status: 'ready',
-                    name: uploaded.name,
-                    bytes: uploaded.bytes,
-                    relativePath: uploaded.relativePath,
-                  }
-                : item
-            )
-          );
+          if (kind === 'image') {
+            const prepared = await prepareImageAttachment(file);
+            setAttachments(prev =>
+              prev.map(item => (item.id === id ? { ...item, ...prepared, status: 'ready' } : item))
+            );
+          } else {
+            const uploaded = await onUploadFile(file);
+            setAttachments(prev =>
+              prev.map(item =>
+                item.id === id
+                  ? {
+                      ...item,
+                      status: 'ready',
+                      name: uploaded.name,
+                      bytes: uploaded.bytes,
+                      relativePath: uploaded.relativePath,
+                    }
+                  : item
+              )
+            );
+          }
         } catch (error) {
           setAttachments(prev =>
             prev.map(item =>
@@ -183,9 +196,7 @@ export function ChatInput({
     setAttachments(prev => prev.filter(item => item.id !== id));
   };
 
-  const readyPaths = attachments
-    .filter(item => item.status === 'ready' && item.relativePath)
-    .map(item => item.relativePath as string);
+  const canSend = !!input.trim() || attachments.some(item => item.status === 'ready');
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     // 中文输入法选词时的 Enter 不触发发送
@@ -207,11 +218,19 @@ export function ChatInput({
 
   const handleSend = () => {
     if (isLoading) return;
-    if (!input.trim() && readyPaths.length === 0) return;
 
-    // 文件靠「把路径写进消息」交给 agent——pi 的 RPC 没有通用附件字段，
-    // 它有 read/bash，会自己去读（与 Codex 的 /mention 同一思路）
-    onSend(buildPromptWithAttachments(input, readyPaths));
+    const ready = attachments.filter(item => item.status === 'ready');
+    const images = ready
+      .filter(item => item.kind === 'image' && item.data && item.mimeType)
+      .map(item => ({ name: item.name, data: item.data as string, mimeType: item.mimeType as string }));
+    const files = ready
+      .filter(item => item.kind === 'file' && item.relativePath)
+      .map(item => ({ name: item.name, relativePath: item.relativePath as string }));
+
+    if (!input.trim() && images.length === 0 && files.length === 0) return;
+
+    // 交给 usePiWebSocket 分流：图片走 prompt.images，文件把路径写进正文
+    onSend({ text: input, images, files });
     setInput('');
     setAttachments([]);
     if (textareaRef.current) textareaRef.current.style.height = 'auto';
@@ -220,8 +239,6 @@ export function ChatInput({
   const activate = () => {
     if (showIcon) onActivate?.();
   };
-
-  const canSend = !!input.trim() || readyPaths.length > 0;
 
   return (
     <div
@@ -251,7 +268,13 @@ export function ChatInput({
                   : 'border-border text-muted'
               }`}
             >
-              {item.status === 'uploading' ? (
+              {item.kind === 'image' && item.dataUrl ? (
+                <img
+                  src={item.dataUrl}
+                  alt={item.name}
+                  className="h-4 w-4 shrink-0 rounded object-cover"
+                />
+              ) : item.status === 'uploading' ? (
                 <Loader2 className="w-3 h-3 shrink-0 animate-spin" />
               ) : (
                 <FileText className="w-3 h-3 shrink-0" />

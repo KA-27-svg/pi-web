@@ -105,4 +105,79 @@ describe('MessageParser.parseHistory', () => {
   it('空输入返回空数组', () => {
     expect(MessageParser.parseHistory([])).toEqual([]);
   });
+
+  it('没有附件的消息不挂 attachments 字段', () => {
+    const parsed = MessageParser.parseHistory([user('普通消息')]);
+    expect(parsed[0].attachments).toBeUndefined();
+  });
+});
+
+describe('历史里的附件', () => {
+  it('图片块还原成 data URL', () => {
+    const parsed = MessageParser.parseHistory([
+      user([
+        { type: 'text', text: '这是啥' },
+        { type: 'image', data: 'QUJD', mimeType: 'image/png' },
+      ]),
+    ]);
+
+    expect(parsed[0].content).toBe('这是啥');
+    expect(parsed[0].attachments).toEqual([
+      { kind: 'image', name: '图片 1', dataUrl: 'data:image/png;base64,QUJD' },
+    ]);
+  });
+
+  it('多张图按顺序编号', () => {
+    const parsed = MessageParser.parseHistory([
+      user([
+        { type: 'image', data: 'QQ==', mimeType: 'image/png' },
+        { type: 'image', data: 'Qg==', mimeType: 'image/jpeg' },
+      ]),
+    ]);
+
+    expect(parsed[0].attachments?.map(a => a.dataUrl)).toEqual([
+      'data:image/png;base64,QQ==',
+      'data:image/jpeg;base64,Qg==',
+    ]);
+  });
+
+  it('文件路径从正文里变成文件卡片', () => {
+    const parsed = MessageParser.parseHistory([
+      user('[附件] .pi-web-uploads/报告.docx\n\n帮我总结'),
+    ]);
+
+    expect(parsed[0].content).toBe('帮我总结');
+    expect(parsed[0].attachments).toEqual([
+      { kind: 'file', name: '报告.docx', path: '.pi-web-uploads/报告.docx' },
+    ]);
+  });
+
+  it('图片与文件同时存在时先图片后文件', () => {
+    const parsed = MessageParser.parseHistory([
+      user([
+        { type: 'text', text: '[附件] .pi-web-uploads/a.txt\n\n一起看' },
+        { type: 'image', data: 'QUJD', mimeType: 'image/png' },
+      ]),
+    ]);
+
+    expect(parsed[0].content).toBe('一起看');
+    expect(parsed[0].attachments?.map(a => a.kind)).toEqual(['image', 'file']);
+  });
+
+  it('只发附件时正文为空，不把自动补的提示句漏出来', () => {
+    const parsed = MessageParser.parseHistory([
+      user('[附件] .pi-web-uploads/a.docx\n\n（请读取以上附件）'),
+    ]);
+
+    expect(parsed[0].content).toBe('');
+    expect(parsed[0].attachments).toHaveLength(1);
+  });
+
+  it('内容为空的图片块不会弹出空白图', () => {
+    const parsed = MessageParser.parseHistory([
+      user([{ type: 'image', mimeType: 'image/png' }]),
+    ]);
+
+    expect(parsed[0].attachments).toBeUndefined();
+  });
 });

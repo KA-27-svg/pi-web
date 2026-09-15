@@ -60,3 +60,62 @@ describe('入场动画', () => {
     expect(hasEnterAnimation()).toBe(true);
   });
 });
+
+describe('用户消息里的附件', () => {
+  const user = (over: Partial<PiMessage> = {}) =>
+    message({ role: 'user', content: '', ...over });
+
+  it('图片直接渲染成图片，而不是文件名', () => {
+    render(
+      user({
+        attachments: [
+          { kind: 'image', name: '图片 1', dataUrl: 'data:image/png;base64,QUJD' },
+        ],
+      })
+    );
+
+    const img = host.querySelector('img');
+    expect(img?.getAttribute('src')).toBe('data:image/png;base64,QUJD');
+  });
+
+  it('文件渲染成卡片，带文件名与路径提示', () => {
+    render(
+      user({
+        attachments: [
+          { kind: 'file', name: '报告.docx', path: '.pi-web-uploads/报告.docx' },
+        ],
+      })
+    );
+
+    const card = host.querySelector('[title=".pi-web-uploads/报告.docx"]');
+    expect(card?.textContent).toContain('报告.docx');
+    expect(host.querySelector('img')).toBeNull();
+  });
+
+  it('图片和文件同时存在时两者都渲染', () => {
+    render(
+      user({
+        content: '一起看',
+        attachments: [
+          { kind: 'image', name: '图片 1', dataUrl: 'data:image/png;base64,QUJD' },
+          { kind: 'file', name: 'a.txt', path: '.pi-web-uploads/a.txt' },
+        ],
+      })
+    );
+
+    expect(host.querySelector('img')).not.toBeNull();
+    expect(host.textContent).toContain('a.txt');
+    expect(host.textContent).toContain('一起看');
+  });
+
+  it('只有附件、没有正文时不渲染空气泡', () => {
+    render(
+      user({
+        attachments: [{ kind: 'image', name: '图片 1', dataUrl: 'data:image/png;base64,QUJD' }],
+      })
+    );
+
+    expect(host.textContent?.trim()).toBe('');
+    expect(host.querySelector('img')).not.toBeNull();
+  });
+});
