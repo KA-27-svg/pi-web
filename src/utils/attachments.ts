@@ -97,6 +97,56 @@ export function base64ToFile(data: string, name: string, mimeType: string): File
   return new File([bytes], name, { type: mimeType });
 }
 
+/** 文件附件按类型分组，用来选图标与颜色 */
+export type FileKind =
+  | 'code'
+  | 'json'
+  | 'doc'
+  | 'sheet'
+  | 'slide'
+  | 'archive'
+  | 'audio'
+  | 'video'
+  | 'image'
+  | 'other';
+
+const KIND_BY_EXTENSION: Record<string, FileKind> = {
+  // 代码 / 脚本 / 配置
+  '.ts': 'code', '.tsx': 'code', '.js': 'code', '.jsx': 'code', '.mjs': 'code', '.cjs': 'code',
+  '.py': 'code', '.rb': 'code', '.go': 'code', '.rs': 'code', '.java': 'code', '.kt': 'code',
+  '.c': 'code', '.h': 'code', '.cpp': 'code', '.hpp': 'code', '.cs': 'code', '.php': 'code',
+  '.swift': 'code', '.sh': 'code', '.bash': 'code', '.ps1': 'code', '.bat': 'code', '.cmd': 'code',
+  '.html': 'code', '.css': 'code', '.scss': 'code', '.less': 'code', '.vue': 'code', '.svelte': 'code',
+  '.sql': 'code', '.yaml': 'code', '.yml': 'code', '.toml': 'code', '.ini': 'code',
+
+  '.json': 'json', '.jsonl': 'json',
+
+  // 文档
+  '.doc': 'doc', '.docx': 'doc', '.pdf': 'doc', '.rtf': 'doc', '.odt': 'doc',
+  '.txt': 'doc', '.md': 'doc', '.markdown': 'doc', '.log': 'doc',
+
+  '.xls': 'sheet', '.xlsx': 'sheet', '.csv': 'sheet', '.ods': 'sheet',
+
+  '.ppt': 'slide', '.pptx': 'slide', '.odp': 'slide', '.key': 'slide',
+
+  '.zip': 'archive', '.rar': 'archive', '.7z': 'archive', '.tar': 'archive',
+  '.gz': 'archive', '.tgz': 'archive',
+
+  '.mp3': 'audio', '.wav': 'audio', '.flac': 'audio', '.m4a': 'audio', '.ogg': 'audio',
+  '.mp4': 'video', '.mov': 'video', '.mkv': 'video', '.avi': 'video', '.webm': 'video',
+
+  '.png': 'image', '.jpg': 'image', '.jpeg': 'image', '.gif': 'image',
+  '.webp': 'image', '.bmp': 'image', '.svg': 'image',
+};
+
+/** 按扩展名判断文件种类。认不出来就归到 other。 */
+export function fileKind(fileName: string): FileKind {
+  const dot = fileName.lastIndexOf('.');
+  if (dot < 0) return 'other';
+
+  return KIND_BY_EXTENSION[fileName.slice(dot).toLowerCase()] ?? 'other';
+}
+
 /** 从路径里取文件名，给文件卡片显示用 */
 export function baseName(filePath: string): string {
   return filePath.split(/[\\/]/).filter(Boolean).pop() ?? filePath;

@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react';
-import { ArrowUp, FileText, Loader2, Paperclip, Square, X } from 'lucide-react';
+import { ArrowUp, Loader2, Paperclip, Square, X } from 'lucide-react';
 import type { AttachmentContent, DirEntry, DirListing } from '../types/pi';
 import {
   base64ToFile,
@@ -14,6 +14,7 @@ import {
   type UploadedFile,
 } from '../utils/attachments';
 import { FilePicker } from './FilePicker';
+import { FileIcon } from './FileIcon';
 import './ChatInput.css';
 
 /** 单行时外壳的高度 */
@@ -417,7 +418,7 @@ export function ChatInput({
               ) : item.status === 'loading' ? (
                 <Loader2 className="w-3 h-3 shrink-0 animate-spin" />
               ) : (
-                <FileText className="w-3 h-3 shrink-0" />
+                <FileIcon name={item.name} className="w-3 h-3 shrink-0" />
               )}
               <span className="truncate">{item.name}</span>
               <span className="shrink-0 text-muted/70">

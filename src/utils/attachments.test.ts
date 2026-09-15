@@ -6,6 +6,7 @@ import {
   TRUNCATED_NOTE,
   baseName,
   buildPromptWithAttachments,
+  fileKind,
   formatBytes,
   isImageFile,
   parseFileAttachments,
@@ -101,6 +102,52 @@ describe('isImageFile', () => {
 
   it('拿不到 MIME 时当作普通文件', () => {
     expect(isImageFile(new File(['x'], 'a'))).toBe(false);
+  });
+});
+
+describe('fileKind', () => {
+  it('代码、脚本与配置文件归为 code', () => {
+    for (const name of ['a.ts', 'b.tsx', 'c.py', 'd.sh', 'e.yaml', 'f.sql', 'g.css']) {
+      expect(fileKind(name), name).toBe('code');
+    }
+  });
+
+  it('json 单独一类，因为图标不一样', () => {
+    expect(fileKind('package.json')).toBe('json');
+    expect(fileKind('events.jsonl')).toBe('json');
+  });
+
+  it('文档、表格、演示分开', () => {
+    expect(fileKind('报告.docx')).toBe('doc');
+    expect(fileKind('说明.pdf')).toBe('doc');
+    expect(fileKind('readme.md')).toBe('doc');
+    expect(fileKind('数据.xlsx')).toBe('sheet');
+    expect(fileKind('数据.csv')).toBe('sheet');
+    expect(fileKind('汇报.pptx')).toBe('slide');
+  });
+
+  it('压缩包、音视频、图片各自一类', () => {
+    expect(fileKind('a.zip')).toBe('archive');
+    expect(fileKind('a.7z')).toBe('archive');
+    expect(fileKind('a.mp3')).toBe('audio');
+    expect(fileKind('a.mp4')).toBe('video');
+    expect(fileKind('a.png')).toBe('image');
+  });
+
+  it('大写扩展名也认得', () => {
+    expect(fileKind('报告.DOCX')).toBe('doc');
+    expect(fileKind('Photo.PNG')).toBe('image');
+  });
+
+  it('没有扩展名或认不出来就归到 other', () => {
+    expect(fileKind('LICENSE')).toBe('other');
+    expect(fileKind('a.weirdext')).toBe('other');
+    expect(fileKind('')).toBe('other');
+  });
+
+  it('只认最后一个点，带点的名字不会认错', () => {
+    expect(fileKind('我的.报告.final.docx')).toBe('doc');
+    expect(fileKind('archive.tar.gz')).toBe('archive');
   });
 });
 

@@ -3,7 +3,7 @@ import type { PiMessage } from '../types/pi';
 import { MarkdownView } from './MarkdownView';
 import { ExecutionCollapse } from './ExecutionCollapse';
 import { ImageLightbox } from './ImageLightbox';
-import { FileText } from 'lucide-react';
+import { FileIcon } from './FileIcon';
 
 interface PiMessageItemProps {
   message: PiMessage;
@@ -52,9 +52,9 @@ export function PiMessageItem({ message, onOpenFile }: PiMessageItemProps) {
                   onClick={() => attachment.path && onOpenFile?.(attachment.path)}
                   disabled={!attachment.path || !onOpenFile}
                   title={attachment.path ? `用默认程序打开\n${attachment.path}` : undefined}
-                  className="flex max-w-[16rem] items-center gap-1.5 rounded-lg border border-border bg-surface px-2.5 py-1.5 text-[12px] text-muted transition-colors enabled:hover:border-foreground/30 enabled:hover:text-foreground disabled:cursor-default"
+                  className="flex max-w-[16rem] items-center gap-1.5 rounded-lg border border-border bg-surface px-2.5 py-1.5 text-[12px] text-foreground transition-colors enabled:hover:border-foreground/40 disabled:cursor-default"
                 >
-                  <FileText className="w-3.5 h-3.5 shrink-0" />
+                  <FileIcon name={attachment.name} />
                   <span className="truncate">{attachment.name}</span>
                 </button>
               )
