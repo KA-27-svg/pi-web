@@ -85,27 +85,6 @@ RPC 传进去的 `images` 是原样透传的。
   绝对路径（`server/pickedFiles.ts`），不是任意绝对路径
 - `pick_file` 只在 Windows 上实现；其它平台会明确报错，而不是假装能用
 
-## Shell 工具（Bash / PowerShell）
-
-设置面板里可以切换 agent 执行命令时用哪个工具：`bash`（Git Bash）还是 `powershell`。
-
-两个选项都是 pi **内置的工具**，模型看到的是不同名字的工具，所以语法是配套的——
-不是「把 bash 解释器换成 powershell 去执行同样的话」。
-
-两点要清楚：
-
-- **这是 pi 的全局设置**（写进 `~/.pi/agent/settings.json` 的 `defaultTools`），终端里跑的
-  pi 也会跟着变，不是这个网页的私有开关。
-- **必须重启 pi 才生效**：pi 的工具集在启动时确定，RPC 没有改设置的接口。实测每次启动
-  都是**全新会话**，所以桥接会在重启后自动把当前会话切回来，对话不会断——但正在生成的
-  那一轮会被打断。
-
-为什么不用 `--tools` 启动参数：那是个覆盖**所有**工具的硬白名单，会把扩展提供的工具
-（比如 `exa_*`）一起关掉。`defaultTools` 只影响内置工具，扩展工具保持启用。
-
-切换时只改 `defaultTools` 这一个键；如果你的 `settings.json` 不是合法 JSON，桥接会直接
-报错而不是覆盖它——那是你手写的配置，不该由我们来「修」。
-
 ## 脚本
 
 | 命令 | 作用 |
@@ -146,7 +125,6 @@ server/
   fileDialog.ts    弹系统原生的文件选择框（拿回真实路径，不复制文件）
   pickedFiles.ts   记住用户亲手选过的路径（工作目录外只允许读这些）
   textAttachment.ts 读附件：文本→内联，图片→base64，二进制→只报大小
-  settings.ts      读写 pi 的 settings.json（换 shell 工具）
   reply.ts         统一的异步回包封装
   sessions.ts      会话列表 / 重命名 / 删除（含路径穿越防护）
   trash.ts         回收箱：移入 / 恢复 / 彻底删除 / 过期清理

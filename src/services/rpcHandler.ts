@@ -67,11 +67,7 @@ export class RpcEventHandler {
   public handleEvent(data: any, ws: WebSocket) {
     // 1. 桥接服务连接与目录变化
     if (data.type === 'bridge_status' || data.type === 'cwd_changed') {
-      this.setStatus((prev: BridgeStatus) => ({
-        ...prev,
-        cwd: data.cwd,
-        ...(data.shellTool ? { shellTool: data.shellTool } : {}),
-      }));
+      this.setStatus((prev: BridgeStatus) => ({ ...prev, cwd: data.cwd }));
       return;
     }
 
@@ -220,7 +216,8 @@ export class RpcEventHandler {
     }
 
     // 切换模型后，agent 会重新解析该模型支持的思考档位，因此一并刷新
-    if (data.command === 'set_model' && data.success) {      const model = toModelInfo(data.data?.model ?? data.data);
+    if (data.command === 'set_model' && data.success) {
+      const model = toModelInfo(data.data?.model ?? data.data);
       if (model) {
         this.setStatus((prev: BridgeStatus) => ({ ...prev, model }));
       }
@@ -231,11 +228,6 @@ export class RpcEventHandler {
     // 档位可能被模型能力收窄（clamp），以 get_state 的结果为准
     if (data.command === 'set_thinking_level' && data.success) {
       ws.send(JSON.stringify({ type: 'get_state' }));
-    }
-
-    // 换 shell 工具：桥接已经改了配置并重启了 pi，这里把开关拨过去
-    if (data.command === 'shell_tool_set' && data.success && data.tool) {
-      this.setStatus((prev: BridgeStatus) => ({ ...prev, shellTool: data.tool }));
     }
 
     if (data.command === 'new_session' && data.success) {

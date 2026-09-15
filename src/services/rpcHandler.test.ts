@@ -533,52 +533,6 @@ describe('会话是否已载入', () => {
   });
 });
 
-describe('Shell 工具设置', () => {
-  it('连接时桥接报告的 shellTool 会写进状态', () => {
-    const h = createHarness();
-
-    h.handler.handleEvent(
-      { type: 'bridge_status', cwd: 'C:/w', running: true, shellTool: 'powershell' },
-      h.ws
-    );
-
-    expect(h.status().shellTool).toBe('powershell');
-  });
-
-  it('旧桥接不发这个字段时不会把已有的值清掉', () => {
-    const h = createHarness();
-    h.handler.handleEvent({ type: 'bridge_status', cwd: 'C:/w', shellTool: 'powershell' }, h.ws);
-
-    h.handler.handleEvent({ type: 'cwd_changed', cwd: 'C:/other' }, h.ws);
-
-    expect(h.status().shellTool).toBe('powershell');
-    expect(h.status().cwd).toBe('C:/other');
-  });
-
-  it('切换成功后把开关拨过去', () => {
-    const h = createHarness();
-
-    h.handler.handleEvent(
-      { type: 'response', command: 'shell_tool_set', success: true, tool: 'powershell' },
-      h.ws
-    );
-
-    expect(h.status().shellTool).toBe('powershell');
-  });
-
-  it('切换失败时不改开关，避免界面显示成功实际没生效', () => {
-    const h = createHarness();
-    h.handler.handleEvent({ type: 'bridge_status', cwd: 'C:/w', shellTool: 'bash' }, h.ws);
-
-    h.handler.handleEvent(
-      { type: 'response', command: 'shell_tool_set', success: false, error: 'settings.json 坏了' },
-      h.ws
-    );
-
-    expect(h.status().shellTool).toBe('bash');
-  });
-});
-
 describe('会话用量', () => {
   const statsEvent = (overrides: Record<string, unknown> = {}) => ({
     type: 'response',

@@ -136,19 +136,6 @@ export function usePiWebSocket() {
   );
 
   /**
-   * 换 agent 的 shell 工具。
-   *
-   * 注意：这会改 pi 的**全局**设置（终端里的 pi 也读同一份），并且需要重启 pi——
-   * pi 的工具集在启动时确定，RPC 没有改设置的接口。桥接会在重启后自动切回原会话。
-   */
-  const setShellTool = useCallback(
-    async (tool: 'bash' | 'powershell'): Promise<void> => {
-      await request('set_shell_tool', { tool });
-    },
-    [request]
-  );
-
-  /**
    * 弹系统原生的文件选择框，拿回**绝对路径**。
    *
    * 关键：浏览器出于安全拿不到本地路径，但桥接就跑在同一台机器上，可以替用户
@@ -432,7 +419,6 @@ export function usePiWebSocket() {
     listDir,
     readAttachment,
     pickFile,
-    setShellTool,
     switchSession,
     renameSession,
     deleteSession,
