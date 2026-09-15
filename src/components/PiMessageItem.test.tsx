@@ -36,6 +36,9 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount());
   host.remove();
+  // 图片查看器是传送门，挂在 body 上。先 unmount 再由这里兵底清，
+  // 顺序反了的话 React 卸载时会报「node to be removed is not a child」。
+  document.body.querySelectorAll('[role="dialog"]').forEach(node => node.remove());
 });
 
 describe('入场动画', () => {
@@ -126,31 +129,77 @@ describe('点开附件', () => {
   const image = { kind: 'image' as const, name: '截图', dataUrl: 'data:image/png;base64,QUJD' };
   const file = { kind: 'file' as const, name: '报告.docx', path: '.pi-web-uploads/报告.docx' };
 
-  it('点图片会放大查看（出现遮罩对话框）', () => {
-    render(user({ attachments: [image] }));
-
-    expect(host.querySelector('[role="dialog"]')).toBeNull();
-
+  /** 查看器挂在 body 上（传送门），不在消息里 */
+  const dialog = () => document.body.querySelector('[role="dialog"]');
+  const openImage = () => {
     act(() => {
       (host.querySelector('button[aria-label="放大查看 截图"]') as HTMLButtonElement).click();
     });
+  };
 
-    const dialog = host.querySelector('[role="dialog"]');
-    expect(dialog).not.toBeNull();
-    expect(dialog?.querySelector('img')?.getAttribute('src')).toBe(image.dataUrl);
+  it('点图片会放大查看', () => {
+    render(user({ attachments: [image] }));
+    expect(dialog()).toBeNull();
+
+    openImage();
+
+    expect(dialog()).not.toBeNull();
+    expect(dialog()?.querySelector('img')?.getAttribute('src')).toBe(image.dataUrl);
   });
 
-  it('放大后按 Esc 关闭', () => {
+  it('查看器挂在 body 上，而不是消息里面', () => {
+    // 就地渲染的话，新消息的 `.paper-in` 动画（fill-mode: both）会留着 transform，
+    // 把 fixed 劫持成相对消息元素——遮罩盖不满、图片按原尺寸铺开
     render(user({ attachments: [image] }));
+
+    openImage();
+
+    expect(host.querySelector('[role="dialog"]')).toBeNull();
+    expect(document.body.querySelector('[role="dialog"]')).not.toBeNull();
+  });
+
+  it('图片按视口大小约束，不按容器百分比', () => {
+    render(user({ attachments: [image] }));
+    openImage();
+
+    const img = dialog()?.querySelector('img');
+    expect(img?.className).toContain('max-h-[90vh]');
+    expect(img?.className).toContain('max-w-[90vw]');
+  });
+
+  it('点图片外部关闭', () => {
+    render(user({ attachments: [image] }));
+    openImage();
+
     act(() => {
-      (host.querySelector('button[aria-label="放大查看 截图"]') as HTMLButtonElement).click();
+      (dialog() as HTMLElement).click();
     });
+
+    expect(dialog()).toBeNull();
+  });
+
+  it('点图片本身也关闭', () => {
+    render(user({ attachments: [image] }));
+    openImage();
+
+    act(() => {
+      const img = dialog()?.querySelector('img');
+      if (!img) throw new Error('没找到图片');
+      img.click();
+    });
+
+    expect(dialog()).toBeNull();
+  });
+
+  it('按 Esc 关闭', () => {
+    render(user({ attachments: [image] }));
+    openImage();
 
     act(() => {
       window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
     });
 
-    expect(host.querySelector('[role="dialog"]')).toBeNull();
+    expect(dialog()).toBeNull();
   });
 
   it('点文件卡片会把路径交给上层（系统默认程序打开）', () => {
