@@ -384,7 +384,7 @@ export function ChatInput({
 
   return (
     <div
-      className="w-full max-w-2xl mx-auto px-5 sm:px-6 pb-6 sm:pb-8"
+      className="w-full max-w-content mx-auto px-5 sm:px-6 pb-6 sm:pb-8"
       onDragOver={e => {
         e.preventDefault();
         setDragging(true);
