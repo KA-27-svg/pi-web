@@ -16,7 +16,6 @@ import {
 } from '../utils/attachments';
 
 interface PendingRequest {
-  expectedType: string;
   resolve: (value: any) => void;
   reject: (reason: Error) => void;
   timer: number;
@@ -59,23 +58,33 @@ export function usePiWebSocket() {
     }
   };
 
-  /** 按 id 把回包交给等待中的 Promise；配不上号就返回 false，交给 rpcHandler */
+  /**
+   * 按 id 把回包交给等待中的 Promise；不是我们的就返回 false，交给 rpcHandler。
+   *
+   * **不看 type**：桥接不认识某条指令时（比如忘记重启，跑的还是旧代码），它会把
+   * 指令原样转发给 pi，pi 回一条 `{type:'response', error:'Unknown command: xxx'}`。
+   * 如果按 type 匹配，这条回包就配不上号，界面会干等到 60 秒超时——而真正的原因
+   * （指令不认识）其实就在包里。按 id 匹配就能立刻失败并把它显示出来。
+   */
   const settleRequest = useCallback((data: any): boolean => {
     const pending =
       typeof data?.id === 'string' ? pendingRequestsRef.current.get(data.id) : undefined;
-    if (!pending || pending.expectedType !== data.type) return false;
+    if (!pending) return false;
 
     pendingRequestsRef.current.delete(data.id);
     window.clearTimeout(pending.timer);
 
-    if (data.success) pending.resolve(data);
-    else pending.reject(new Error(data.error ?? '桥接操作失败'));
+    if (data.success === false || typeof data.error === 'string') {
+      pending.reject(new Error(data.error ?? '桥接操作失败'));
+    } else {
+      pending.resolve(data);
+    }
     return true;
   }, []);
 
-  /** 发一条桥接指令并等它的回包 */
+  /** 发一条桥接指令并等它的回包（按 id 配对，不看类型） */
   const request = useCallback(
-    <T,>(type: string, responseType: string, payload: Record<string, unknown> = {}): Promise<T> => {
+    <T,>(type: string, payload: Record<string, unknown> = {}): Promise<T> => {
       const ws = wsRef.current;
       if (!ws || ws.readyState !== WebSocket.OPEN) {
         return Promise.reject(new Error('未连接到桥接服务'));
@@ -85,10 +94,10 @@ export function usePiWebSocket() {
         const id = `req-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
         const timer = window.setTimeout(() => {
           pendingRequestsRef.current.delete(id);
-          reject(new Error('请求超时'));
+          reject(new Error('桥接没有响应（超时）。旧版本可能不认识这条指令，试试重启桥接。'));
         }, REQUEST_TIMEOUT_MS);
 
-        pendingRequestsRef.current.set(id, { expectedType: responseType, resolve, reject, timer });
+        pendingRequestsRef.current.set(id, { resolve, reject, timer });
         ws.send(JSON.stringify({ type, id, ...payload }));
       });
     },
@@ -102,7 +111,7 @@ export function usePiWebSocket() {
   const uploadFile = useCallback(
     async (file: File): Promise<UploadedFile> => {
       const data = await readFileAsBase64(file);
-      return request<UploadedFile>('upload_file', 'file_uploaded', {
+      return request<UploadedFile>('upload_file', {
         name: file.name,
         data,
       });
@@ -113,7 +122,7 @@ export function usePiWebSocket() {
   /** 列工作目录。给「从工作目录选文件」用——只读路径，不传字节。 */
   const listDir = useCallback(
     (relativePath = ''): Promise<DirListing> =>
-      request<DirListing>('list_dir', 'dir_listing', { path: relativePath }),
+      request<DirListing>('list_dir', { path: relativePath }),
     [request]
   );
 
@@ -122,7 +131,7 @@ export function usePiWebSocket() {
    */
   const readAttachment = useCallback(
     (filePath: string): Promise<AttachmentContent> =>
-      request<AttachmentContent>('read_attachment', 'attachment_content', { path: filePath }),
+      request<AttachmentContent>('read_attachment', { path: filePath }),
     [request]
   );
 
@@ -135,7 +144,7 @@ export function usePiWebSocket() {
    */
   const pickFile = useCallback(
     async (imagesOnly = false): Promise<string[]> => {
-      const result = await request<{ paths?: string[] }>('pick_file', 'files_picked', {
+      const result = await request<{ paths?: string[] }>('pick_file', {
         imagesOnly,
       });
       return result.paths ?? [];
