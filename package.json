@@ -8,6 +8,8 @@
     "dev:server": "tsx server/bridge.ts",
     "dev": "concurrently -k -p \"[{name}]\" -n \"SERVER,CLIENT\" -c \"cyan.bold,green.bold\" \"tsx server/bridge.ts\" \"vite\"",
     "build": "tsc -b && vite build",
+    "start": "npm run build && tsx server/bridge.ts",
+    "serve": "tsx server/bridge.ts",
     "lint": "oxlint",
     "preview": "vite preview",
     "test": "vitest run",

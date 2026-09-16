@@ -2,6 +2,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import * as http from 'http';
 import * as path from 'path';
 import * as fs from 'fs/promises';
+import * as fsSync from 'fs';
 import { listSessions, readSessionCwdSync, renameSession } from './sessions.js';
 import { saveUpload } from './uploads.js';
 import { listDirectory } from './browse.js';
@@ -12,6 +13,7 @@ import { openWithSystem } from './openFile.js';
 import { readAttachment, resolveAttachment } from './textAttachment.js';
 import { reply } from './reply.js';
 import { attachOriginGuard, parseAllowedOrigins } from './origin.js';
+import { createStaticHandler } from './static.js';
 import { defaultRunCommand, probeEnvironment } from './env.js';
 import { resolvePiCommand } from './piLocate.js';
 import { buildInstallCommand, installPreflight, runInstall } from './piInstall.js';
@@ -37,9 +39,68 @@ const PORT = 3001;
 // 桥接能以任意 cwd 拉起 `pi --mode rpc`，等同于把本机命令执行能力开放出去，
 // 因此默认只监听回环地址，确有跨设备需求时再用环境变量显式放开。
 const HOST = process.env.PI_BRIDGE_HOST || '127.0.0.1';
-const server = http.createServer((_req, res) => {
-  res.writeHead(200, { 'Content-Type': 'application/json' });
-  res.end(JSON.stringify({ status: 'ok', name: 'pi-web-bridge' }));
+
+/** 构建产物目录。有它就不需要再开一个 Vite 进程 */
+const DIST_DIR = path.resolve(process.cwd(), 'dist');
+const serveStatic = createStaticHandler({ root: DIST_DIR });
+
+/** dist 还没构建时给人话，而不是白屏 404 */
+function notBuiltPage(): string {
+  return `<!doctype html>
+<meta charset="utf-8">
+<title>Pi Web</title>
+<style>
+  body { margin:0; display:flex; min-height:100vh; align-items:center; justify-content:center;
+         background:#fcfcfb; color:#1c1c1a; font:14px/1.8 system-ui, -apple-system, "Segoe UI", sans-serif }
+  main { max-width: 34rem; padding: 2rem }
+  h1 { font-size: 15px; font-weight: 500; margin: 0 0 .5rem }
+  code { background:#f1f1ee; padding:.1rem .35rem; border-radius:4px; font-size:12.5px }
+  p { color:#8b8b85; margin:.5rem 0 }
+  pre { background:#f5f5f2; border:1px solid #e9e9e5; border-radius:8px; padding:.75rem .9rem; overflow-x:auto; font-size:12.5px }
+</style>
+<main>
+  <h1>前端还没构建</h1>
+  <p>桥接已经在跑了，只是 <code>dist/</code> 不存在。</p>
+  <pre>npm start</pre>
+  <p>这条命令会先构建再启动，之后直接访问本页即可。</p>
+  <p>开发时改用 <code>npm run dev</code>，页面在 <code>http://localhost:5173</code>。</p>
+</main>`;
+}
+
+/**
+ * HTTP：健康检查 + 托管构建好的前端。
+ *
+ * 这样生产模式只剩一个进程、一个端口——而 `origin.ts` 的白名单本来就已经放行
+ * `http://127.0.0.1:3001`，所以不用动安全策略。
+ */
+async function handleHttp(req: http.IncomingMessage, res: http.ServerResponse) {
+  const urlPath = (req.url ?? '/').split('?')[0] ?? '/';
+
+  if (urlPath === '/api/status') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ status: 'ok', name: 'pi-web-bridge' }));
+    return;
+  }
+
+  if (await serveStatic(req, res)) return;
+
+  // 没扩展名的路径在前端是路由，这里只可能是 dist 没构建
+  if (req.method === 'GET' && !path.extname(urlPath)) {
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.end(notBuiltPage());
+    return;
+  }
+
+  res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+  res.end('Not Found');
+}
+
+const server = http.createServer((req, res) => {
+  void handleHttp(req, res).catch(err => {
+    console.error('[Pi Bridge] HTTP 请求处理失败:', err);
+    if (!res.headersSent) res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end('Internal Error');
+  });
 });
 
 // noServer + 自己处理 upgrade：握手阶段要校验 Origin。
@@ -578,6 +639,11 @@ wss.on('connection', (ws: WebSocket) => {
 server.listen(PORT, HOST, () => {
   console.log(`[Pi Bridge] Server listening on http://${HOST}:${PORT}`);
   console.log(`[Pi Bridge] WebSocket ready on ws://${HOST}:${PORT}`);
+  console.log(
+    fsSync.existsSync(path.join(DIST_DIR, 'index.html'))
+      ? `[Pi Bridge] Serving built frontend from ${DIST_DIR}`
+      : '[Pi Bridge] No dist/ yet — run `npm start` to build and serve the UI here'
+  );
 
   // 解析 pi 的绝对路径。不阻塞启动：解析不出来就继续用 PATH 里的 `pi`，
   // 与改造前的行为一致。

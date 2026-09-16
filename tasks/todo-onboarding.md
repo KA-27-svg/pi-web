@@ -133,3 +133,8 @@
   - Acceptance: 说明现在可以跳过手动装 pi / 配模型，由向导完成
   - Verify: 通读
   - Files: `README.md`
+- [x] Task 6.3（追加）：桥接托管 `dist/`，生产模式一条命令
+  - `npm start` = 构建 + 起桥接；之后一个进程、一个端口（http://127.0.0.1:3001）
+  - dist 不存在时给一页人话，而不是白屏 404；`/api/status` 保留健康检查
+  - 静态服务挡住 `../` 穿越；带扩展名却没找到的资源不回落 index.html
+  - Files: `server/static.ts`, `server/static.test.ts`, `server/bridge.ts`, `package.json`
