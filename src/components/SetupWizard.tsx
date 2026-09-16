@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { BridgeStatus } from '../types/pi';
+import type { BridgeStatus, CustomProviderDraft } from '../types/pi';
 import { ProviderSetup } from './ProviderSetup';
 import { AlertCircle, Check, Copy, Download, RefreshCw } from 'lucide-react';
 
@@ -17,6 +17,10 @@ interface SetupWizardProps {
   onInstall: () => void;
   /** 保存供应商凭证 */
   onSaveProvider?: (provider: string, key: string) => void;
+  /** 拉自定义端点的模型列表 */
+  onListModels?: (baseUrl: string, key: string) => Promise<string[]>;
+  /** 保存自定义端点 */
+  onSaveCustomProvider?: (draft: CustomProviderDraft) => void;
 }
 
 /**
@@ -29,7 +33,14 @@ interface SetupWizardProps {
  * 官方脚本在无终端下不会自己装 Node）就只把命令摆出来让人自己跑。
  * 无论哪条路，命令原文都先展示——用户有权知道要执行什么。
  */
-export function SetupWizard({ status, onRecheck, onInstall, onSaveProvider }: SetupWizardProps) {
+export function SetupWizard({
+  status,
+  onRecheck,
+  onInstall,
+  onSaveProvider,
+  onListModels,
+  onSaveCustomProvider,
+}: SetupWizardProps) {
   const setup = status.setup;
   const ready = setup?.ready ?? false;
   const installing = status.installing ?? false;
@@ -159,8 +170,13 @@ export function SetupWizard({ status, onRecheck, onInstall, onSaveProvider }: Se
           </section>
         )}
 
-        {needsCredentials && onSaveProvider && (
-          <ProviderSetup status={status} onSave={onSaveProvider} />
+        {needsCredentials && onSaveProvider && onListModels && onSaveCustomProvider && (
+          <ProviderSetup
+            status={status}
+            onSave={onSaveProvider}
+            onListModels={onListModels}
+            onSaveCustom={onSaveCustomProvider}
+          />
         )}
 
         <button

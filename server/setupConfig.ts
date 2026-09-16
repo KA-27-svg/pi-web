@@ -128,6 +128,39 @@ export async function saveDefaultModel(
   await writeJsonObject(settings, existing);
 }
 
+export interface CustomProviderConfig {
+  /** 展示名；pi 的 models.json 用 `name` */
+  name: string;
+  baseUrl: string;
+  api: string;
+  models: { id: string; name?: string }[];
+}
+
+/**
+ * 写入一个自定义供应商（中转站 / 自建服务）到 models.json。
+ *
+ * 同样是读改写：用户可能手写过好几个中转站，也可能在 models.json 里覆盖了内置
+ * 供应商的配置，整体覆盖一次就全没了。
+ */
+export async function saveCustomProvider(
+  id: string,
+  config: CustomProviderConfig,
+  agentDir: string = resolveAgentDir()
+): Promise<void> {
+  const { models } = configPaths(agentDir);
+  const existing = await readJsonObject(models);
+
+  const providers =
+    existing.providers && typeof existing.providers === 'object' && !Array.isArray(existing.providers)
+      ? (existing.providers as Record<string, unknown>)
+      : {};
+
+  providers[id] = config;
+  existing.providers = providers;
+
+  await writeJsonObject(models, existing, { mode: 0o600 });
+}
+
 /**
  * 已经配了凭证的供应商。
  *

@@ -1,10 +1,15 @@
 import { useState } from 'react';
-import type { BridgeStatus } from '../types/pi';
+import type { BridgeStatus, CustomProviderDraft } from '../types/pi';
+import { CustomProviderSetup } from './CustomProviderSetup';
 
 interface ProviderSetupProps {
   status: BridgeStatus;
   /** 保存供应商凭证；具体落盘由桥接完成 */
   onSave: (provider: string, key: string) => void;
+  /** 拉自定义端点的模型列表 */
+  onListModels: (baseUrl: string, key: string) => Promise<string[]>;
+  /** 保存自定义端点 */
+  onSaveCustom: (draft: CustomProviderDraft) => void;
 }
 
 /**
@@ -14,7 +19,7 @@ interface ProviderSetupProps {
  * 交互流程。所以两种方式都摆出来：贴 API key 是本页的事，订阅登录只做引导，
  * 并说明授权完成后页面会自己继续（外层每 5 秒重探一次）。
  */
-export function ProviderSetup({ status, onSave }: ProviderSetupProps) {
+export function ProviderSetup({ status, onSave, onListModels, onSaveCustom }: ProviderSetupProps) {
   const providers = status.providers ?? [];
   const subscriptions = status.subscriptions ?? [];
   const [selected, setSelected] = useState('');
@@ -94,6 +99,13 @@ export function ProviderSetup({ status, onSave }: ProviderSetupProps) {
           </p>
         </details>
       )}
+
+      <details className="mt-2.5 rounded-lg border border-border bg-surface px-3.5 py-3">
+        <summary className="cursor-pointer text-[12px] text-foreground/90">
+          或者用自定义端点（中转站 / 自建服务）
+        </summary>
+        <CustomProviderSetup status={status} onListModels={onListModels} onSave={onSaveCustom} />
+      </details>
     </section>
   );
 }

@@ -18,9 +18,11 @@ import { buildInstallCommand, installPreflight, runInstall } from './piInstall.j
 import { PROVIDER_PRESETS, SUBSCRIPTION_LOGINS } from './providers.js';
 import {
   listConfiguredProviders,
+  saveCustomProvider,
   saveDefaultModel,
   saveProviderKey,
 } from './setupConfig.js';
+import { fetchProviderModels, normalizeBaseUrl, SUPPORTED_APIS } from './customProvider.js';
 import { PiSupervisor } from './pi.js';
 import {
   emptyTrash,
@@ -299,6 +301,72 @@ wss.on('connection', (ws: WebSocket) => {
         reply(ws, 'configured_providers', () => listConfiguredProviders(), providers => ({
           providers,
         }));
+        return;
+      }
+
+      // 从 <baseUrl>/models 拉模型列表，给自定义端点用。
+      // 失败时前端会退化成手填模型 id，所以这里只管把错误说清楚。
+      if (data.type === 'list_provider_models') {
+        reply(
+          ws,
+          'provider_models',
+          async () => {
+            const key = typeof data.key === 'string' ? data.key.trim() : '';
+            const models = await fetchProviderModels({
+              baseUrl: String(data.baseUrl ?? ''),
+              key: key || undefined,
+            });
+            return { models };
+          },
+          value => ({ models: value.models }),
+          () => ({ id: data.id })
+        );
+        return;
+      }
+
+      // 自定义端点：写 models.json（端点与模型），key 写 auth.json。
+      // models.json 每次打开 /model 都会重读，所以不需要重启 pi。
+      if (data.type === 'save_custom_provider') {
+        reply(
+          ws,
+          'custom_provider_saved',
+          async () => {
+            // 字段叫 providerId 而不是 id：`id` 已经被请求/回包配对占用了，
+            // 同名的话前端一旦改用 request 发指令，供应商 id 就会被配对 id 覆盖。
+            const id = String(data.providerId ?? '').trim();
+            // 这个 id 会变成 auth.json / models.json 里的键，也是 pi 报错时显示的
+            // 供应商名，所以限成可读字符，免得出现带空格或中文的键
+            if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(id)) {
+              throw new Error('供应商标识只能包含字母、数字、点、短横线和下划线');
+            }
+
+            const baseUrl = normalizeBaseUrl(String(data.baseUrl ?? ''));
+            if (!SUPPORTED_APIS.includes(data.api)) throw new Error('不支持的 API 类型');
+
+            const modelIds: string[] = (Array.isArray(data.models) ? data.models : [])
+              .map((item: unknown) => String(item).trim())
+              .filter(Boolean);
+            if (modelIds.length === 0) throw new Error('至少需要填一个模型 id');
+
+            await saveCustomProvider(id, {
+              name: String(data.label ?? '').trim() || id,
+              baseUrl,
+              api: data.api,
+              models: modelIds.map(modelId => ({ id: modelId })),
+            });
+
+            const key = typeof data.key === 'string' ? data.key.trim() : '';
+            if (key) await saveProviderKey(id, { type: 'api_key', key });
+
+            return { id, models: modelIds.length };
+          },
+          value => ({ provider: value.id, modelCount: value.models }),
+          () => ({ id: data.id })
+        );
+
+        void broadcastSetupStatus();
+        pi.send({ type: 'get_available_models' });
+        pi.send({ type: 'get_state' });
         return;
       }
 

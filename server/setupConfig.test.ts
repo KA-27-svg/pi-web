@@ -7,12 +7,14 @@ import {
   listConfiguredProviders,
   readJsonObject,
   resolveAgentDir,
+  saveCustomProvider,
   saveDefaultModel,
   saveProviderKey,
   writeJsonObject,
 } from './setupConfig';
 
 let dir: string;
+const models = () => path.join(dir, 'models.json');
 const auth = () => path.join(dir, 'auth.json');
 const settings = () => path.join(dir, 'settings.json');
 const read = async (file: string) => JSON.parse(await fs.readFile(file, 'utf-8'));
@@ -201,5 +203,56 @@ describe('listConfiguredProviders', () => {
 
   it('空环境变量不算配置', async () => {
     expect(await listConfiguredProviders(dir, { ANTHROPIC_API_KEY: '  ' })).toEqual([]);
+  });
+});
+
+describe('saveCustomProvider', () => {
+  const config = {
+    name: '我的中转站',
+    baseUrl: 'https://relay.example/v1',
+    api: 'openai-completions',
+    models: [{ id: 'gpt-x' }, { id: 'claude-y' }],
+  };
+
+  it('新装一个自定义供应商', async () => {
+    await saveCustomProvider('my-relay', config, dir);
+
+    expect(await read(models())).toEqual({ providers: { 'my-relay': config } });
+  });
+
+  it('保留已有的供应商：用户可能手写过好几个中转站', async () => {
+    await fs.writeFile(
+      models(),
+      JSON.stringify({ providers: { ollama: { baseUrl: 'http://localhost:11434/v1', models: [] } } })
+    );
+
+    await saveCustomProvider('my-relay', config, dir);
+
+    const written = await read(models());
+    expect(Object.keys(written.providers)).toEqual(['ollama', 'my-relay']);
+    expect(written.providers.ollama.baseUrl).toBe('http://localhost:11434/v1');
+  });
+
+  it('保留顶层其它字段', async () => {
+    await fs.writeFile(models(), JSON.stringify({ 别的: 1 }));
+
+    await saveCustomProvider('my-relay', config, dir);
+
+    expect((await read(models())).别的).toBe(1);
+  });
+
+  it('providers 字段被写坏成数组时也不崩，直接重建', async () => {
+    await fs.writeFile(models(), JSON.stringify({ providers: [1, 2] }));
+
+    await saveCustomProvider('my-relay', config, dir);
+
+    expect((await read(models())).providers['my-relay']).toEqual(config);
+  });
+
+  it('models.json 损坏时拒绝写入，且原文件不动', async () => {
+    await fs.writeFile(models(), '{ 坏掉的');
+
+    await expect(saveCustomProvider('my-relay', config, dir)).rejects.toThrow();
+    expect(await fs.readFile(models(), 'utf-8')).toBe('{ 坏掉的');
   });
 });

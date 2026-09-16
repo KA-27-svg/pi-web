@@ -135,6 +135,17 @@ export interface SetupStatus {
   issues: SetupIssue[];
 }
 
+/** 自定义端点草稿（向导表单 → 桥接写 models.json） */
+export interface CustomProviderDraft {
+  /** 会变成 models.json / auth.json 里的键，也是 pi 报错时显示的供应商名 */
+  id: string;
+  label: string;
+  baseUrl: string;
+  api: string;
+  models: string[];
+  key: string;
+}
+
 /** 内置供应商（桥接 server/providers.ts 的产出） */
 export interface ProviderPreset {
   /** auth.json 里的键 */

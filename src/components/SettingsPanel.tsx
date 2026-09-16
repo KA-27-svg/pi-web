@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import type { BridgeStatus, ModelInfo } from '../types/pi';
 import { formatCost, formatTokens } from '../utils/format';
-import { X, FolderGit2, PlusCircle, ChevronDown } from 'lucide-react';
+import { X, FolderGit2, PlusCircle, ChevronDown, RefreshCw } from 'lucide-react';
 
 interface SettingsPanelProps {
   status: BridgeStatus;
@@ -10,6 +10,8 @@ interface SettingsPanelProps {
   onNewSession: () => void;
   onSelectModel: (provider: string, modelId: string) => void;
   onSelectThinkingLevel: (level: string) => void;
+  /** 重新探测环境（自检区用） */
+  onRecheckSetup: () => void;
 }
 
 function Row({
@@ -156,6 +158,7 @@ export function SettingsPanel({
   onNewSession,
   onSelectModel,
   onSelectThinkingLevel,
+  onRecheckSetup,
 }: SettingsPanelProps) {
   const [cwdDraft, setCwdDraft] = useState(status.cwd);
 
@@ -165,6 +168,7 @@ export function SettingsPanel({
   };
 
   const stats = status.stats;
+  const setup = status.setup;
   const context = stats?.contextUsage;
   const contextText = context
     ? `${formatTokens(context.tokens)} / ${formatTokens(context.contextWindow)} · ${Math.round(context.percent)}%`
@@ -253,6 +257,46 @@ export function SettingsPanel({
             </button>
           </div>
         </div>
+
+        {/* 环境自检：出问题时先看这里，比让用户自己猜快得多 */}
+        {setup && (
+          <div className="border-t border-border px-4 py-3">
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <span className="text-[11px] text-muted">环境自检</span>
+              <button
+                onClick={onRecheckSetup}
+                className="flex items-center gap-1 text-[11px] text-muted transition-colors hover:text-foreground"
+              >
+                <RefreshCw className="w-3 h-3" />
+                重新检测
+              </button>
+            </div>
+
+            <div className="divide-y divide-border/70">
+              <Row label="Node">
+                {setup.node.version ?? '未找到'}
+                {!setup.node.ok && <span className="text-amber-600"> · 需要 ≥ {setup.node.minimum}</span>}
+              </Row>
+              <Row label="pi">{setup.pi.version ?? '未安装'}</Row>
+              {setup.gitBash.required && (
+                <Row label="Git Bash">{setup.gitBash.available ? '已找到' : '未找到'}</Row>
+              )}
+              <Row label="模型凭证">
+                {setup.credentials.providers.length > 0
+                  ? `${setup.credentials.providers.length} 个供应商`
+                  : '还没有配置'}
+              </Row>
+            </div>
+
+            {/*
+              说清楚边界：这里只查本机配置。真能不能连上模型，
+              得发一条消息（会产生真实调用与费用）才知道，不适合自动跑。
+            */}
+            <p className="mt-2 text-[10.5px] leading-[1.6] text-muted/80">
+              只检查本机配置，不测网络连通性。
+            </p>
+          </div>
+        )}
 
         {/* 新建会话 */}
         <div className="border-t border-border px-4 py-3">

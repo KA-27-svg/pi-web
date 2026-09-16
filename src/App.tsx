@@ -17,7 +17,7 @@ import { ChatInput } from './components/ChatInput';
 import { Settings, PanelLeftOpen } from 'lucide-react';
 
 export default function App() {
-  const { messages, status, sendPrompt, interrupt, changeCwd, newSession, setModel, setThinkingLevel, requestSessions, requestStats, uploadFile, listDir, readAttachment, pickFile, openAttachment, switchSession, renameSession, deleteSession, requestTrash, restoreSession, purgeSession, emptyTrash, requestSetupStatus, installPi, saveProviderKey } =
+  const { messages, status, sendPrompt, interrupt, changeCwd, newSession, setModel, setThinkingLevel, requestSessions, requestStats, uploadFile, listDir, readAttachment, pickFile, openAttachment, switchSession, renameSession, deleteSession, requestTrash, restoreSession, purgeSession, emptyTrash, requestSetupStatus, installPi, saveProviderKey, listProviderModels, saveCustomProvider } =
     usePiWebSocket();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLElement>(null);
@@ -181,6 +181,8 @@ export default function App() {
         onRecheck={requestSetupStatus}
         onInstall={installPi}
         onSaveProvider={saveProviderKey}
+        onListModels={listProviderModels}
+        onSaveCustomProvider={saveCustomProvider}
       />
     );
   }
@@ -238,6 +240,7 @@ export default function App() {
             onNewSession={startNewSession}
             onSelectModel={setModel}
             onSelectThinkingLevel={setThinkingLevel}
+            onRecheckSetup={requestSetupStatus}
           />
         )}
 

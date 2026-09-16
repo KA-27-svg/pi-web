@@ -104,31 +104,32 @@
   - Verify: 单测轮询逻辑；手动
   - Files: `src/components/SetupWizard.tsx`, `server/setupConfig.ts`
 
-## Slice 5：自定义端点
+## Slice 5：自定义端点 ✅
 
-- [ ] Task 5.1：`models.json` 读写
+- [x] Task 5.1：`models.json` 读写
   - Acceptance: 保留已有 providers；结构符合 pi 的 models.json 规范
   - Verify: 单测
   - Files: `server/setupConfig.ts`, `server/setupConfig.test.ts`
 
-- [ ] Task 5.2：`list_provider_models` —— 拉 `<baseUrl>/models`
+- [x] Task 5.2：`list_provider_models` —— 拉 `<baseUrl>/models`
   - Acceptance: 超时可配；失败时退化为手填模型 id，不阻断
   - Verify: 单测（成功/超时/异常结构）
   - Files: `server/providerModels.ts`, `server/providerModels.test.ts`
 
-- [ ] Task 5.3：前端自定义端点表单
+- [x] Task 5.3：前端自定义端点表单
   - Acceptance: baseUrl、api 类型、模型 id、key；能选到拉回来的模型
   - Verify: 组件测试；手动对接真实端点
   - Files: `src/components/SetupWizard.tsx`, `src/services/piSetupActions.ts`
 
-## Slice 6：环境自检
+## Slice 6：环境自检 ✅
 
-- [ ] Task 6.1：`SettingsPanel` 自检区
-  - Acceptance: 展示 pi 版本 / Node 版本 / Git Bash / 模型可用性；连通性可手动触发
+- [x] Task 6.1：`SettingsPanel` 自检区
+  - 范围收窄：只做**本机配置**自检（版本 / 凭证 / Git Bash），**不做**连通性检测——
+    真测连通性要发一条会产生真实费用的模型请求，不该自动或半自动地跑。界面上明说这条边界。
   - Verify: 组件测试；手动
   - Files: `src/components/SettingsPanel.tsx`
 
-- [ ] Task 6.2：更新 README 的「准备」章节
+- [x] Task 6.2：更新 README 的「准备」章节
   - Acceptance: 说明现在可以跳过手动装 pi / 配模型，由向导完成
   - Verify: 通读
   - Files: `README.md`

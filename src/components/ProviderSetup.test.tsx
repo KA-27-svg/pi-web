@@ -40,7 +40,14 @@ const status = (extra: Partial<BridgeStatus> = {}): BridgeStatus => ({
 
 const render = (extra: Partial<BridgeStatus> = {}, onSave = vi.fn()) => {
   act(() => {
-    root.render(<ProviderSetup status={status(extra)} onSave={onSave} />);
+    root.render(
+      <ProviderSetup
+        status={status(extra)}
+        onSave={onSave}
+        onListModels={async () => []}
+        onSaveCustom={vi.fn()}
+      />
+    );
   });
   return onSave;
 };
