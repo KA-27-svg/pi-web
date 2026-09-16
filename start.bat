@@ -17,6 +17,12 @@ if errorlevel 1 (
   exit /b 1
 )
 
+rem 首次运行在桌面放一个带图标的快捷方式，之后点图标就等于跑本脚本。
+rem 放在这里而不是后面：就算构建失败，图标也已经有了。
+if exist "%~dp0tools\create-shortcut.ps1" (
+  powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0tools\create-shortcut.ps1" -ProjectDir "%~dp0"
+)
+
 rem 服务已经在跑就不要再起一个，直接开页面。
 rem 只认 3001：生产模式下前端由桥接自己托管，没有 5173 那个进程了。
 powershell -NoProfile -Command "if (Get-NetTCPConnection -LocalPort 3001 -State Listen -ErrorAction SilentlyContinue) { exit 0 } else { exit 1 }"
