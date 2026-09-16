@@ -1,19 +1,10 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
-import type {
-  PiMessage,
-  BridgeStatus,
-  MessageAttachment,
-  DirListing,
-  AttachmentContent,
-} from '../types/pi';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import type { BridgeStatus, PiMessage } from '../types/pi';
 import { RpcEventHandler } from '../services/rpcHandler';
-import {
-  IMAGE_ONLY_INSTRUCTION,
-  buildPromptWithAttachments,
-  readFileAsBase64,
-  type PromptDraft,
-  type UploadedFile,
-} from '../utils/attachments';
+import type { PiBridge } from '../services/piBridge';
+import { createStreamingActions } from '../services/piStreamingActions';
+import { createSessionActions } from '../services/piSessionActions';
+import { createAttachmentActions } from '../services/piAttachmentActions';
 
 interface PendingRequest {
   resolve: (value: any) => void;
@@ -24,6 +15,13 @@ interface PendingRequest {
 /** 桥接请求（上传 / 列目录）的超时；超过了就当作失败，不让界面一直等 */
 const REQUEST_TIMEOUT_MS = 60_000;
 
+/**
+ * 和桥接的连接，外加三个领域的动作。
+ *
+ * 这里只做三件事：连上桥接、把 pi 推来的事件交给 RpcEventHandler 翻译、
+ * 把动作模块组装起来返回。动作本身在 services/pi*Actions.ts 里各自独立——
+ * 以前全挤在这一个文件里，改附件会碰到会话管理。
+ */
 export function usePiWebSocket() {
   const [messages, setMessages] = useState<PiMessage[]>([]);
   const [status, setStatus] = useState<BridgeStatus>({
@@ -41,23 +39,20 @@ export function usePiWebSocket() {
    * 需要按 id 配对，所以单独一套。
    */
   const pendingRequestsRef = useRef(new Map<string, PendingRequest>());
-  /** restoredDraft 的序号：同一段取回的文本重复写入时，输入框也能识别成一次新的写入 */
-  const draftSeqRef = useRef(0);
 
   // 专属解耦的 RPC 事件处理器：惰性初始化一次即可。用 useState 而不是渲染期间写 ref，
   // setMessages/setStatus 来自 useState，引用是稳定的，所以处理器只需构造一次。
   const [handler] = useState(() => new RpcEventHandler(setMessages, setStatus));
 
   const requestInitialState = (ws: WebSocket) => {
-    if (ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: 'get_state' }));
-      ws.send(JSON.stringify({ type: 'get_messages' }));
-      ws.send(JSON.stringify({ type: 'get_available_models' }));
-      ws.send(JSON.stringify({ type: 'get_available_thinking_levels' }));
-      ws.send(JSON.stringify({ type: 'get_session_stats' }));
-      // 连接建立后再拉历史会话，否则首屏调用时连接尚未就绪
-      ws.send(JSON.stringify({ type: 'list_sessions' }));
-    }
+    if (ws.readyState !== WebSocket.OPEN) return;
+    ws.send(JSON.stringify({ type: 'get_state' }));
+    ws.send(JSON.stringify({ type: 'get_messages' }));
+    ws.send(JSON.stringify({ type: 'get_available_models' }));
+    ws.send(JSON.stringify({ type: 'get_available_thinking_levels' }));
+    ws.send(JSON.stringify({ type: 'get_session_stats' }));
+    // 连接建立后再拉历史会话，否则首屏调用时连接尚未就绪
+    ws.send(JSON.stringify({ type: 'list_sessions' }));
   };
 
   /**
@@ -106,53 +101,16 @@ export function usePiWebSocket() {
     []
   );
 
-  /**
-   * 把文件交给桥接落到工作目录，拿回相对路径。
-   * 浏览器出于安全不会告诉页面文件的本地路径，所以字节只能传上去。
-   */
-  const uploadFile = useCallback(
-    async (file: File): Promise<UploadedFile> => {
-      const data = await readFileAsBase64(file);
-      return request<UploadedFile>('upload_file', {
-        name: file.name,
-        data,
-      });
-    },
-    [request]
-  );
+  const isOpen = useCallback(() => {
+    const ws = wsRef.current;
+    return !!ws && ws.readyState === WebSocket.OPEN;
+  }, []);
 
-  /** 列工作目录。给「从工作目录选文件」用——只读路径，不传字节。 */
-  const listDir = useCallback(
-    (relativePath = ''): Promise<DirListing> =>
-      request<DirListing>('list_dir', { path: relativePath }),
-    [request]
-  );
-
-  /**
-   * 读一个附件：文本拿内容、图片拿 base64、二进制只要大小。
-   */
-  const readAttachment = useCallback(
-    (filePath: string): Promise<AttachmentContent> =>
-      request<AttachmentContent>('read_attachment', { path: filePath }),
-    [request]
-  );
-
-  /**
-   * 弹系统原生的文件选择框，拿回**绝对路径**。
-   *
-   * 关键：浏览器出于安全拿不到本地路径，但桥接就跑在同一台机器上，可以替用户
-   * 弹一个原生对话框。于是「选文件」不需要复制任何字节——文件原地不动，
-   * 我们只是知道了它在哪。用户取消时返回空数组。
-   */
-  const pickFile = useCallback(
-    async (imagesOnly = false): Promise<string[]> => {
-      const result = await request<{ paths?: string[] }>('pick_file', {
-        imagesOnly,
-      });
-      return result.paths ?? [];
-    },
-    [request]
-  );
+  const sendCommand = useCallback((command: object) => {
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    ws.send(JSON.stringify(command));
+  }, []);
 
   // 命名函数表达式：让递归重连引用自身，而不是在初始化过程中引用 connectWs
   const connectWs = useCallback(function connect() {
@@ -231,268 +189,22 @@ export function usePiWebSocket() {
     };
   }, [connectWs]);
 
-  /**
-   * 发一轮对话。
-   *
-   * 图片走 pi 原生的 `prompt.images`（模型真的「看见」它），
-   * 文件没有原生通道，只能把路径写进正文让 agent 自己去读——两条路必须在
-   * 这里分开，否则图片也会退化成一行路径。
-   *
-   * 界面上的 user 消息只存干净的正文 + 结构化 attachments，不存那行路径，
-   * 这样气泡里能渲染成图片 / 文件卡片而不是一堆文字。
-   */
-  const sendPrompt = useCallback(
-    (draft: PromptDraft, options?: { queue?: boolean }) => {
-      const text = draft.text.trim();
-      const hasAttachments = draft.images.length > 0 || draft.files.length > 0;
-      if (!text && !hasAttachments) return;
-      if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
-
-      const attachments: MessageAttachment[] = [
-        ...draft.images.map(image => ({
-          kind: 'image' as const,
-          name: image.name,
-          dataUrl: `data:${image.mimeType};base64,${image.data}`,
-        })),
-        ...draft.files.map(file => ({
-          kind: 'file' as const,
-          name: file.name,
-          // 浏览器里内联的文本附件没有路径，用文件名当展示用的标识
-          path: file.path ?? file.name,
-        })),
-      ];
-
-      const userMsg: PiMessage = {
-        id: `user-${Date.now()}`,
-        role: 'user',
-        content: text,
-        attachments: attachments.length > 0 ? attachments : undefined,
-        timestamp: Date.now(),
-        status: 'done',
-      };
-
-      // 正文：文件路径拼进去（文本文件连内容一起内联）；
-      // 只有图片时给一句中性的话，避免发出空消息
-      const wireText =
-        buildPromptWithAttachments(text, draft.files) ||
-        (draft.images.length > 0 ? IMAGE_ONLY_INSTRUCTION : '');
-
-      const images =
-        draft.images.length > 0
-          ? {
-              images: draft.images.map(image => ({
-                type: 'image',
-                data: image.data,
-                mimeType: image.mimeType,
-              })),
-            }
-          : {};
-
-      /**
-       * 生成中投递只能排队：pi 在没有 streamingBehavior 时会直接拒掉这条 prompt。
-       * 本地把消息标成 queued——它还没被回答，中断时要靠这个标记收回去。
-       * assistant 占位不在这里建：pi 真正开始这一轮会发 agent_start，占位在那里补。
-       */
-      if (options?.queue) {
-        setMessages(prev => [...prev, { ...userMsg, queued: true }]);
-        wsRef.current.send(
-          JSON.stringify({
-            type: 'prompt',
-            message: wireText,
-            streamingBehavior: 'followUp',
-            ...images,
-          })
-        );
-        return;
-      }
-
-      const asstId = `asst-${Date.now()}`;
-      handler.setCurrentAssistantId(asstId);
-
-      const assistantMsg: PiMessage = {
-        id: asstId,
-        role: 'assistant',
-        content: '',
-        reasoning: '',
-        tools: [],
-        timestamp: Date.now(),
-        status: 'streaming',
-      };
-
-      setMessages(prev => [...prev, userMsg, assistantMsg]);
-      // 立即置为执行中，确保“停止生成”按钮无需等待 agent_start 事件即出现
-      setStatus(prev => ({ ...prev, isStreaming: true }));
-
-      wsRef.current.send(JSON.stringify({ type: 'prompt', message: wireText, ...images }));
-    },
-    [handler]
+  // 连接上下文。字段都是稳定的，所以下面三个动作模块只会构造一次，
+  // 它们返回的函数引用也就稳定，不会让下游白白重渲染。
+  const bridge = useMemo<PiBridge>(
+    () => ({ setMessages, setStatus, handler, request, sendCommand, isOpen }),
+    [handler, request, sendCommand, isOpen]
   );
 
-  const abort = useCallback(() => {
-    // 本地立刻收尾（含清掉 currentAssistantId），而不是只改写 isStreaming：
-    // 否则停止之后任何一次 get_state 都会把按钮改回「停止生成」
-    handler.abortTurn();
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ type: 'abort' }));
-    }
-  }, [handler]);
-
-  /**
-   * 中断当前这一轮，并把还没被回答的排队消息收回输入栏。
-   *
-   * 必须先 clear_queue 再 abort：pi 的 abort 会继续投递队列里剩下的消息，
-   * 顺序反过来就变成“停下来之后又自己跑起来了”。clear_queue 的回包带 steering/followUp
-   * 文本，它们正是用户刚打的字，丢掉就等于让他重打一遍。
-   */
-  const interrupt = useCallback(async () => {
-    let queued: string[] = [];
-
-    try {
-      const response = await request<{
-        data?: { steering?: unknown; followUp?: unknown };
-      }>('clear_queue');
-
-      const collect = (value: unknown) =>
-        Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
-
-      queued = [...collect(response?.data?.steering), ...collect(response?.data?.followUp)].filter(
-        Boolean
-      );
-    } catch {
-      // 本来就没有队列，或者旧版桥接不认识这条指令——照常打断
-    }
-
-    if (queued.length > 0) {
-      // 这些消息还没被回答，从对话里收回去，别让它们留在那里等一个不会来的回复
-      setMessages(prev => prev.filter(message => !message.queued));
-      draftSeqRef.current += 1;
-      const seq = draftSeqRef.current;
-      setStatus(prev => ({ ...prev, restoredDraft: { text: queued.join('\n\n'), seq } }));
-    }
-
-    abort();
-  }, [request, abort]);
-
-  const changeCwd = useCallback((newCwd: string) => {
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ type: 'change_cwd', cwd: newCwd }));
-    }
-  }, []);
-
-  const sendCommand = useCallback((command: object) => {
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify(command));
-    }
-  }, []);
-
-  const newSession = useCallback(() => {
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      handler.setCurrentAssistantId(null);
-      setMessages([]);
-      wsRef.current.send(JSON.stringify({ type: 'new_session' }));
-    }
-  }, [handler]);
-
-  const setModel = useCallback(
-    (provider: string, modelId: string) => {
-      sendCommand({ type: 'set_model', provider, modelId });
-    },
-    [sendCommand]
-  );
-
-  const setThinkingLevel = useCallback(
-    (level: string) => {
-      sendCommand({ type: 'set_thinking_level', level });
-    },
-    [sendCommand]
-  );
-
-  const requestSessions = useCallback(() => {
-    sendCommand({ type: 'list_sessions' });
-  }, [sendCommand]);
-
-  const requestStats = useCallback(() => {
-    sendCommand({ type: 'get_session_stats' });
-  }, [sendCommand]);
-
-  const switchSession = useCallback(
-    (sessionPath: string) => {
-      // 点下就进入「切换中」：对话区不再显示上一个会话，历史到达后原地换上
-      handler.beginSwitch();
-      sendCommand({ type: 'switch_session', sessionPath });
-    },
-    [handler, sendCommand]
-  );
-
-  const renameSession = useCallback(
-    (sessionPath: string, name: string) => {
-      sendCommand({ type: 'rename_session', sessionPath, name });
-    },
-    [sendCommand]
-  );
-
-  const deleteSession = useCallback(
-    (sessionPath: string) => {
-      sendCommand({ type: 'trash_session', sessionPath });
-    },
-    [sendCommand]
-  );
-
-  const requestTrash = useCallback(() => {
-    sendCommand({ type: 'list_trash' });
-  }, [sendCommand]);
-
-  /**
-   * 用系统默认程序打开一个附件。
-   * 路径只允许工作目录内的，或用户刚在文件选择框里选过的。
-   */
-  const openAttachment = useCallback(
-    (filePath: string): Promise<void> =>
-      request<unknown>('open_attachment', { path: filePath }).then(() => undefined),
-    [request]
-  );
-
-  const restoreSession = useCallback(
-    (sessionPath: string) => {
-      sendCommand({ type: 'restore_session', sessionPath });
-    },
-    [sendCommand]
-  );
-
-  const purgeSession = useCallback(
-    (sessionPath: string) => {
-      sendCommand({ type: 'purge_session', sessionPath });
-    },
-    [sendCommand]
-  );
-
-  const emptyTrash = useCallback(() => {
-    sendCommand({ type: 'empty_trash' });
-  }, [sendCommand]);
+  const streaming = useMemo(() => createStreamingActions(bridge), [bridge]);
+  const sessions = useMemo(() => createSessionActions(bridge), [bridge]);
+  const attachments = useMemo(() => createAttachmentActions(bridge), [bridge]);
 
   return {
     messages,
     status,
-    sendPrompt,
-    abort,
-    interrupt,
-    changeCwd,
-    newSession,
-    setModel,
-    setThinkingLevel,
-    requestSessions,
-    requestStats,
-    uploadFile,
-    listDir,
-    readAttachment,
-    pickFile,
-    openAttachment,
-    switchSession,
-    renameSession,
-    deleteSession,
-    requestTrash,
-    restoreSession,
-    purgeSession,
-    emptyTrash,
+    ...streaming,
+    ...sessions,
+    ...attachments,
   };
 }
