@@ -72,11 +72,11 @@
 
 ## Slice 4：预设供应商填 key（进行中）
 
-- [ ] Task 4.0（原 3.7）：缺 Git Bash 时提供「改用 powershell 工具」开关
-  - 依赖 `setupConfig`，故从 Slice 3 移到这里
-  - Acceptance: 写 `settings.json` 的 `defaultTools` 前显式征得同意；不改 `shellPath`；检测顺序与 pi 一致（`shellPath` → 常见安装位 → PATH）
-  - Verify: 单测读改写 settings.json；手动
-  - Files: `server/setupConfig.ts`, `server/env.ts`, `src/components/SetupWizard.tsx`
+- [x] Task 4.0（已砍）：Git Bash 缺失时只提示，不改配置
+  - 决定：不做 `defaultTools` 开关。它要重启 pi，且 `defaultTools` 是全量替换工具集，
+    写漏一个就把 agent 搞坏，代价大于收益。改为在向导里提示用户去终端跑官方命令，
+    由 `install.ps1` 自己装 Portable Git 并写好 `shellPath`。
+  - Files: `server/env.ts`（问题项文案）, `SPEC-onboarding.md`, `tasks/plan-onboarding.md`
 
 - [x] Task 4.1：`server/setupConfig.ts` —— `auth.json` 读改写 + 0600
   - Acceptance: 保留已有条目；新写入权限 0600；不存在时创建；损坏文件不静默覆盖
@@ -88,8 +88,8 @@
   - Verify: 单测结构
   - Files: `server/providers.ts`, `server/providers.test.ts`
 
-- [x] Task 4.3：桥接新增 `save_provider_key` / `set_default_model`（含 `save_default_tools` / `list_configured_providers`）
-  - Acceptance: key 只写不读；响应不含 key；写后重启 pi 并刷新模型列表
+- [x] Task 4.3：桥接新增 `save_provider_key` / `set_default_model` / `list_configured_providers`
+  - Acceptance: key 只写不读；响应不含 key；写后**不重启** pi（凭证是惰性读取的），只刷新模型列表与状态
   - Verify: 单测响应体不含 key
   - Files: `server/bridge.ts`, `server/setupConfig.ts`
 

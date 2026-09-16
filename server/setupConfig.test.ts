@@ -8,7 +8,6 @@ import {
   readJsonObject,
   resolveAgentDir,
   saveDefaultModel,
-  saveDefaultTools,
   saveProviderKey,
   writeJsonObject,
 } from './setupConfig';
@@ -154,7 +153,7 @@ describe('saveProviderKey', () => {
   });
 });
 
-describe('saveDefaultModel / saveDefaultTools', () => {
+describe('saveDefaultModel', () => {
   it('记住默认模型，并保留用户已有的其它设置', async () => {
     await fs.writeFile(
       settings(),
@@ -168,17 +167,6 @@ describe('saveDefaultModel / saveDefaultTools', () => {
       lastChangelogVersion: '0.85.1',
       defaultProvider: 'anthropic',
       defaultModel: 'claude-sonnet-4-20250514',
-    });
-  });
-
-  it('写 defaultTools 时同样保留其它设置', async () => {
-    await fs.writeFile(settings(), JSON.stringify({ theme: 'light' }));
-
-    await saveDefaultTools(['read', 'powershell', 'edit', 'write'], dir);
-
-    expect(await read(settings())).toEqual({
-      theme: 'light',
-      defaultTools: ['read', 'powershell', 'edit', 'write'],
     });
   });
 });

@@ -19,7 +19,6 @@ import { PROVIDER_PRESETS, SUBSCRIPTION_LOGINS } from './providers.js';
 import {
   listConfiguredProviders,
   saveDefaultModel,
-  saveDefaultTools,
   saveProviderKey,
 } from './setupConfig.js';
 import { PiSupervisor } from './pi.js';
@@ -289,26 +288,6 @@ wss.on('connection', (ws: WebSocket) => {
           'default_model_saved',
           () => saveDefaultModel(String(data.provider ?? ''), String(data.modelId ?? '')),
           () => ({ provider: data.provider, modelId: data.modelId }),
-          () => ({ id: data.id })
-        );
-        return;
-      }
-
-      // Windows 上绕开 Git Bash：把默认工具换成 powershell。
-      // defaultTools 只在进程启动时读，所以必须重启 pi 才生效。
-      if (data.type === 'save_default_tools') {
-        reply(
-          ws,
-          'default_tools_saved',
-          async () => {
-            const tools = Array.isArray(data.tools) ? data.tools.map(String) : [];
-            if (tools.length === 0) throw new Error('工具列表不能为空');
-
-            await saveDefaultTools(tools);
-            pi.restart(currentCwd);
-            return { tools };
-          },
-          value => ({ tools: value.tools }),
           () => ({ id: data.id })
         );
         return;

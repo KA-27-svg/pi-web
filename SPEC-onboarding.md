@@ -156,11 +156,11 @@ src/
    - 主路径：用户在向导里**明确点击确认**后，桥接按平台代跑官方安装器，输出流式显示在网页。
    - 兜底：代跑失败、或环境禁止联网/执行时，改为展示平台对应的**官方命令 + 一键复制**，并自动轮询检测是否装好。
    - 两种路径都必须先把**确切命令**展示给用户再执行。`auth.json` 等凭证不回显。
-2. **Windows 的 Git Bash：优先不装，改用 `powershell` 工具。**
-   - 官方安装器在无 TTY 时会跳过 Git Bash，而 pi 的 `bash` 工具依赖它。
-   - 但 pi 官方支持替换默认工具，把 `defaultTools` 设为 `["read", "powershell", "edit", "write"]` 即可绕开 Bash，`powershell` 工具走 `pwsh.exe`（没有则退到 Windows PowerShell）。
-   - 因此缺 Git Bash 时：**先提供“用 powershell 工具”这个开关**（桥接写 `settings.json`，需用户同意），用户同意则**一个字节都不用下载**。
-   - 备选：检测顺序与 pi 一致（`settings.json` 的 `shellPath` → Git Bash 常见安装位 → PATH 上的 `bash.exe`）；都没有且用户不愿改工具时，提示在自己终端跑官方安装器（那里才会出现 Git Bash 选择菜单）。
+2. **Windows 的 Git Bash：不代装、也不改 pi 的工具集，只提示。**
+   - 官方安装器在无 TTY 时会跳过 Git Bash，而 pi 的 `bash` 工具依赖它——这是我们选代跑（方案 C）自己造成的窟窿，但一句提示就能填。
+   - 缺 Git Bash 时只报一个**不阻断**的问题项，并告诉用户：在自己的终端里跑一次上面的官方命令，`install.ps1` 会下载 Portable Git 到 `~/.pi/agent/win-git-bash` 并**自动把 `shellPath` 写进 `settings.json`**。
+   - **明确不做**：改 `defaultTools` 把 `bash` 换成 `powershell`。理由：它要重启 pi，且 `defaultTools` 是**全量替换**工具集（写漏一个就把 agent 搞坏），代价大于收益。
+
 3. **Node 版本不够时选“引导”，不自装（方案 A）。**
    - 官方安装器的 preflight 失败后，无 TTY 下**直接报错退出，不会自装 Node**。
    - 桥接不自己下载 Node（那等于把官方脚本那段复刻一遍，偏离“只走官方步骤”）。

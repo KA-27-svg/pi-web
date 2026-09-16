@@ -155,7 +155,8 @@ export async function probeEnvironment(
   if (!gitBashAvailable) {
     issues.push({
       code: 'git-bash-missing',
-      message: '没找到 Git Bash。pi 的 bash 工具需要它（也可以改用 powershell 工具）。',
+      message:
+        '没找到 Git Bash。pi 的 bash 工具需要它——在你自己的终端里跑一次上面的官方命令，它会顺手装好并配置。',
     });
   }
   // 装了 pi 却没配凭证，和没装 pi 是同一种结局：发消息不会有任何回复

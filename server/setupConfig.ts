@@ -129,22 +129,6 @@ export async function saveDefaultModel(
 }
 
 /**
- * 写默认工具集。
- * 用于 Windows 上绕开 Git Bash：把 bash 换成 powershell，就一个字节都不用下载。
- */
-export async function saveDefaultTools(
-  tools: string[],
-  agentDir: string = resolveAgentDir()
-): Promise<void> {
-  const { settings } = configPaths(agentDir);
-  const existing = await readJsonObject(settings);
-
-  existing.defaultTools = tools;
-
-  await writeJsonObject(settings, existing);
-}
-
-/**
  * 已经配了凭证的供应商。
  *
  * 两种来源都算：auth.json 里的键，以及设了对应环境变量的供应商——
