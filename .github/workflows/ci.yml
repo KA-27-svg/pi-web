@@ -1,0 +1,30 @@
+name: 检查
+
+# 每次推送到任何分支、以及每个 PR 都跑一遍。
+# 目的是不再靠人记得手动跑这三条命令。
+on:
+  push:
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: 安装依赖
+        run: npm ci
+
+      - name: 代码规范
+        run: npm run lint
+
+      - name: 测试
+        run: npm test
+
+      - name: 构建
+        run: npm run build
