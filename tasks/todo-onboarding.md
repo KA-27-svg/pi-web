@@ -70,7 +70,7 @@
   - Verify: 组件测试；手动走成功与失败
   - Files: `src/components/SetupWizard.tsx`, `src/services/piSetupActions.ts`, `src/App.tsx`
 
-## Slice 4：预设供应商填 key
+## Slice 4：预设供应商填 key（进行中）
 
 - [ ] Task 4.0（原 3.7）：缺 Git Bash 时提供「改用 powershell 工具」开关
   - 依赖 `setupConfig`，故从 Slice 3 移到这里
@@ -78,17 +78,17 @@
   - Verify: 单测读改写 settings.json；手动
   - Files: `server/setupConfig.ts`, `server/env.ts`, `src/components/SetupWizard.tsx`
 
-- [ ] Task 4.1：`server/setupConfig.ts` —— `auth.json` 读改写 + 0600
+- [x] Task 4.1：`server/setupConfig.ts` —— `auth.json` 读改写 + 0600
   - Acceptance: 保留已有条目；新写入权限 0600；不存在时创建；损坏文件不静默覆盖
   - Verify: 单测（已有条目保留、权限、损坏文件）
   - Files: `server/setupConfig.ts`, `server/setupConfig.test.ts`
 
-- [ ] Task 4.2：预设供应商目录
+- [x] Task 4.2：预设供应商目录
   - Acceptance: 覆盖主流供应商及其 `auth.json` key；数据来自 pi 的 providers 文档
   - Verify: 单测结构
   - Files: `server/providers.ts`, `server/providers.test.ts`
 
-- [ ] Task 4.3：桥接新增 `save_provider_key` / `set_default_model`
+- [x] Task 4.3：桥接新增 `save_provider_key` / `set_default_model`（含 `save_default_tools` / `list_configured_providers`）
   - Acceptance: key 只写不读；响应不含 key；写后重启 pi 并刷新模型列表
   - Verify: 单测响应体不含 key
   - Files: `server/bridge.ts`, `server/setupConfig.ts`

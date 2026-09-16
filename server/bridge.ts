@@ -15,6 +15,13 @@ import { attachOriginGuard, parseAllowedOrigins } from './origin.js';
 import { defaultRunCommand, probeEnvironment } from './env.js';
 import { resolvePiCommand } from './piLocate.js';
 import { buildInstallCommand, installPreflight, runInstall } from './piInstall.js';
+import { PROVIDER_PRESETS, SUBSCRIPTION_LOGINS } from './providers.js';
+import {
+  listConfiguredProviders,
+  saveDefaultModel,
+  saveDefaultTools,
+  saveProviderKey,
+} from './setupConfig.js';
 import { PiSupervisor } from './pi.js';
 import {
   emptyTrash,
@@ -153,6 +160,26 @@ async function refreshPiCommand(): Promise<string | null> {
 let installInFlight = false;
 
 /**
+ * 向导需要的全部状态。
+ * 供应商目录也一并给前端，免得两边各维护一份、迟早走样。
+ */
+async function setupPayload() {
+  const setup = await probeEnvironment(defaultRunCommand);
+  return {
+    setup,
+    installCommand: buildInstallCommand().display,
+    preflight: installPreflight(setup),
+    providers: PROVIDER_PRESETS,
+    subscriptions: SUBSCRIPTION_LOGINS,
+  };
+}
+
+/** 环境或凭证变动后广播一次，所有标签页都会跟着更新 */
+async function broadcastSetupStatus() {
+  broadcast(JSON.stringify({ type: 'setup_status', success: true, ...(await setupPayload()) }));
+}
+
+/**
  * 把指令写给 pi。写不进去时必须报错：
  * 静默丢弃会让前端永远等不到回包（例如切会话后对话区一直空着）。
  */
@@ -215,12 +242,83 @@ wss.on('connection', (ws: WebSocket) => {
       // 环境探测：本机够不够跑 pi。向导靠它决定「缺什么、下一步做什么」，
       // 也是「网页能打开但模型不回话」这类困惑的第一道解释。
       if (data.type === 'get_setup_status') {
-        reply(ws, 'setup_status', () => probeEnvironment(defaultRunCommand), value => ({
-          // 包一层：顶层已占用 type / success，直接把探测结果摊平会把它俩混进状态里
-          setup: value,
-          // 展示用命令与「能不能代跑」的判定一并给前端，向导不必自己拼
-          installCommand: buildInstallCommand().display,
-          preflight: installPreflight(value),
+        // 包一层 setup：顶层已占用 type / success
+        reply(ws, 'setup_status', setupPayload, value => value);
+        return;
+      }
+
+      // 写供应商凭证。
+      // 不重启 pi：`/login` 在终端里也是写同一个文件、当前会话立即生效，说明
+      // 凭证是惰性读取的，重起反而会把正在聊的会话弄丢。
+      if (data.type === 'save_provider_key') {
+        reply(
+          ws,
+          'provider_saved',
+          async () => {
+            const provider = String(data.provider ?? '').trim();
+            const key = String(data.key ?? '').trim();
+            const baseUrl = typeof data.baseUrl === 'string' ? data.baseUrl.trim() : '';
+
+            if (!provider) throw new Error('缺少供应商标识');
+            if (!key) throw new Error('API key 不能为空');
+
+            await saveProviderKey(provider, {
+              type: 'api_key',
+              key,
+              ...(baseUrl ? { baseUrl } : {}),
+            });
+
+            // 回包只带供应商名：key 不回显、也不进日志
+            return { provider };
+          },
+          value => ({ provider: value.provider }),
+          () => ({ id: data.id })
+        );
+
+        // 写完让界面看到新模型。凭证是惰性的，不必重启，但状态得刷新。
+        void broadcastSetupStatus();
+        pi.send({ type: 'get_available_models' });
+        pi.send({ type: 'get_state' });
+        return;
+      }
+
+      // 记住默认模型
+      if (data.type === 'set_default_model') {
+        reply(
+          ws,
+          'default_model_saved',
+          () => saveDefaultModel(String(data.provider ?? ''), String(data.modelId ?? '')),
+          () => ({ provider: data.provider, modelId: data.modelId }),
+          () => ({ id: data.id })
+        );
+        return;
+      }
+
+      // Windows 上绕开 Git Bash：把默认工具换成 powershell。
+      // defaultTools 只在进程启动时读，所以必须重启 pi 才生效。
+      if (data.type === 'save_default_tools') {
+        reply(
+          ws,
+          'default_tools_saved',
+          async () => {
+            const tools = Array.isArray(data.tools) ? data.tools.map(String) : [];
+            if (tools.length === 0) throw new Error('工具列表不能为空');
+
+            await saveDefaultTools(tools);
+            pi.restart(currentCwd);
+            return { tools };
+          },
+          value => ({ tools: value.tools }),
+          () => ({ id: data.id })
+        );
+        return;
+      }
+
+      // 已配好凭证的供应商。向导用它做 OAuth 轮询：用户在终端跑完 /login，
+      // 这里就能看到变化。
+      if (data.type === 'list_configured_providers') {
+        reply(ws, 'configured_providers', () => listConfiguredProviders(), providers => ({
+          providers,
         }));
         return;
       }
@@ -251,19 +349,9 @@ wss.on('connection', (ws: WebSocket) => {
 
             // 解析新路径必须在探测之前：装完后当前进程的 PATH 还是旧的
             await refreshPiCommand();
-            const after = await probeEnvironment(defaultRunCommand);
-            const nextPreflight = installPreflight(after);
 
             broadcast(JSON.stringify({ type: 'install_done', ...result }));
-            broadcast(
-              JSON.stringify({
-                type: 'setup_status',
-                success: true,
-                setup: after,
-                installCommand: buildInstallCommand().display,
-                preflight: nextPreflight,
-              })
-            );
+            await broadcastSetupStatus();
 
             // 用新装的 pi 重新拉起。失败时不动：让用户自己重试，
             // 而不是把一个起不来的进程换成另一个。

@@ -128,13 +128,31 @@ export interface SetupStatus {
   pi: { installed: boolean; version: string | null };
   /** Git Bash 只在 Windows 上必需 */
   gitBash: { required: boolean; available: boolean };
-  /** pi 可用、可以开始对话。模型配置是否就绪是另一件事 */
+  /** 已配好凭证的供应商（只看有没有，不含凭证内容） */
+  credentials: { providers: string[] };
+  /** 环境与凭证都就绪，可以开始对话 */
   ready: boolean;
   issues: SetupIssue[];
 }
 
+/** 内置供应商（桥接 server/providers.ts 的产出） */
+export interface ProviderPreset {
+  /** auth.json 里的键 */
+  id: string;
+  label: string;
+  envVar: string;
+  /** 只支持订阅登录，不能只贴 API key */
+  subscriptionOnly?: boolean;
+}
+
 export interface SetupIssue {
-  code: 'node-missing' | 'node-too-old' | 'npm-missing' | 'pi-missing' | 'git-bash-missing';
+  code:
+    | 'node-missing'
+    | 'node-too-old'
+    | 'npm-missing'
+    | 'pi-missing'
+    | 'git-bash-missing'
+    | 'no-credentials';
   message: string;
 }
 
@@ -177,12 +195,18 @@ export interface BridgeStatus {
   installCommand?: string;
   /** 能不能由桥接代跑官方安装器；不能时 reason 说明原因 */
   preflight?: { allowed: boolean; reason?: string };
+  /** 可选供应商目录（桥接下发，免得两边各维护一份） */
+  providers?: ProviderPreset[];
+  /** 支持订阅登录（OAuth）的供应商，只能在终端跑 /login */
+  subscriptions?: { id: string; label: string }[];
   /** 正在代跑安装器 */
   installing?: boolean;
   /** 安装器输出（已去 ANSI、压掉重复），只保留最近若干行 */
   installLog?: string[];
   /** 安装失败或被拒绝的原因 */
   installError?: string;
+  /** 写配置失败的原因（保存供应商 / 默认模型 / 默认工具） */
+  setupNotice?: string;
   /**
    * 正在自动重试（过载 / 限流 / 5xx）。
    * 有值时界面要明说“在重试”，否则用户看着不动的界面会以为卡死了。

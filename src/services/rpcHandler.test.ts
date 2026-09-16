@@ -838,3 +838,45 @@ describe('环境与安装事件', () => {
     expect(h.status().installError).toContain('Node.js 版本不够');
   });
 });
+
+describe('供应商配置事件', () => {
+  it('setup_status 带上供应商目录与订阅入口', () => {
+    const h = createHarness();
+
+    h.handler.handleEvent(
+      {
+        type: 'setup_status',
+        success: true,
+        setup: { ready: false, issues: [] },
+        providers: [{ id: 'anthropic', label: 'Anthropic (Claude)', envVar: 'ANTHROPIC_API_KEY' }],
+        subscriptions: [{ id: 'openai', label: 'ChatGPT Plus/Pro (Codex)' }],
+      },
+      h.ws
+    );
+
+    expect(h.status().providers[0].id).toBe('anthropic');
+    expect(h.status().subscriptions[0].label).toContain('ChatGPT');
+  });
+
+  it('保存失败时留下原因，成功时清掉', () => {
+    const h = createHarness();
+
+    h.handler.handleEvent({ type: 'provider_saved', success: false, error: 'API key 不能为空' }, h.ws);
+    expect(h.status().setupNotice).toBe('API key 不能为空');
+
+    h.handler.handleEvent({ type: 'provider_saved', success: true, provider: 'anthropic' }, h.ws);
+    expect(h.status().setupNotice).toBeUndefined();
+  });
+
+  it('保存成功时不把 key 带进状态', () => {
+    const h = createHarness();
+
+    // 桥接本来就不回声 key，这里锁住「前端也不该出现它」
+    h.handler.handleEvent(
+      { type: 'provider_saved', success: true, provider: 'anthropic', key: 'sk-should-not-leak' },
+      h.ws
+    );
+
+    expect(JSON.stringify(h.status())).not.toContain('sk-should-not-leak');
+  });
+});

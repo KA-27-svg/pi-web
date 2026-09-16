@@ -84,6 +84,7 @@ describe('installPreflight', () => {
     npm: { available: true },
     pi: { installed: false, version: null },
     gitBash: { required: false, available: true },
+    credentials: { providers: [] },
     ready: false,
     issues: [],
   };

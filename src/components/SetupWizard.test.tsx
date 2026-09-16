@@ -37,6 +37,7 @@ const setup = (over: Partial<SetupStatus> = {}): SetupStatus => ({
   npm: { available: true },
   pi: { installed: false, version: null },
   gitBash: { required: false, available: true },
+  credentials: { providers: ['anthropic'] },
   ready: false,
   issues: [{ code: 'pi-missing', message: '这台机器上还没安装 pi。' }],
   ...over,

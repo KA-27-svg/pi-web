@@ -232,7 +232,26 @@ export class RpcEventHandler {
         setup,
         installCommand: data.installCommand ?? prev.installCommand,
         preflight: data.preflight ?? prev.preflight,
+        providers: data.providers ?? prev.providers,
+        subscriptions: data.subscriptions ?? prev.subscriptions,
       }));
+      return;
+    }
+
+    // 写入配置的结果。失败必须说出来，否则用户点了「保存」不知道到底成没成。
+    if (
+      data.type === 'provider_saved' ||
+      data.type === 'default_model_saved' ||
+      data.type === 'default_tools_saved'
+    ) {
+      if (!data.success) {
+        this.setStatus((prev: BridgeStatus) => ({
+          ...prev,
+          setupNotice: String(data.error ?? '保存失败'),
+        }));
+      } else {
+        this.setStatus((prev: BridgeStatus) => ({ ...prev, setupNotice: undefined }));
+      }
       return;
     }
 

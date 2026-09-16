@@ -15,6 +15,10 @@ function runnerFor(outputs: Record<string, string | null>): RunCommand {
   };
 }
 
+// 凭证必须注入：不注入就会去读宿主机真实的 ~/.pi/agent，测试结果随机器漂移
+const noCredentials = async () => [] as string[];
+const withAnthropic = async () => ['anthropic'];
+
 describe('parseNodeVersion', () => {
   it('解析标准的 node --version 输出', () => {
     expect(parseNodeVersion('v22.19.0')).toEqual({ major: 22, minor: 19, patch: 0 });
@@ -61,16 +65,23 @@ describe('probeEnvironment', () => {
   };
 
   it('全部就绪时 ready 为真且没有问题项', async () => {
-    const status = await probeEnvironment(runnerFor(healthy), { platform: 'linux' });
+    const status = await probeEnvironment(runnerFor(healthy), {
+      platform: 'linux',
+      listCredentials: withAnthropic,
+    });
 
     expect(status.ready).toBe(true);
     expect(status.issues).toEqual([]);
     expect(status.pi).toEqual({ installed: true, version: '0.85.1' });
+    expect(status.credentials.providers).toEqual(['anthropic']);
     expect(status.node).toEqual({ version: 'v22.23.2', ok: true, minimum: MINIMUM_NODE_TEXT });
   });
 
   it('缺 pi 时 ready 为假并给出可读原因', async () => {
-    const status = await probeEnvironment(runnerFor({ ...healthy, pi: null }), { platform: 'linux' });
+    const status = await probeEnvironment(runnerFor({ ...healthy, pi: null }), {
+      platform: 'linux',
+      listCredentials: withAnthropic,
+    });
 
     expect(status.ready).toBe(false);
     expect(status.issues.map(i => i.code)).toEqual(['pi-missing']);
@@ -79,6 +90,7 @@ describe('probeEnvironment', () => {
   it('Node 版本过低与缺失是两种不同的问题项', async () => {
     const old = await probeEnvironment(runnerFor({ ...healthy, node: 'v20.19.0\n' }), {
       platform: 'linux',
+      listCredentials: withAnthropic,
     });
     expect(old.ready).toBe(false);
     expect(old.issues.map(i => i.code)).toEqual(['node-too-old']);
@@ -89,6 +101,7 @@ describe('probeEnvironment', () => {
 
     const missing = await probeEnvironment(runnerFor({ ...healthy, node: null }), {
       platform: 'linux',
+      listCredentials: withAnthropic,
     });
     expect(missing.issues.map(i => i.code)).toEqual(['node-missing']);
   });
@@ -96,6 +109,7 @@ describe('probeEnvironment', () => {
   it('缺 npm 单独报一项（官方安装器要用它装 pi）', async () => {
     const status = await probeEnvironment(runnerFor({ ...healthy, npm: null }), {
       platform: 'linux',
+      listCredentials: withAnthropic,
     });
 
     expect(status.npm.available).toBe(false);
@@ -105,6 +119,7 @@ describe('probeEnvironment', () => {
   it('非 Windows 平台不检查 Git Bash', async () => {
     const status = await probeEnvironment(runnerFor({ ...healthy, bash: null }), {
       platform: 'linux',
+      listCredentials: withAnthropic,
     });
 
     expect(status.gitBash).toEqual({ required: false, available: true });
@@ -115,6 +130,7 @@ describe('probeEnvironment', () => {
     // Git Bash 只影响 pi 的 bash 工具，装没装 pi 判定的还是 pi 自己
     const status = await probeEnvironment(runnerFor({ ...healthy, bash: null }), {
       platform: 'win32',
+      listCredentials: withAnthropic,
     });
 
     expect(status.gitBash).toEqual({ required: true, available: false });
@@ -123,7 +139,10 @@ describe('probeEnvironment', () => {
   });
 
   it('多个问题按固定顺序返回，便于界面稳定展示', async () => {
-    const status = await probeEnvironment(runnerFor({ pi: null }), { platform: 'win32' });
+    const status = await probeEnvironment(runnerFor({ pi: null }), {
+      platform: 'win32',
+      listCredentials: noCredentials,
+    });
 
     expect(status.issues.map(i => i.code)).toEqual([
       'node-missing',
@@ -131,5 +150,26 @@ describe('probeEnvironment', () => {
       'pi-missing',
       'git-bash-missing',
     ]);
+  });
+
+  it('装了 pi 但没配凭证时同样不算就绪', async () => {
+    // 这是最容易踩的一种：pi 装好了、网页也能开，但发消息永远没有回复
+    const status = await probeEnvironment(runnerFor(healthy), {
+      platform: 'linux',
+      listCredentials: noCredentials,
+    });
+
+    expect(status.ready).toBe(false);
+    expect(status.issues.map(i => i.code)).toEqual(['no-credentials']);
+    expect(status.credentials.providers).toEqual([]);
+  });
+
+  it('没装 pi 时不报「没配凭证」，免得问题项重复堆叠', async () => {
+    const status = await probeEnvironment(runnerFor({ ...healthy, pi: null }), {
+      platform: 'linux',
+      listCredentials: noCredentials,
+    });
+
+    expect(status.issues.map(i => i.code)).toEqual(['pi-missing']);
   });
 });

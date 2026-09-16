@@ -1,4 +1,5 @@
 import { execFile } from 'child_process';
+import { listConfiguredProviders } from './setupConfig.js';
 
 /**
  * 环境探测：这台机器能不能跑 pi。
@@ -77,7 +78,8 @@ export type SetupIssueCode =
   | 'node-too-old'
   | 'npm-missing'
   | 'pi-missing'
-  | 'git-bash-missing';
+  | 'git-bash-missing'
+  | 'no-credentials';
 
 export interface SetupIssue {
   code: SetupIssueCode;
@@ -92,7 +94,12 @@ export interface SetupStatus {
   pi: { installed: boolean; version: string | null };
   /** Git Bash 只在 Windows 上必需（pi 的 bash 工具用它） */
   gitBash: { required: boolean; available: boolean };
-  /** pi 可用、可以开始对话。模型配置是否就绪是另一件事（见 provider-auth 切片） */
+  /**
+   * 已配好凭证的供应商（来自 auth.json 与环境变量）。
+   * 只看有没有，不读凭证内容——key 不进这个进程之外的任何地方。
+   */
+  credentials: { providers: string[] };
+  /** 环境和凭证都就绪，可以开始对话 */
   ready: boolean;
   issues: SetupIssue[];
 }
@@ -100,6 +107,8 @@ export interface SetupStatus {
 export interface ProbeOptions {
   /** 默认取 process.platform；测试里固定住，避免结果随宿主环境漂移 */
   platform?: NodeJS.Platform;
+  /** 查已配凭证的供应商。必须可注入，否则测试结果会随宿主机上真实配置漂移 */
+  listCredentials?: () => Promise<string[]>;
 }
 
 export async function probeEnvironment(
@@ -110,11 +119,12 @@ export async function probeEnvironment(
   const gitBashRequired = platform === 'win32';
 
   // 互相独立，并行探测；Git Bash 只在 Windows 上问
-  const [nodeRaw, npmRaw, piRaw, bashRaw] = await Promise.all([
+  const [nodeRaw, npmRaw, piRaw, bashRaw, providers] = await Promise.all([
     run('node', ['--version']),
     run('npm', ['--version']),
     run('pi', ['--version']),
     gitBashRequired ? run('bash', ['--version']) : Promise.resolve(null),
+    (options.listCredentials ?? listConfiguredProviders)(),
   ]);
 
   const parsedNode = nodeRaw === null ? null : parseNodeVersion(nodeRaw);
@@ -148,6 +158,15 @@ export async function probeEnvironment(
       message: '没找到 Git Bash。pi 的 bash 工具需要它（也可以改用 powershell 工具）。',
     });
   }
+  // 装了 pi 却没配凭证，和没装 pi 是同一种结局：发消息不会有任何回复
+  if (piInstalled && providers.length === 0) {
+    issues.push({
+      code: 'no-credentials',
+      message: '还没有配置任何模型凭证，pi 不知道用哪个模型。',
+    });
+  }
+
+  const nodeReady = nodeOk && piInstalled;
 
   return {
     platform,
@@ -159,8 +178,9 @@ export async function probeEnvironment(
     npm: { available: npmAvailable },
     pi: { installed: piInstalled, version: piRaw === null ? null : piRaw.trim() },
     gitBash: { required: gitBashRequired, available: gitBashAvailable },
-    // Git Bash 缺失不阻断对话：只有需要执行 shell 的操作会失败
-    ready: nodeOk && piInstalled,
+    credentials: { providers },
+    // Git Bash 缺失不阻断对话（只影响 shell 工具）；凭证缺失则阻断，因为对话根本进行不了
+    ready: nodeReady && providers.length > 0,
     issues,
   };
 }
