@@ -196,15 +196,27 @@ export function usePiWebSocket() {
     [handler, request, sendCommand, isOpen]
   );
 
-  const streaming = useMemo(() => createStreamingActions(bridge), [bridge]);
-  const sessions = useMemo(() => createSessionActions(bridge), [bridge]);
-  const attachments = useMemo(() => createAttachmentActions(bridge), [bridge]);
+  /**
+   * 三个领域的动作。
+   *
+   * oxlint 会在下面报「渲染期访问 ref」，是误报：create*Actions 只是把访问 ref 的
+   * 函数装进返回对象，真正读 ref 发生在用户点击之后。bridge 的字段都是稳定的，
+   * 所以这三块只会构造一次。
+   */
+  /* oxlint-disable react/refs */
+  const actions = useMemo(
+    () => ({
+      ...createStreamingActions(bridge),
+      ...createSessionActions(bridge),
+      ...createAttachmentActions(bridge),
+    }),
+    [bridge]
+  );
+  /* oxlint-enable react/refs */
 
   return {
     messages,
     status,
-    ...streaming,
-    ...sessions,
-    ...attachments,
+    ...actions,
   };
 }
