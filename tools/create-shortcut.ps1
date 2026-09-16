@@ -16,6 +16,10 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+# 调用方可能带结尾反斜杠（%~dp0 就带），去掉再用——
+# 而且 "C:\dir\" 里的反斜杠会把引号转义掉，路径末尾会多出一个引号
+$ProjectDir = $ProjectDir.TrimEnd('\')
+
 $target = Join-Path $ProjectDir 'start.bat'
 $icon = Join-Path $ProjectDir 'pi-web.ico'
 $shortcutPath = Join-Path $DesktopPath 'Pi Web.lnk'
