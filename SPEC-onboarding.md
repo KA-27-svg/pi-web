@@ -156,8 +156,26 @@ src/
    - 主路径：用户在向导里**明确点击确认**后，桥接按平台代跑官方安装器，输出流式显示在网页。
    - 兜底：代跑失败、或环境禁止联网/执行时，改为展示平台对应的**官方命令 + 一键复制**，并自动轮询检测是否装好。
    - 两种路径都必须先把**确切命令**展示给用户再执行。`auth.json` 等凭证不回显。
-2. **Windows 的 Git Bash：向导单独一步检查，不代跑。**
+2. **Windows 的 Git Bash：优先不装，改用 `powershell` 工具。**
    - 官方安装器在无 TTY 时会跳过 Git Bash，而 pi 的 `bash` 工具依赖它。
-   - 检测顺序与 pi 一致：`settings.json` 的 `shellPath` → Git Bash 常见安装位 → PATH 上的 `bash.exe`。
-   - 缺失时：提示用户在**自己的终端**跑一次官方安装器（那里会出现 Git Bash 选择菜单），并说明可选的 `powershell` 工具替代方案（改 `defaultTools`，需用户同意）。
-3. **配置只做共用 `~/.pi/agent`。** 不做 `PI_CODING_AGENT_DIR` 隔离模式——与 README 的价值主张（终端聊过的网页能接着聊）一致。
+   - 但 pi 官方支持替换默认工具，把 `defaultTools` 设为 `["read", "powershell", "edit", "write"]` 即可绕开 Bash，`powershell` 工具走 `pwsh.exe`（没有则退到 Windows PowerShell）。
+   - 因此缺 Git Bash 时：**先提供“用 powershell 工具”这个开关**（桥接写 `settings.json`，需用户同意），用户同意则**一个字节都不用下载**。
+   - 备选：检测顺序与 pi 一致（`settings.json` 的 `shellPath` → Git Bash 常见安装位 → PATH 上的 `bash.exe`）；都没有且用户不愿改工具时，提示在自己终端跑官方安装器（那里才会出现 Git Bash 选择菜单）。
+3. **Node 版本不够时选“引导”，不自装（方案 A）。**
+   - 官方安装器的 preflight 失败后，无 TTY 下**直接报错退出，不会自装 Node**。
+   - 桥接不自己下载 Node（那等于把官方脚本那段复刻一遍，偏离“只走官方步骤”）。
+   - 向导给出一条命令让用户**在自己的终端**跑（那里有 TTY，官方脚本会问装不装 standalone Node），桥接轮询检测完成后继续。
+   - 只影响 Node 20.19 ~ 22.18 这一档：完全没 Node 的机器到不了向导页（pi-web 自己就跑在 Node 上）。
+4. **配置只做共用 `~/.pi/agent`。** 不做 `PI_CODING_AGENT_DIR` 隔离模式——与 README 的价值主张（终端聊过的网页能接着聊）一致。
+
+## 关键实现陷阱
+
+**POSIX 上代跑官方安装器必须 `detached: true`。**
+
+`install.sh` 用 `: <>/dev/tty` 判断“有没有终端”，它开的是**控制终端**，不是 stdin。桥接是从终端启动的，子进程即使 stdin 是管道也仍然共享那个控制终端，于是 `/dev/tty` 能打开，脚本会问 `Install Node.js 22.19.0 or newer now? [Y/n]` 然后**永久等输入**。
+
+用 `detached: true` 启动（内部走 `setsid()`，新 session 无控制终端）即可让它自动走非交互分支。
+
+Windows 不需要：`install.ps1` 判的是 `[Console]::IsInputRedirected`，管道 stdin 即为真。
+
+> 注：此结论由官方脚本源码推出，尚未在真实 Linux/macOS 上实测（Windows + Git Bash 的 `/dev/tty` 行为不同，验不出来）。实现该切片时必须在真实 POSIX 环境验证一次。

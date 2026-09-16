@@ -62,9 +62,11 @@ Slice 1  env-probe ──▶ Slice 2  pi-locate ──▶ Slice 3  pi-install
   - Windows：`powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://pi.dev/install.ps1 | iex"`
   - macOS/Linux：`sh -c "curl -fsSL https://pi.dev/install.sh | sh"`
   - 参数为静态字面量，不拼接用户输入。
-- 桥接新增 `install_pi`，输出以事件流回传；完成后再跑一次 `env-probe` + `pi-locate`。
+  - **POSIX 上必须 `detached: true` 启动**：官方脚本用 `: <>/dev/tty` 判终端（开的是控制终端），桥接从终端启动时子进程仍共享它，不脱离就会在 `[Y/n]` 上永久挂住。
+- 桥接新增 `install_pi`，输出以事件流回传；完成后自动重跑 `env-probe` + `pi-locate` 并广播新状态。
 - 前端向导步骤：**先展示确切命令 → 用户确认 → 流式日志 → 成功/失败**。失败走兜底：展示命令 + 复制按钮 + 轮询检测。
-- Node 版本不足时不代跑：官方安装器在无 TTY 下不会装 Node，直接给出说明。
+- Node 版本不足时不代跑，走方案 A：给出命令让用户在自己终端跑（有 TTY，官方脚本会问装不装 standalone Node），桥接轮询检测后续。
+- Git Bash 缺失时优先不装：提供“改用 `powershell` 工具”开关（桥接写 `settings.json` 的 `defaultTools`，需用户同意）；备选才是引导装 Git。
 
 **验证**：`ansiLines` 单测（含 `\r` 覆盖与 ANSI 转义）；命令构建单测；用注入的假 runner 走通成功/失败两条路。
 

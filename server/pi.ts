@@ -11,11 +11,23 @@ export interface PiSupervisorCallbacks {
   onError: (message: string) => void;
 }
 
-export type SpawnPi = (cwd: string) => ChildProcessWithoutNullStreams;
+export type SpawnPi = (cwd: string, command: string) => ChildProcessWithoutNullStreams;
 
-export const defaultSpawnPi: SpawnPi = cwd => {
-  console.log(`[Pi Bridge] Spawning pi --mode rpc in: ${cwd}`);
-  return spawn('pi', ['--mode', 'rpc'], {
+/**
+ * 把 spawn 的底层错误翻译成能看懂的话。
+ * ENOENT 实际只意味着「这个路径下没有可执行文件」，也就是 pi 没装或路径不对，
+ * 直接把 `spawn pi ENOENT` 丢给用户等于什么也没说。
+ */
+export function describeSpawnError(error: Error, command: string): string {
+  if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+    return `找不到 pi（尝试执行：${command}）。本机可能还没安装 pi，请先完成首次运行向导。`;
+  }
+  return error.message;
+}
+
+export const defaultSpawnPi: SpawnPi = (cwd, command) => {
+  console.log(`[Pi Bridge] Spawning ${command} --mode rpc in: ${cwd}`);
+  return spawn(command, ['--mode', 'rpc'], {
     cwd,
     // shell: true 是 Windows 上运行 npm 全局 CLI（pi.cmd）所必需的；
     // 命令行参数是静态字面量，cwd 也只通过 spawn 的 cwd 选项传递，不经过 shell 拼接。
@@ -33,17 +45,24 @@ export const defaultSpawnPi: SpawnPi = cwd => {
 export class PiSupervisor {
   private proc: ChildProcessWithoutNullStreams | null = null;
   private cwd: string;
+  /**
+   * pi 可执行文件。
+   * 默认就是 `pi`（交给 PATH）；解析出绝对路径后用 setCommand 换掉。
+   */
+  private command: string;
   private callbacks: PiSupervisorCallbacks;
   private spawnPi: SpawnPi;
 
   constructor(
     callbacks: PiSupervisorCallbacks,
     initialCwd: string,
-    spawnPi: SpawnPi = defaultSpawnPi
+    spawnPi: SpawnPi = defaultSpawnPi,
+    command = 'pi'
   ) {
     this.callbacks = callbacks;
     this.cwd = initialCwd;
     this.spawnPi = spawnPi;
+    this.command = command;
   }
 
   get running(): boolean {
@@ -54,12 +73,27 @@ export class PiSupervisor {
     return this.cwd;
   }
 
+  get currentCommand(): string {
+    return this.command;
+  }
+
+  /**
+   * 改用解析出的 pi 路径。
+   *
+   * 安装完成后必须调它：官方安装器只把新目录写进用户 PATH，已经跑着的桥接
+   * 进程读不到，继续用 `pi` 会一直找不到刚装好的那个。
+   * 下一次 ensure / restart 就会用新路径拉起。
+   */
+  setCommand(command: string): void {
+    this.command = command;
+  }
+
   /** 进程不在（崩了 / 没起过）就拉起一个。幂等，可以随便调。 */
   ensure(cwd: string = this.cwd): void {
     if (this.isAlive(this.proc)) return;
 
     this.cwd = cwd;
-    const proc = this.spawnPi(cwd);
+    const proc = this.spawnPi(cwd, this.command);
     this.proc = proc;
     const decoder = new LineDecoder();
     // stderr 不是按行协议的，但也得避免把多字节字符从中间劈开
@@ -88,7 +122,7 @@ export class PiSupervisor {
     proc.on('error', err => {
       if (this.proc !== proc) return;
       this.proc = null;
-      this.callbacks.onError(err.message);
+      this.callbacks.onError(describeSpawnError(err, this.command));
     });
   }
 

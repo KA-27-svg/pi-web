@@ -13,6 +13,7 @@ import { readAttachment, resolveAttachment } from './textAttachment.js';
 import { reply } from './reply.js';
 import { attachOriginGuard, parseAllowedOrigins } from './origin.js';
 import { defaultRunCommand, probeEnvironment } from './env.js';
+import { resolvePiCommand } from './piLocate.js';
 import { PiSupervisor } from './pi.js';
 import {
   emptyTrash,
@@ -131,6 +132,21 @@ const pi = new PiSupervisor(
   },
   currentCwd
 );
+
+/**
+ * 解析 pi 可执行文件并交给 supervisor。
+ *
+ * 安装完 pi 后必须再跑一次：官方安装器只把新目录写进用户 PATH，已经跑着的
+ * 桥接进程读不到，不重新解析就会一直说找不到 pi。
+ */
+async function refreshPiCommand(): Promise<string | null> {
+  const resolved = await resolvePiCommand(defaultRunCommand);
+  if (resolved) {
+    pi.setCommand(resolved);
+    console.log(`[Pi Bridge] Resolved pi at: ${resolved}`);
+  }
+  return resolved;
+}
 
 /**
  * 把指令写给 pi。写不进去时必须报错：
@@ -365,6 +381,12 @@ wss.on('connection', (ws: WebSocket) => {
 server.listen(PORT, HOST, () => {
   console.log(`[Pi Bridge] Server listening on http://${HOST}:${PORT}`);
   console.log(`[Pi Bridge] WebSocket ready on ws://${HOST}:${PORT}`);
+
+  // 解析 pi 的绝对路径。不阻塞启动：解析不出来就继续用 PATH 里的 `pi`，
+  // 与改造前的行为一致。
+  void refreshPiCommand().catch(err =>
+    console.error('[Pi Bridge] Failed to resolve pi path:', err)
+  );
 
   // 读一次之前记住的文件名单：历史消息里那些「从电脑选择」的附件重启后才还能打开
   void picked

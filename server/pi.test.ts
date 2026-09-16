@@ -2,7 +2,7 @@ import { EventEmitter } from 'events';
 import { PassThrough } from 'stream';
 import type { ChildProcessWithoutNullStreams } from 'child_process';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { PiSupervisor, type PiSupervisorCallbacks } from './pi';
+import { PiSupervisor, describeSpawnError, type PiSupervisorCallbacks } from './pi';
 
 type FakeChild = ChildProcessWithoutNullStreams & {
   written: string[];
@@ -157,6 +157,70 @@ describe('PiSupervisor 生命周期', () => {
     h.spawned[0].setStdinWritable(false);
 
     expect(h.supervisor.send({ type: 'prompt', message: 'hi' })).toBe(false);
+  });
+});
+
+describe('PiSupervisor 可执行文件路径', () => {
+  it('默认用 PATH 里的 pi 启动', () => {
+    const h = createHarness();
+    h.supervisor.ensure();
+
+    expect(h.spawnPi).toHaveBeenCalledWith('C:/demo', 'pi');
+  });
+
+  it('setCommand 后改用解析出的绝对路径', () => {
+    // 装完 pi 后 PATH 不会更新，必须能换成绝对路径，否则一直找不到刚装好的那个
+    const h = createHarness();
+    h.supervisor.setCommand('C:/Users/u/AppData/Roaming/npm/pi.cmd');
+    h.supervisor.ensure();
+
+    expect(h.spawnPi).toHaveBeenCalledWith('C:/demo', 'C:/Users/u/AppData/Roaming/npm/pi.cmd');
+    expect(h.supervisor.currentCommand).toBe('C:/Users/u/AppData/Roaming/npm/pi.cmd');
+  });
+
+  it('setCommand 只影响下一次拉起，现有进程不动', () => {
+    const h = createHarness();
+    h.supervisor.ensure();
+    h.supervisor.setCommand('/usr/local/bin/pi');
+
+    // 进程还活着，ensure 不该重建
+    h.supervisor.ensure();
+    expect(h.spawnPi).toHaveBeenCalledTimes(1);
+
+    // 换新命令后重启才生效
+    h.supervisor.restart();
+    expect(h.spawnPi).toHaveBeenLastCalledWith('C:/demo', '/usr/local/bin/pi');
+  });
+});
+
+describe('describeSpawnError', () => {
+  it('ENOENT 翻译成人话并带上尝试执行的路径', () => {
+    const error = Object.assign(new Error('spawn pi ENOENT'), { code: 'ENOENT' });
+
+    const message = describeSpawnError(error, '/usr/local/bin/pi');
+
+    expect(message).toContain('找不到 pi');
+    expect(message).toContain('/usr/local/bin/pi');
+  });
+
+  it('其它错误原样透传', () => {
+    expect(describeSpawnError(new Error('EACCES'), '/usr/bin/pi')).toBe('EACCES');
+  });
+
+  it('进程 spawn 失败时交给 onError，且不影响之后重新拉起', () => {
+    const h = createHarness();
+    h.supervisor.ensure();
+
+    h.spawned[0].emit(
+      'error',
+      Object.assign(new Error('spawn pi ENOENT'), { code: 'ENOENT' })
+    );
+
+    expect(h.events.onError).toHaveBeenCalledWith(expect.stringContaining('找不到 pi'));
+    expect(h.supervisor.running).toBe(false);
+
+    h.supervisor.ensure();
+    expect(h.spawnPi).toHaveBeenCalledTimes(2);
   });
 });
 

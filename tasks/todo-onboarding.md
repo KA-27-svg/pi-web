@@ -23,21 +23,19 @@
 - [x] Task 1.5：连接后自动请求一次 `get_setup_status`
   - Files: `src/hooks/usePiWebSocket.ts`, `src/services/piSetupActions.ts`
 
-## Slice 2：解析 pi 路径 + 改造 spawn
+## Slice 2：解析 pi 路径 + 改造 spawn ✅
 
-- [ ] Task 2.1：先补测 `PiSupervisor` 现有行为（回归护栏）
-  - Acceptance: 覆盖 ensure/restart/send 的句柄归属语义
-  - Verify: `npm test -- pi`
+- [x] Task 2.1：先补测 `PiSupervisor` 现有行为（回归护栏）
+  - Verify: `npm test -- pi`（原有 11 项 + 新增 6 项）
   - Files: `server/pi.test.ts`
 
-- [ ] Task 2.2：`server/piLocate.ts` —— 按平台解析 pi 可执行文件
-  - Acceptance: 候选顺序 Unix（`PI_NPM_INSTALL_PREFIX` → `npm prefix -g` → `~/.local/bin`）／Windows（npm prefix → `%APPDATA%\npm` → `%LOCALAPPDATA%\pi-node\current`）；找不到返回 null
-  - Verify: 单测各平台候选顺序 + 全缺失
+- [x] Task 2.2：`server/piLocate.ts` —— 按平台解析 pi 可执行文件
+  - Verify: 单测各平台候选顺序 + 全缺失（9 项）
   - Files: `server/piLocate.ts`, `server/piLocate.test.ts`
 
-- [ ] Task 2.3：`server/pi.ts` 使用解析出的命令
-  - Acceptance: 已装 pi 的机器行为零变化；找不到时报明确错误而非 ENOENT
-  - Verify: 单测 + 手动确认现有机器照常工作
+- [x] Task 2.3：`server/pi.ts` 使用解析出的命令
+  - Verify: 单测 + 真实机器解析到 `AppData\Local\pi-node\current\pi.cmd`
+  - 注: 顺手把 ENOENT 翻译成「找不到 pi（尝试执行：…）」，不再直接把 `spawn pi ENOENT` 丢给用户
   - Files: `server/pi.ts`, `server/bridge.ts`
 
 ## Slice 3：代跑官方安装器
@@ -57,10 +55,10 @@
   - Verify: 注入假 runner 的成功/失败/取消三条路
   - Files: `server/piInstall.ts`, `server/piInstall.test.ts`
 
-- [ ] Task 3.4：Node 版本不足时拒绝代跑
-  - Acceptance: 返回官方安装器在无 TTY 下不会装 Node 的明确说明
+- [ ] Task 3.4：Node 版本不足时改为引导（方案 A）
+  - Acceptance: 不代跑；给出官方命令；轮询检测，装好后自动继续
   - Verify: 单测版本不足分支
-  - Files: `server/piInstall.ts`, `server/bridge.ts`
+  - Files: `server/piInstall.ts`, `server/bridge.ts`, `src/components/SetupWizard.tsx`
 
 - [ ] Task 3.5：桥接新增 `install_pi` 指令与事件流
   - Acceptance: 完成后自动重跑 `env-probe` + `pi-locate` 并广播新状态
@@ -72,10 +70,10 @@
   - Verify: 组件测试；手动走成功与失败
   - Files: `src/components/SetupWizard.tsx`, `src/services/piSetupActions.ts`, `src/App.tsx`
 
-- [ ] Task 3.7：Windows Git Bash 检测与引导步骤
-  - Acceptance: 检测顺序与 pi 一致；缺失时提示用户自行在终端跑官方安装器；提及 `powershell` 工具替代方案但不擅自改 `defaultTools`
-  - Verify: 单测检测顺序；手动
-  - Files: `server/env.ts`, `src/components/SetupWizard.tsx`
+- [ ] Task 3.7：缺 Git Bash 时提供「改用 powershell 工具」开关
+  - Acceptance: 写 `settings.json` 的 `defaultTools` 前显式征得同意；不改 `shellPath`；检测顺序与 pi 一致（`shellPath` → 常见安装位 → PATH）
+  - Verify: 单测读改写 settings.json；手动
+  - Files: `server/setupConfig.ts`, `server/env.ts`, `src/components/SetupWizard.tsx`
 
 ## Slice 4：预设供应商填 key
 
