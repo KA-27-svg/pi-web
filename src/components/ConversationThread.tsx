@@ -16,6 +16,10 @@ interface ConversationThreadProps {
   onLoadEarlier?: () => void;
   /** 点开文件附件时交回上层（用系统默认程序打开） */
   onOpenFile?: (path: string) => void;
+  /** 当前会话模型名，透传给每条回答做兜底 */
+  fallbackModel?: string;
+  /** 模型 id → 显示名，透传 */
+  modelNames?: Record<string, string>;
   scrollRef: RefObject<HTMLElement | null>;
   contentRef: RefObject<HTMLDivElement | null>;
   endRef: RefObject<HTMLDivElement | null>;
@@ -27,6 +31,8 @@ export function ConversationThread({
   hasEarlier = false,
   onLoadEarlier,
   onOpenFile,
+  fallbackModel,
+  modelNames,
   scrollRef,
   contentRef,
   endRef,
@@ -69,7 +75,13 @@ export function ConversationThread({
       )}
 
       {messages.map(message => (
-        <PiMessageItem key={message.id} message={message} onOpenFile={onOpenFile} />
+        <PiMessageItem
+          key={message.id}
+          message={message}
+          onOpenFile={onOpenFile}
+          fallbackModel={fallbackModel}
+          modelNames={modelNames}
+        />
       ))}
       <div ref={endRef} className="h-1" />
     </div>

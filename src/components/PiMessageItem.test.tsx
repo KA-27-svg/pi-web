@@ -10,9 +10,12 @@ import { PiMessageItem } from './PiMessageItem';
 let root: Root;
 let host: HTMLElement;
 
-const render = (message: PiMessage) => {
+const render = (
+  message: PiMessage,
+  props: Partial<React.ComponentProps<typeof PiMessageItem>> = {}
+) => {
   act(() => {
-    root.render(<PiMessageItem message={message} />);
+    root.render(<PiMessageItem message={message} {...props} />);
   });
 };
 
@@ -224,22 +227,38 @@ describe('点开附件', () => {
 });
 
 describe('回答结束的标记', () => {
-  it('还在生成时正文末尾带光标（挂在 md-streaming 上）', () => {
-    render(message({ status: 'streaming' }));
+  const meta = () => host.querySelector('[data-answer-meta]')?.textContent ?? null;
+  const at = () => new Date(2026, 0, 1, 14, 32).getTime();
 
-    expect(host.querySelector('.md-streaming')).not.toBeNull();
+  it('结束后末尾显示「模型 · 时间」', () => {
+    render(message({ status: 'done', model: 'claude-sonnet-4', timestamp: at() }));
+
+    expect(meta()).toBe('claude-sonnet-4 · 14:32');
   });
 
-  it('结束后光标消失，末尾留下时间戳', () => {
-    render(message({ status: 'done', timestamp: new Date(2026, 0, 1, 14, 32).getTime() }));
+  it('历史消息的模型 id 映射成显示名', () => {
+    render(message({ status: 'done', model: 'claude-sonnet-4', timestamp: at() }), {
+      modelNames: { 'claude-sonnet-4': 'Claude Sonnet 4' },
+    });
 
-    expect(host.querySelector('.md-streaming')).toBeNull();
-    expect(host.querySelector('[data-answer-time]')?.textContent).toBe('14:32');
+    expect(meta()).toBe('Claude Sonnet 4 · 14:32');
   });
 
-  it('历史消息没有时间戳时不渲染空的一行', () => {
+  it('实时消息自己没记模型时，用当前会话的模型兜底', () => {
+    render(message({ status: 'done', timestamp: at() }), { fallbackModel: 'GPT-5' });
+
+    expect(meta()).toBe('GPT-5 · 14:32');
+  });
+
+  it('还在生成中时什么都不显示', () => {
+    render(message({ status: 'streaming', model: 'claude-sonnet-4', timestamp: at() }));
+
+    expect(meta()).toBeNull();
+  });
+
+  it('模型和时间都没有时不渲染空行', () => {
     render(message({ status: 'done', timestamp: 0 }));
 
-    expect(host.querySelector('[data-answer-time]')).toBeNull();
+    expect(meta()).toBeNull();
   });
 });

@@ -10,9 +10,18 @@ interface PiMessageItemProps {
   message: PiMessage;
   /** 点开文件附件时交给上层（桥接会用系统默认程序打开） */
   onOpenFile?: (path: string) => void;
+  /** 当前会话的模型名：实时消息自己没记模型，用它兜底 */
+  fallbackModel?: string;
+  /** 模型 id → 显示名。历史消息只存了 id，靠它显示成人看得懂的名字 */
+  modelNames?: Record<string, string>;
 }
 
-export function PiMessageItem({ message, onOpenFile }: PiMessageItemProps) {
+export function PiMessageItem({
+  message,
+  onOpenFile,
+  fallbackModel,
+  modelNames,
+}: PiMessageItemProps) {
   /** 正在放大查看的图片；null 表示没开 */
   const [zoomed, setZoomed] = useState<{ src: string; alt: string } | null>(null);
   const isUser = message.role === 'user';
@@ -81,6 +90,12 @@ export function PiMessageItem({ message, onOpenFile }: PiMessageItemProps) {
   }
 
   // Pi：左对齐，完全无容器，纯正文流
+  // 回答结束后末尾留一行小字：用的哪个模型、什么时候答的。
+  const answerMeta = [
+    message.model ? (modelNames?.[message.model] ?? message.model) : fallbackModel,
+    formatClockTime(message.timestamp),
+  ].filter(Boolean);
+
   return (
     <div className={enter}>
       <ExecutionCollapse
@@ -89,9 +104,7 @@ export function PiMessageItem({ message, onOpenFile }: PiMessageItemProps) {
         isStreaming={isStreaming}
       />
 
-      {message.content && (
-        <MarkdownView content={message.content} streaming={isStreaming} />
-      )}
+      {message.content && <MarkdownView content={message.content} />}
 
       {message.error && (
         <p className="mt-2 text-[12.5px] leading-[1.7] text-rose-500 break-words">
@@ -99,11 +112,10 @@ export function PiMessageItem({ message, onOpenFile }: PiMessageItemProps) {
         </p>
       )}
 
-      {/* 回答结束的安静标记：光标消失后，末尾留下这条是什么时候答的。
-          历史消息可能没有时间戳（为 0），这时什么都不显示。 */}
-      {!isStreaming && formatClockTime(message.timestamp) && (
-        <p data-answer-time className="mt-2 text-[11px] text-muted">
-          {formatClockTime(message.timestamp)}
+      {/* 回答结束的安静标记。历史消息可能没有时间戳（为 0），这时只剩模型名 */}
+      {!isStreaming && answerMeta.length > 0 && (
+        <p data-answer-meta className="mt-2 text-[11px] text-muted">
+          {answerMeta.join(' · ')}
         </p>
       )}
     </div>

@@ -20,6 +20,8 @@ export interface PiMessage {
   error?: string;
   /** 从会话记录里恢复出来的消息，不播放入场动画 */
   fromHistory?: true;
+  /** 这条回答用的模型（pi 里存的是模型 id）。旧消息可能没有，界面上用当前模型兜底。 */
+  model?: string;
   /**
    * 生成中发出、还在 pi 队列里等的消息。
    * 中断时靠它把这些消息从对话里收回输入栏；pi 开始处理后就清掉。

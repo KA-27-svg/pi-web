@@ -193,3 +193,26 @@ describe('历史里的附件', () => {
     expect(parsed[0].attachments).toBeUndefined();
   });
 });
+
+describe('模型还原', () => {
+  it('assistant 消息带出 model，界面才知道这条是谁答的', () => {
+    const parsed = MessageParser.parseHistory([
+      {
+        role: 'assistant',
+        content: [{ type: 'text', text: '答' }],
+        model: 'claude-sonnet-4',
+        timestamp: 1,
+      },
+    ]);
+
+    expect(parsed[0].model).toBe('claude-sonnet-4');
+  });
+
+  it('老消息没有 model 时不硬塞一个', () => {
+    const parsed = MessageParser.parseHistory([
+      { role: 'assistant', content: '答', timestamp: 1 },
+    ]);
+
+    expect(parsed[0].model).toBeUndefined();
+  });
+});

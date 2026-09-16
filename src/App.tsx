@@ -146,6 +146,15 @@ export default function App() {
     requestTrash();
   }, [sidebarOpen, requestSessions, requestTrash]);
 
+  // 模型 id → 显示名：历史消息只存了 id，显示成 id 太长
+  const modelNames = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const model of status.availableModels ?? []) {
+      map[model.id] = model.name || model.id;
+    }
+    return map;
+  }, [status.availableModels]);
+
   // 打开设置面板时拉一次用量，保证花费是刚发生的（而不是上次收尾时的）
   useEffect(() => {
     if (!panelOpen) return;
@@ -232,6 +241,8 @@ export default function App() {
                 hasEarlier={hasEarlier}
                 onLoadEarlier={loadEarlier}
                 onOpenFile={path => void openAttachment(path).catch(() => undefined)}
+                fallbackModel={status.model?.name || status.model?.id}
+                modelNames={modelNames}
                 scrollRef={scrollContainerRef}
                 contentRef={contentRef}
                 endRef={messagesEndRef}

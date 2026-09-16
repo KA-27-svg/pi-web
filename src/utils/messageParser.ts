@@ -95,6 +95,8 @@ export class MessageParser {
           content,
           reasoning,
           tools: tools.length > 0 ? tools : undefined,
+          // pi 的 assistant 消息带 model，历史里就靠它知道这条是谁答的
+          model: typeof rm.model === 'string' && rm.model ? rm.model : undefined,
           timestamp: rm.timestamp || 0,
           status: 'done',
           fromHistory: true,
