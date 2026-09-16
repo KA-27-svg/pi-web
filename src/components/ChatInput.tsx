@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { ArrowUp, Loader2, Paperclip, Square, X } from 'lucide-react';
 import type { AttachmentContent, DirEntry, DirListing } from '../types/pi';
 import {
@@ -325,6 +326,51 @@ export function ChatInput({
     patch(id, { status: 'ready' });
   };
 
+  /**
+   * 拖拽监听挂在**整个窗口**上，而不是只挂在输入框那一条。
+   *
+   * 之前只给输入区加了 onDrop，而对话区和它是兄弟节点，所以把文件拖到上面
+   * 什么都不会发生——用户的第一反应就是往对话区拖。
+   *
+   * 另外还必须 preventDefault：不然浏览器默认行为是直接打开这个文件，
+   * 整个页面会被替掉。
+   */
+  useEffect(() => {
+    const hasFiles = (event: DragEvent) =>
+      Array.from(event.dataTransfer?.types ?? []).includes('Files');
+
+    const onDragOver = (event: DragEvent) => {
+      if (!hasFiles(event)) return;
+      event.preventDefault();
+      setDragging(true);
+    };
+
+    const onDragLeave = (event: DragEvent) => {
+      // dragleave 会在子元素之间反复触发；只有目标不在页面里了才算真的离开窗口
+      const next = event.relatedTarget as Node | null;
+      if (!next || !document.contains(next)) setDragging(false);
+    };
+
+    const onDrop = (event: DragEvent) => {
+      const files = Array.from(event.dataTransfer?.files ?? []);
+      if (files.length === 0) return;
+
+      event.preventDefault();
+      setDragging(false);
+      void addFiles(files);
+    };
+
+    window.addEventListener('dragover', onDragOver);
+    window.addEventListener('dragleave', onDragLeave);
+    window.addEventListener('drop', onDrop);
+
+    return () => {
+      window.removeEventListener('dragover', onDragOver);
+      window.removeEventListener('dragleave', onDragLeave);
+      window.removeEventListener('drop', onDrop);
+    };
+  }, [addFiles]);
+
   const removeAttachment = (id: string) => {
     setAttachments(prev => prev.filter(item => item.id !== id));
   };
@@ -384,19 +430,18 @@ export function ChatInput({
   const canAttach = !!onPickFile || !!onListDir;
 
   return (
-    <div
-      className="w-full max-w-content mx-auto px-5 sm:px-6 pb-6 sm:pb-8"
-      onDragOver={e => {
-        e.preventDefault();
-        setDragging(true);
-      }}
-      onDragLeave={() => setDragging(false)}
-      onDrop={e => {
-        e.preventDefault();
-        setDragging(false);
-        void addFiles(Array.from(e.dataTransfer.files));
-      }}
-    >
+    <div className="w-full max-w-content mx-auto px-5 sm:px-6 pb-6 sm:pb-8">
+      {/* 拖拽提示：铺满整个视口，明确告诉用户“松手就会加进来” */}
+      {dragging &&
+        createPortal(
+          <div className="pointer-events-none fixed inset-0 z-[135] flex items-center justify-center bg-background/80">
+            <div className="flex items-center gap-2 rounded-2xl border-2 border-dashed border-muted/40 bg-background px-8 py-6 text-[13.5px] text-muted shadow-[0_8px_32px_-12px_rgba(0,0,0,0.25)]">
+              <Paperclip className="w-4 h-4 shrink-0" />
+              松手以添加附件
+            </div>
+          </div>,
+          document.body
+        )}
       {attachments.length > 0 && (
         <div className="mb-2 flex flex-wrap gap-1.5">
           {attachments.map(item => (
@@ -441,10 +486,7 @@ export function ChatInput({
         </div>
       )}
 
-      <div
-        className={`pi-stage rounded-2xl ${dragging ? 'ring-1 ring-foreground/25' : ''}`}
-        ref={stageRef}
-      >
+      <div className="pi-stage rounded-2xl" ref={stageRef}>
         <div
           className={`pi-composer relative flex items-end rounded-2xl bg-surface ${
             showIcon ? 'is-icon' : ''

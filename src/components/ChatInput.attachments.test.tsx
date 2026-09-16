@@ -84,6 +84,13 @@ const openMenu = async () => {
   await click(attachButton() ?? undefined);
 };
 
+/** dragover / dragleave 这类事件需要 dataTransfer.types 里有 'Files' */
+const dragOverEvent = (type: 'dragover' | 'dragleave') => {
+  const event = new Event(type, { bubbles: true, cancelable: true });
+  Object.defineProperty(event, 'dataTransfer', { value: { files: [], types: ['Files'] } });
+  return event;
+};
+
 // ── 测试数据 ──────────────────────────────────────────────
 
 /** 文本文件：内容里没有 NUL，会被当成文本内联 */
@@ -286,6 +293,34 @@ describe('从项目里选择', () => {
 });
 
 describe('拖拽与粘贴', () => {
+  it('拖到对话区（输入框以外的任何地方）也能加进来', async () => {
+    // 之前监听只挂在输入框那一条上，而对话区是它的兄弟节点，拖上去什么都不会发生
+    mount({ onUploadFile: uploadOk() });
+
+    const conversation = document.createElement('div');
+    document.body.appendChild(conversation);
+    await act(async () => {
+      conversation.dispatchEvent(fileEvent('drop', [binaryFile('报告.docx')]));
+    });
+    conversation.remove();
+
+    expect(chipNames()).toContain('报告.docx');
+  });
+
+  it('拖拽经过时给出着陆提示，离开后收起', async () => {
+    mount({ onUploadFile: uploadOk() });
+
+    await act(async () => {
+      window.dispatchEvent(dragOverEvent('dragover'));
+    });
+    expect(document.body.textContent).toContain('松手以添加附件');
+
+    await act(async () => {
+      window.dispatchEvent(dragOverEvent('dragleave'));
+    });
+    expect(document.body.textContent).not.toContain('松手以添加附件');
+  });
+
   it('拖进来的文本文件直接在浏览器里读出来，不落盘', async () => {
     const onUploadFile = uploadOk();
     mount({ onUploadFile });
