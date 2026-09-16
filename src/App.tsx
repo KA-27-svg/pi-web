@@ -267,6 +267,19 @@ export default function App() {
               : 'pb-[calc(50vh-50.5px)] sm:pb-[calc(50vh-58.5px)]'
           }`}
         >
+          {/* 自动重试时明说一声，否则界面看起来就是卡死了 */}
+          {status.retrying && (
+            <div className="mx-auto w-full max-w-content px-5 pb-2 sm:px-6">
+              <p className="text-[12px] text-amber-600">
+                连接失败，正在重试
+                {status.retrying.maxAttempts > 0
+                  ? `（${status.retrying.attempt}/${status.retrying.maxAttempts}）`
+                  : ''}
+                …
+              </p>
+            </div>
+          )}
+
           <ChatInput
             onSend={sendPrompt}
             onStop={() => void interrupt()}

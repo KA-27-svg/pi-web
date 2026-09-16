@@ -150,4 +150,9 @@ export interface BridgeStatus {
   sessionLoaded?: boolean;
   /** 中断后从队列里取回的文本，交回输入框继续编辑。seq 区分重复的同一段文本。 */
   restoredDraft?: { text: string; seq: number };
+  /**
+   * 正在自动重试（过载 / 限流 / 5xx）。
+   * 有值时界面要明说“在重试”，否则用户看着不动的界面会以为卡死了。
+   */
+  retrying?: { attempt: number; maxAttempts: number };
 }

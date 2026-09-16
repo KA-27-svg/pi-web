@@ -640,3 +640,128 @@ describe('生成中排队与中断', () => {
     expect(second.queued).toBe(true);
   });
 });
+
+describe('回答失败时的报错', () => {
+  it('message_end 带 stopReason: error 时，把原因写到这条回答上', () => {
+    const h = createHarness();
+    startTurn(h);
+
+    h.handler.handleEvent(
+      {
+        type: 'message_end',
+        message: {
+          role: 'assistant',
+          stopReason: 'error',
+          errorMessage: 'fetch failed: ETIMEDOUT',
+        },
+      },
+      h.ws
+    );
+
+    expect(h.messages()[0].status).toBe('error');
+    expect(h.messages()[0].error).toContain('ETIMEDOUT');
+  });
+
+  it('没有 errorMessage 时给一句兜底的话，而不是空白', () => {
+    const h = createHarness();
+    startTurn(h);
+
+    h.handler.handleEvent(
+      { type: 'message_end', message: { role: 'assistant', stopReason: 'error' } },
+      h.ws
+    );
+
+    expect(h.messages()[0].error).toBeTruthy();
+  });
+
+  it('正常结束的 message_end 不写错误', () => {
+    const h = createHarness();
+    startTurn(h);
+
+    h.handler.handleEvent(
+      { type: 'message_end', message: { role: 'assistant', stopReason: 'stop' } },
+      h.ws
+    );
+
+    expect(h.messages()[0].error).toBeUndefined();
+  });
+
+  it('user 消息的 message_end 不碰当前回答', () => {
+    const h = createHarness();
+    startTurn(h);
+
+    h.handler.handleEvent(
+      { type: 'message_end', message: { role: 'user', stopReason: 'error', errorMessage: 'x' } },
+      h.ws
+    );
+
+    expect(h.messages()[0].error).toBeUndefined();
+  });
+
+  it('自动重试期间给出重试提示', () => {
+    const h = createHarness();
+    startTurn(h);
+
+    h.handler.handleEvent(
+      { type: 'auto_retry_start', attempt: 2, maxAttempts: 3, delayMs: 2000, errorMessage: '529' },
+      h.ws
+    );
+
+    expect(h.status().retrying).toEqual({ attempt: 2, maxAttempts: 3 });
+  });
+
+  it('重试成功就把提示收掉', () => {
+    const h = createHarness();
+    startTurn(h);
+    h.handler.handleEvent({ type: 'auto_retry_start', attempt: 1, maxAttempts: 3 }, h.ws);
+
+    h.handler.handleEvent({ type: 'auto_retry_end', success: true, attempt: 2 }, h.ws);
+
+    expect(h.status().retrying).toBeUndefined();
+  });
+
+  it('重试到底还是失败时，用 finalError 报错', () => {
+    const h = createHarness();
+    startTurn(h);
+    h.handler.handleEvent({ type: 'auto_retry_start', attempt: 3, maxAttempts: 3 }, h.ws);
+
+    h.handler.handleEvent(
+      { type: 'auto_retry_end', success: false, attempt: 3, finalError: '529 overloaded_error' },
+      h.ws
+    );
+
+    expect(h.status().retrying).toBeUndefined();
+    expect(h.messages()[0].error).toContain('overloaded');
+  });
+
+  it('收尾时不会把已经写上的错误冲掉', () => {
+    const h = createHarness();
+    startTurn(h);
+    h.handler.handleEvent(
+      {
+        type: 'message_end',
+        message: { role: 'assistant', stopReason: 'error', errorMessage: 'boom' },
+      },
+      h.ws
+    );
+
+    // pi 在 message_end 之后还会走 agent_settled，收尾不能把错误抹了
+    h.handler.handleEvent({ type: 'agent_settled' }, h.ws);
+
+    expect(h.messages()[0].status).toBe('error');
+    expect(h.messages()[0].error).toBe('boom');
+  });
+
+  it('没有占位消息可写时退化成一条可见提示', () => {
+    const h = createHarness();
+    h.setMessages([]);
+    h.handler.setCurrentAssistantId(null);
+
+    h.handler.handleEvent(
+      { type: 'auto_retry_end', success: false, attempt: 3, finalError: '连接被拒绝' },
+      h.ws
+    );
+
+    expect(h.status().notice).toBe('连接被拒绝');
+  });
+});

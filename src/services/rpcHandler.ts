@@ -51,17 +51,59 @@ export class RpcEventHandler {
 
   /** 结束当前这一轮：复位执行状态，并把占位消息落定为完成或失败 */
   private finishTurn(error?: string) {
-    this.setStatus((prev: BridgeStatus) => ({ ...prev, isStreaming: false, currentTool: undefined }));
+    this.setStatus((prev: BridgeStatus) => ({
+      ...prev,
+      isStreaming: false,
+      currentTool: undefined,
+      retrying: undefined,
+    }));
 
     const targetId = this.currentAssistantId;
     if (!targetId) return;
 
     this.setMessages(prev =>
-      prev.map(m =>
-        m.id === targetId ? { ...m, status: error ? 'error' : 'done', error } : m
-      )
+      prev.map(m => {
+        if (m.id !== targetId) return m;
+        // 别把 message_end 已经写上的错误冲掉
+        const nextError = error ?? m.error;
+        return { ...m, status: nextError ? 'error' : 'done', error: nextError };
+      })
     );
     this.currentAssistantId = null;
+  }
+
+  /**
+   * 一条消息的收尾。模型调用失败时 pi 给的是 stopReason: 'error' 加 errorMessage，
+   * 而不是抛错——这正是断网、认证失败、余额不足这类情况的表现。
+   */
+  private handleMessageEnd(data: any) {
+    const message = data?.message;
+    if (message?.role !== 'assistant') return;
+
+    if (message.stopReason === 'error') {
+      const reason =
+        typeof message.errorMessage === 'string' && message.errorMessage
+          ? message.errorMessage
+          : '模型没有返回内容';
+      this.setAssistantError(reason);
+    }
+
+    // 这条正常结束了，重试提示也该收掉
+    this.setStatus((prev: BridgeStatus) => ({ ...prev, retrying: undefined }));
+  }
+
+  /** 把错误写到当前这条占位消息上；没有占位可写时就退化成一条可见提示 */
+  private setAssistantError(error: string) {
+    const targetId = this.currentAssistantId;
+
+    if (!targetId) {
+      this.setStatus((prev: BridgeStatus) => ({ ...prev, notice: error }));
+      return;
+    }
+
+    this.setMessages(prev =>
+      prev.map(m => (m.id === targetId ? { ...m, status: 'error', error } : m))
+    );
   }
 
   public handleEvent(data: any, ws: WebSocket) {
@@ -145,6 +187,35 @@ export class RpcEventHandler {
     // 4. 流式文本与思考更新
     if (data.type === 'message_update') {
       this.handleMessageUpdate(data);
+      return;
+    }
+
+    // 一条消息结束。模型调用失败时 assistant 消息带 stopReason: 'error'，
+    // 具体原因在 errorMessage 里。不接住它，界面就停在那里不动，用户只会以为卡了。
+    if (data.type === 'message_end') {
+      this.handleMessageEnd(data);
+      return;
+    }
+
+    // 自动重试（过载 / 限流 / 5xx）：让用户知道是在重试，而不是死了
+    if (data.type === 'auto_retry_start') {
+      this.setStatus((prev: BridgeStatus) => ({
+        ...prev,
+        retrying: {
+          attempt: typeof data.attempt === 'number' ? data.attempt : 0,
+          maxAttempts: typeof data.maxAttempts === 'number' ? data.maxAttempts : 0,
+        },
+      }));
+      return;
+    }
+
+    if (data.type === 'auto_retry_end') {
+      this.setStatus((prev: BridgeStatus) => ({ ...prev, retrying: undefined }));
+
+      // 重试到底还是失败：不会再有一条成功的 assistant 消息来报错，得在这里报
+      if (data.success === false && data.finalError) {
+        this.setAssistantError(String(data.finalError));
+      }
       return;
     }
 
