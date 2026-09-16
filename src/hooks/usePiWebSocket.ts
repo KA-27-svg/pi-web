@@ -41,6 +41,8 @@ export function usePiWebSocket() {
    * 需要按 id 配对，所以单独一套。
    */
   const pendingRequestsRef = useRef(new Map<string, PendingRequest>());
+  /** restoredDraft 的序号：同一段取回的文本重复写入时，输入框也能识别成一次新的写入 */
+  const draftSeqRef = useRef(0);
 
   // 专属解耦的 RPC 事件处理器：惰性初始化一次即可。用 useState 而不是渲染期间写 ref，
   // setMessages/setStatus 来自 useState，引用是稳定的，所以处理器只需构造一次。
@@ -239,63 +241,44 @@ export function usePiWebSocket() {
    * 界面上的 user 消息只存干净的正文 + 结构化 attachments，不存那行路径，
    * 这样气泡里能渲染成图片 / 文件卡片而不是一堆文字。
    */
-  const sendPrompt = useCallback((draft: PromptDraft) => {
-    const text = draft.text.trim();
-    const hasAttachments = draft.images.length > 0 || draft.files.length > 0;
-    if (!text && !hasAttachments) return;
-    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
+  const sendPrompt = useCallback(
+    (draft: PromptDraft, options?: { queue?: boolean }) => {
+      const text = draft.text.trim();
+      const hasAttachments = draft.images.length > 0 || draft.files.length > 0;
+      if (!text && !hasAttachments) return;
+      if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
 
-    const attachments: MessageAttachment[] = [
-      ...draft.images.map(image => ({
-        kind: 'image' as const,
-        name: image.name,
-        dataUrl: `data:${image.mimeType};base64,${image.data}`,
-      })),
-      ...draft.files.map(file => ({
-        kind: 'file' as const,
-        name: file.name,
-        // 浏览器里内联的文本附件没有路径，用文件名当展示用的标识
-        path: file.path ?? file.name,
-      })),
-    ];
+      const attachments: MessageAttachment[] = [
+        ...draft.images.map(image => ({
+          kind: 'image' as const,
+          name: image.name,
+          dataUrl: `data:${image.mimeType};base64,${image.data}`,
+        })),
+        ...draft.files.map(file => ({
+          kind: 'file' as const,
+          name: file.name,
+          // 浏览器里内联的文本附件没有路径，用文件名当展示用的标识
+          path: file.path ?? file.name,
+        })),
+      ];
 
-    const userMsg: PiMessage = {
-      id: `user-${Date.now()}`,
-      role: 'user',
-      content: text,
-      attachments: attachments.length > 0 ? attachments : undefined,
-      timestamp: Date.now(),
-      status: 'done',
-    };
+      const userMsg: PiMessage = {
+        id: `user-${Date.now()}`,
+        role: 'user',
+        content: text,
+        attachments: attachments.length > 0 ? attachments : undefined,
+        timestamp: Date.now(),
+        status: 'done',
+      };
 
-    const asstId = `asst-${Date.now()}`;
-    handler.setCurrentAssistantId(asstId);
+      // 正文：文件路径拼进去（文本文件连内容一起内联）；
+      // 只有图片时给一句中性的话，避免发出空消息
+      const wireText =
+        buildPromptWithAttachments(text, draft.files) ||
+        (draft.images.length > 0 ? IMAGE_ONLY_INSTRUCTION : '');
 
-    const assistantMsg: PiMessage = {
-      id: asstId,
-      role: 'assistant',
-      content: '',
-      reasoning: '',
-      tools: [],
-      timestamp: Date.now(),
-      status: 'streaming',
-    };
-
-    setMessages(prev => [...prev, userMsg, assistantMsg]);
-    // 立即置为执行中，确保“停止生成”按钮无需等待 agent_start 事件即出现
-    setStatus(prev => ({ ...prev, isStreaming: true }));
-
-    // 正文：文件路径拼进去（文本文件连内容一起内联）；
-    // 只有图片时给一句中性的话，避免发出空消息
-    const wireText =
-      buildPromptWithAttachments(text, draft.files) ||
-      (draft.images.length > 0 ? IMAGE_ONLY_INSTRUCTION : '');
-
-    wsRef.current.send(
-      JSON.stringify({
-        type: 'prompt',
-        message: wireText,
-        ...(draft.images.length > 0
+      const images =
+        draft.images.length > 0
           ? {
               images: draft.images.map(image => ({
                 type: 'image',
@@ -303,10 +286,47 @@ export function usePiWebSocket() {
                 mimeType: image.mimeType,
               })),
             }
-          : {}),
-      })
-    );
-  }, [handler]);
+          : {};
+
+      /**
+       * 生成中投递只能排队：pi 在没有 streamingBehavior 时会直接拒掉这条 prompt。
+       * 本地把消息标成 queued——它还没被回答，中断时要靠这个标记收回去。
+       * assistant 占位不在这里建：pi 真正开始这一轮会发 agent_start，占位在那里补。
+       */
+      if (options?.queue) {
+        setMessages(prev => [...prev, { ...userMsg, queued: true }]);
+        wsRef.current.send(
+          JSON.stringify({
+            type: 'prompt',
+            message: wireText,
+            streamingBehavior: 'followUp',
+            ...images,
+          })
+        );
+        return;
+      }
+
+      const asstId = `asst-${Date.now()}`;
+      handler.setCurrentAssistantId(asstId);
+
+      const assistantMsg: PiMessage = {
+        id: asstId,
+        role: 'assistant',
+        content: '',
+        reasoning: '',
+        tools: [],
+        timestamp: Date.now(),
+        status: 'streaming',
+      };
+
+      setMessages(prev => [...prev, userMsg, assistantMsg]);
+      // 立即置为执行中，确保“停止生成”按钮无需等待 agent_start 事件即出现
+      setStatus(prev => ({ ...prev, isStreaming: true }));
+
+      wsRef.current.send(JSON.stringify({ type: 'prompt', message: wireText, ...images }));
+    },
+    [handler]
+  );
 
   const abort = useCallback(() => {
     // 本地立刻收尾（含清掉 currentAssistantId），而不是只改写 isStreaming：
@@ -316,6 +336,42 @@ export function usePiWebSocket() {
       wsRef.current.send(JSON.stringify({ type: 'abort' }));
     }
   }, [handler]);
+
+  /**
+   * 中断当前这一轮，并把还没被回答的排队消息收回输入栏。
+   *
+   * 必须先 clear_queue 再 abort：pi 的 abort 会继续投递队列里剩下的消息，
+   * 顺序反过来就变成“停下来之后又自己跑起来了”。clear_queue 的回包带 steering/followUp
+   * 文本，它们正是用户刚打的字，丢掉就等于让他重打一遍。
+   */
+  const interrupt = useCallback(async () => {
+    let queued: string[] = [];
+
+    try {
+      const response = await request<{
+        data?: { steering?: unknown; followUp?: unknown };
+      }>('clear_queue');
+
+      const collect = (value: unknown) =>
+        Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
+
+      queued = [...collect(response?.data?.steering), ...collect(response?.data?.followUp)].filter(
+        Boolean
+      );
+    } catch {
+      // 本来就没有队列，或者旧版桥接不认识这条指令——照常打断
+    }
+
+    if (queued.length > 0) {
+      // 这些消息还没被回答，从对话里收回去，别让它们留在那里等一个不会来的回复
+      setMessages(prev => prev.filter(message => !message.queued));
+      draftSeqRef.current += 1;
+      const seq = draftSeqRef.current;
+      setStatus(prev => ({ ...prev, restoredDraft: { text: queued.join('\n\n'), seq } }));
+    }
+
+    abort();
+  }, [request, abort]);
 
   const changeCwd = useCallback((newCwd: string) => {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
@@ -419,6 +475,7 @@ export function usePiWebSocket() {
     status,
     sendPrompt,
     abort,
+    interrupt,
     changeCwd,
     newSession,
     setModel,

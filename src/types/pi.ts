@@ -20,6 +20,11 @@ export interface PiMessage {
   error?: string;
   /** 从会话记录里恢复出来的消息，不播放入场动画 */
   fromHistory?: true;
+  /**
+   * 生成中发出、还在 pi 队列里等的消息。
+   * 中断时靠它把这些消息从对话里收回输入栏；pi 开始处理后就清掉。
+   */
+  queued?: true;
 }
 
 export interface ModelInfo {
@@ -141,4 +146,6 @@ export interface BridgeStatus {
    * 所以不能进入「空白界面」（开场图标、输入框居中）。
    */
   sessionLoaded?: boolean;
+  /** 中断后从队列里取回的文本，交回输入框继续编辑。seq 区分重复的同一段文本。 */
+  restoredDraft?: { text: string; seq: number };
 }

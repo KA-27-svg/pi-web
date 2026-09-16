@@ -602,3 +602,41 @@ describe('会话用量', () => {
     expect(h.status().stats.cost).toBe(0.00413724);
   });
 });
+
+describe('生成中排队与中断', () => {
+  it('agent_start 时本地没有占位就补一条，否则排队消息的增量会落空', () => {
+    const h = createHarness();
+    h.setMessages([]);
+    h.setStatus({ isStreaming: false });
+
+    h.handler.handleEvent({ type: 'agent_start' }, h.ws);
+
+    expect(h.messages()).toHaveLength(1);
+    expect(h.messages()[0].role).toBe('assistant');
+    expect(h.messages()[0].status).toBe('streaming');
+  });
+
+  it('已经有占位时不重复创建', () => {
+    const h = createHarness();
+    startTurn(h);
+
+    h.handler.handleEvent({ type: 'agent_start' }, h.ws);
+
+    expect(h.messages()).toHaveLength(1);
+  });
+
+  it('pi 开始处理队列时清掉最早一条 queued 标记，中断就不该再收回它', () => {
+    const h = createHarness();
+    h.setMessages([
+      { id: 'u1', role: 'user', content: '第一句', queued: true, status: 'done', timestamp: 0 },
+      { id: 'u2', role: 'user', content: '第二句', queued: true, status: 'done', timestamp: 0 },
+    ]);
+    h.setStatus({ isStreaming: false });
+
+    h.handler.handleEvent({ type: 'agent_start' }, h.ws);
+
+    const [first, second] = h.messages();
+    expect(first.queued).toBeUndefined();
+    expect(second.queued).toBe(true);
+  });
+});

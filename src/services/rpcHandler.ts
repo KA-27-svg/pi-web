@@ -80,6 +80,33 @@ export class RpcEventHandler {
     // 3. Agent 执行生命周期
     if (data.type === 'agent_start') {
       this.setStatus((prev: BridgeStatus) => ({ ...prev, isStreaming: true }));
+
+      // 排队消息投递时会开新的一轮，但本地没有占位消息可承接，流式增量会被丢掉。
+      // 这里补上；普通发送时占位已经建好，不会重复。
+      if (!this.currentAssistantId) {
+        const id = `asst-${Date.now()}`;
+        this.currentAssistantId = id;
+        this.setMessages(prev => [
+          ...prev,
+          {
+            id,
+            role: 'assistant' as const,
+            content: '',
+            reasoning: '',
+            tools: [],
+            timestamp: Date.now(),
+            status: 'streaming' as const,
+          },
+        ]);
+      }
+
+      // pi 从队首取走了一条排队消息（followUpMode 默认 one-at-a-time），
+      // 它已经不是「还没被回答」，中断时不该再被收回去。
+      this.setMessages(prev => {
+        const index = prev.findIndex(message => message.queued);
+        if (index === -1) return prev;
+        return prev.map((message, i) => (i === index ? { ...message, queued: undefined } : message));
+      });
       return;
     }
 

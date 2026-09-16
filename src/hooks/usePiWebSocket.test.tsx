@@ -207,3 +207,105 @@ describe('桥接请求的配对', () => {
     await expect(pending).resolves.toMatchObject({ relativePath: '.pi-web-uploads/报告.docx' });
   });
 });
+
+describe('生成中排队与中断', () => {
+  it('排队发送带 streamingBehavior，并把消息标成 queued', () => {
+    act(() => {
+      api.sendPrompt({ text: '第二句', images: [], files: [] }, { queue: true });
+    });
+
+    const sent = socket().lastRequest('prompt');
+    expect(sent.streamingBehavior).toBe('followUp');
+    expect(sent.message).toBe('第二句');
+    expect(api.messages.some((m: any) => m.queued)).toBe(true);
+  });
+
+  it('中断先 clear_queue 再 abort，并把排队消息从对话里收回输入栏', async () => {
+    act(() => {
+      api.sendPrompt({ text: '第二句', images: [], files: [] }, { queue: true });
+    });
+
+    let pending: Promise<void> | undefined;
+    act(() => {
+      pending = api.interrupt();
+    });
+
+    const cleared = socket().lastRequest('clear_queue');
+    expect(cleared).toBeTruthy();
+    // 回包还没到，不能抢先 abort
+    expect(socket().lastRequest('abort')).toBeFalsy();
+
+    await act(async () => {
+      socket().emit({
+        id: cleared.id,
+        type: 'response',
+        command: 'clear_queue',
+        success: true,
+        data: { steering: [], followUp: ['第二句'] },
+      });
+    });
+    await pending;
+
+    expect(socket().lastRequest('abort')).toBeTruthy();
+    expect(api.messages.some((m: any) => m.queued)).toBe(false);
+    expect(api.status.restoredDraft?.text).toBe('第二句');
+  });
+
+  it('只收回排队的那条，正在回答的那条留在对话里', async () => {
+    act(() => {
+      api.sendPrompt({ text: '正在回答的', images: [], files: [] });
+    });
+    act(() => {
+      api.sendPrompt({ text: '排队的', images: [], files: [] }, { queue: true });
+    });
+
+    let pending: Promise<void> | undefined;
+    act(() => {
+      pending = api.interrupt();
+    });
+
+    const cleared = socket().lastRequest('clear_queue');
+    await act(async () => {
+      socket().emit({
+        id: cleared.id,
+        type: 'response',
+        command: 'clear_queue',
+        success: true,
+        data: { followUp: ['排队的'] },
+      });
+    });
+    await pending;
+
+    const contents = api.messages.map((m: any) => m.content);
+    expect(contents).toContain('正在回答的');
+    expect(contents).not.toContain('排队的');
+  });
+
+  it('队列是空的时只打断，不改动对话', async () => {
+    act(() => {
+      api.sendPrompt({ text: '只有一个问题', images: [], files: [] });
+    });
+    const before = api.messages.length;
+
+    let pending: Promise<void> | undefined;
+    act(() => {
+      pending = api.interrupt();
+    });
+
+    const cleared = socket().lastRequest('clear_queue');
+    await act(async () => {
+      socket().emit({
+        id: cleared.id,
+        type: 'response',
+        command: 'clear_queue',
+        success: true,
+        data: { steering: [], followUp: [] },
+      });
+    });
+    await pending;
+
+    expect(socket().lastRequest('abort')).toBeTruthy();
+    expect(api.messages.length).toBe(before);
+    expect(api.status.restoredDraft).toBeUndefined();
+  });
+});

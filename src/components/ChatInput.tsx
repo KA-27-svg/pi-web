@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowUp, Loader2, Paperclip, Square, X } from 'lucide-react';
+import { ArrowUp, Clock, Loader2, Paperclip, Square, X } from 'lucide-react';
 import type { AttachmentContent, DirEntry, DirListing } from '../types/pi';
 import {
   base64ToFile,
@@ -26,7 +26,7 @@ const COMPOSER_MAX_HEIGHT = 192;
 const MORPH_MS = 760;
 
 interface ChatInputProps {
-  onSend: (draft: PromptDraft) => void;
+  onSend: (draft: PromptDraft, options?: { queue?: boolean }) => void;
   onStop: () => void;
   isLoading: boolean;
   onFocusChange?: (focused: boolean) => void;
@@ -36,6 +36,8 @@ interface ChatInputProps {
   onActivate?: () => void;
   /** 外壳高度变化（多行输入）时通知父级，便于贴底时重新对齐滚动位置 */
   onResize?: () => void;
+  /** 中断后取回的排队文本；seq 变化才消费一次 */
+  restoredDraft?: { text: string; seq: number };
   /** 弹系统原生的文件选择框，拿回绝对路径（不复制文件） */
   onPickFile?: (imagesOnly?: boolean) => Promise<string[]>;
   /** 列工作目录，用于「从项目里选」 */
@@ -55,6 +57,7 @@ export function ChatInput({
   showIcon = false,
   onActivate,
   onResize,
+  restoredDraft,
   onPickFile,
   onListDir,
   onReadAttachment,
@@ -81,6 +84,20 @@ export function ChatInput({
     if (showIcon) return;
     textareaRef.current?.focus();
   }, [showIcon]);
+
+  /** 已消费的 restoredDraft 序号，避免同一段取回的文本被反复写回输入框 */
+  const consumedDraftSeqRef = useRef(0);
+
+  /**
+   * 中断后取回的排队文本写回输入框，让用户可以改一改再发。
+   * 只在 seq 变化时消费一次，否则用户接着编辑会被这段文本盖回去。
+   */
+  useEffect(() => {
+    if (!restoredDraft || restoredDraft.seq === consumedDraftSeqRef.current) return;
+    consumedDraftSeqRef.current = restoredDraft.seq;
+    setInput(restoredDraft.text);
+    textareaRef.current?.focus();
+  }, [restoredDraft]);
 
   const measure = useCallback(() => {
     const el = textareaRef.current;
@@ -396,8 +413,6 @@ export function ChatInput({
   };
 
   const handleSend = () => {
-    if (isLoading) return;
-
     const ready = attachments.filter(item => item.status === 'ready');
     const images = ready
       .filter(item => item.kind === 'image' && item.data && item.mimeType)
@@ -417,7 +432,7 @@ export function ChatInput({
 
     if (!input.trim() && images.length === 0 && files.length === 0) return;
 
-    onSend({ text: input, images, files });
+    onSend({ text: input, images, files }, { queue: isLoading });
     setInput('');
     setAttachments([]);
     if (textareaRef.current) textareaRef.current.style.height = 'auto';
@@ -574,28 +589,38 @@ export function ChatInput({
               </div>
             )}
 
-            {isLoading ? (
+            {/* 生成中「中断」是主按钮（那时用户最可能想停下来）；
+                输入框有内容时旁边再给一个「排队发送」，否则只剩中断。 */}
+            {isLoading && (
               <button
                 onClick={onStop}
                 className="p-2 rounded-full bg-foreground text-background transition-opacity hover:opacity-80"
-                title="停止生成"
-                aria-label="停止生成"
+                title="中断（会收回还没被回答的消息）"
+                aria-label="中断"
               >
                 <Square className="w-3.5 h-3.5 fill-current" />
               </button>
-            ) : (
+            )}
+
+            {(!isLoading || canSend) && (
               <button
                 onClick={handleSend}
                 disabled={!canSend}
                 className={`p-2 rounded-full transition-all duration-150 ${
-                  canSend
-                    ? 'bg-foreground text-background hover:opacity-80'
-                    : 'text-muted/40 cursor-default'
+                  isLoading
+                    ? 'text-muted hover:bg-surface hover:text-foreground'
+                    : canSend
+                      ? 'bg-foreground text-background hover:opacity-80'
+                      : 'text-muted/40 cursor-default'
                 }`}
-                title="发送"
-                aria-label="发送"
+                title={isLoading ? '排队发送（当前回答结束后处理）' : '发送'}
+                aria-label={isLoading ? '排队发送' : '发送'}
               >
-                <ArrowUp className="w-4 h-4 stroke-[2.5]" />
+                {isLoading ? (
+                  <Clock className="w-4 h-4" />
+                ) : (
+                  <ArrowUp className="w-4 h-4 stroke-[2.5]" />
+                )}
               </button>
             )}
           </div>
