@@ -607,11 +607,9 @@ export function ChatInput({
                 onClick={handleSend}
                 disabled={!canSend}
                 className={`p-2 rounded-full transition-all duration-150 ${
-                  isLoading
-                    ? 'text-muted hover:bg-surface hover:text-foreground'
-                    : canSend
-                      ? 'bg-foreground text-background hover:opacity-80'
-                      : 'text-muted/40 cursor-default'
+                  canSend
+                    ? 'bg-foreground text-background hover:opacity-80'
+                    : 'text-muted/40 cursor-default'
                 }`}
                 title={isLoading ? '排队发送（当前回答结束后处理）' : '发送'}
                 aria-label={isLoading ? '排队发送' : '发送'}
