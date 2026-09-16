@@ -168,12 +168,21 @@ export interface BridgeStatus {
   sessionLoaded?: boolean;
   /** 中断后从队列里取回的文本，交回输入框继续编辑。seq 区分重复的同一段文本。 */
   restoredDraft?: { text: string; seq: number };
-  /**
-   * 环境探测结果。
-   * 有值且 ready 为假时，界面应该显示向导而不是对话区——
-   * 否则用户只会看到「界面能打字但永远没有回复」。
-   */
+  /** 环境探测结果 */
   setup?: SetupStatus;
+  /**
+   * 官方安装命令原文。
+   * 代跑失败或不允许代跑时展示给用户，复制到终端就能跑。
+   */
+  installCommand?: string;
+  /** 能不能由桥接代跑官方安装器；不能时 reason 说明原因 */
+  preflight?: { allowed: boolean; reason?: string };
+  /** 正在代跑安装器 */
+  installing?: boolean;
+  /** 安装器输出（已去 ANSI、压掉重复），只保留最近若干行 */
+  installLog?: string[];
+  /** 安装失败或被拒绝的原因 */
+  installError?: string;
   /**
    * 正在自动重试（过载 / 限流 / 5xx）。
    * 有值时界面要明说“在重试”，否则用户看着不动的界面会以为卡死了。

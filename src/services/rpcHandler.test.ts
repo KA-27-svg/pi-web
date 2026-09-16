@@ -765,3 +765,76 @@ describe('回答失败时的报错', () => {
     expect(h.status().notice).toBe('连接被拒绝');
   });
 });
+
+describe('环境与安装事件', () => {
+  it('setup_status 记下探测结果、官方命令与能否代跑', () => {
+    const h = createHarness();
+
+    h.handler.handleEvent(
+      {
+        type: 'setup_status',
+        success: true,
+        setup: { ready: false, issues: [{ code: 'pi-missing', message: '没装 pi' }] },
+        installCommand: 'curl -fsSL https://pi.dev/install.sh | sh',
+        preflight: { allowed: true },
+      },
+      h.ws
+    );
+
+    expect(h.status().setup).toMatchObject({ ready: false });
+    expect(h.status().installCommand).toContain('install.sh');
+    expect(h.status().preflight).toEqual({ allowed: true });
+  });
+
+  it('安装开始时清空上一次的日志与错误', () => {
+    const h = createHarness();
+    h.setStatus({ installLog: ['旧日志'], installError: '旧错误', installing: false });
+
+    h.handler.handleEvent({ type: 'install_started' }, h.ws);
+
+    expect(h.status().installing).toBe(true);
+    expect(h.status().installLog).toEqual([]);
+    expect(h.status().installError).toBeUndefined();
+  });
+
+  it('install_output 逐行累积', () => {
+    const h = createHarness();
+
+    h.handler.handleEvent({ type: 'install_output', line: 'Installing Pi...' }, h.ws);
+    h.handler.handleEvent({ type: 'install_output', line: 'fetching (1)' }, h.ws);
+
+    expect(h.status().installLog).toEqual(['Installing Pi...', 'fetching (1)']);
+  });
+
+  it('日志只保留最近若干行，不会无限增长', () => {
+    const h = createHarness();
+
+    for (let i = 0; i < 400; i += 1) {
+      h.handler.handleEvent({ type: 'install_output', line: `第 ${i} 行` }, h.ws);
+    }
+
+    const log = h.status().installLog as string[];
+    expect(log.length).toBeLessThanOrEqual(300);
+    // 保留的必须是末尾那一段，否则进度会被截掉
+    expect(log[log.length - 1]).toBe('第 399 行');
+  });
+
+  it('install_done 失败时留下原因，成功时不报错', () => {
+    const h = createHarness();
+
+    h.handler.handleEvent({ type: 'install_started' }, h.ws);
+    h.handler.handleEvent({ type: 'install_done', ok: false, code: 1, error: '安装器以退出码 1 结束' }, h.ws);
+
+    expect(h.status().installing).toBe(false);
+    expect(h.status().installError).toContain('退出码 1');
+  });
+
+  it('install_refused 把拒绝原因显示出来，而不是点了没反应', () => {
+    const h = createHarness();
+
+    h.handler.handleEvent({ type: 'install_refused', error: 'Node.js 版本不够' }, h.ws);
+
+    expect(h.status().installing).toBe(false);
+    expect(h.status().installError).toContain('Node.js 版本不够');
+  });
+});

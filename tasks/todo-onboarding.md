@@ -38,44 +38,45 @@
   - 注: 顺手把 ENOENT 翻译成「找不到 pi（尝试执行：…）」，不再直接把 `spawn pi ENOENT` 丢给用户
   - Files: `server/pi.ts`, `server/bridge.ts`
 
-## Slice 3：代跑官方安装器
+## Slice 3：代跑官方安装器 ✅
 
-- [ ] Task 3.1：`server/ansiLines.ts` —— 去 ANSI + `\r`/`\n` 双分隔
+- [x] Task 3.1：`server/ansiLines.ts` —— 去 ANSI + `\r`/`\n` 双分隔
   - Acceptance: `\r` 覆盖不攒行；ANSI 转义被剥离；多字节字符不被劈开
   - Verify: 单测（进度条序列、彩色输出、UTF-8 边界）
   - Files: `server/ansiLines.ts`, `server/ansiLines.test.ts`
 
-- [ ] Task 3.2：`server/piInstall.ts` —— 构造平台官方命令
+- [x] Task 3.2：`server/piInstall.ts` —— 构造平台官方命令
   - Acceptance: 参数为静态字面量；不拼接用户输入；可导出命令字符串供 UI 展示
   - Verify: 单测三平台命令
   - Files: `server/piInstall.ts`, `server/piInstall.test.ts`
 
-- [ ] Task 3.3：`server/piInstall.ts` —— 执行与流式回传
+- [x] Task 3.3：`server/piInstall.ts` —— 执行与流式回传
   - Acceptance: 逐行回传；失败带退出码与末尾输出；可取消
   - Verify: 注入假 runner 的成功/失败/取消三条路
   - Files: `server/piInstall.ts`, `server/piInstall.test.ts`
 
-- [ ] Task 3.4：Node 版本不足时改为引导（方案 A）
+- [x] Task 3.4：Node 版本不足时改为引导（方案 A）
   - Acceptance: 不代跑；给出官方命令；轮询检测，装好后自动继续
   - Verify: 单测版本不足分支
   - Files: `server/piInstall.ts`, `server/bridge.ts`, `src/components/SetupWizard.tsx`
 
-- [ ] Task 3.5：桥接新增 `install_pi` 指令与事件流
+- [x] Task 3.5：桥接新增 `install_pi` 指令与事件流
   - Acceptance: 完成后自动重跑 `env-probe` + `pi-locate` 并广播新状态
   - Verify: 单测路由
   - Files: `server/bridge.ts`
 
-- [ ] Task 3.6：前端安装步骤（展示命令 → 确认 → 日志 → 兜底）
+- [x] Task 3.6：前端安装步骤（展示命令 → 确认 → 日志 → 兜底）
   - Acceptance: 执行前必须把确切命令展示给用户；失败时展示可复制的官方命令并轮询检测
   - Verify: 组件测试；手动走成功与失败
   - Files: `src/components/SetupWizard.tsx`, `src/services/piSetupActions.ts`, `src/App.tsx`
 
-- [ ] Task 3.7：缺 Git Bash 时提供「改用 powershell 工具」开关
+## Slice 4：预设供应商填 key
+
+- [ ] Task 4.0（原 3.7）：缺 Git Bash 时提供「改用 powershell 工具」开关
+  - 依赖 `setupConfig`，故从 Slice 3 移到这里
   - Acceptance: 写 `settings.json` 的 `defaultTools` 前显式征得同意；不改 `shellPath`；检测顺序与 pi 一致（`shellPath` → 常见安装位 → PATH）
   - Verify: 单测读改写 settings.json；手动
   - Files: `server/setupConfig.ts`, `server/env.ts`, `src/components/SetupWizard.tsx`
-
-## Slice 4：预设供应商填 key
 
 - [ ] Task 4.1：`server/setupConfig.ts` —— `auth.json` 读改写 + 0600
   - Acceptance: 保留已有条目；新写入权限 0600；不存在时创建；损坏文件不静默覆盖

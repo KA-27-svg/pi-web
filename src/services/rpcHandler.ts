@@ -1,6 +1,9 @@
 import { MessageParser } from '../utils/messageParser';
 import type { PiMessage, ToolCallState, ModelInfo, BridgeStatus, SetupStatus } from '../types/pi';
 
+/** 安装日志只保留末尾这么多行：进度看的是最新几行，留着全量只会吃内存 */
+const MAX_INSTALL_LOG_LINES = 300;
+
 function toModelInfo(model: any): ModelInfo | undefined {
   if (!model) return undefined;
   return {
@@ -222,7 +225,52 @@ export class RpcEventHandler {
     // 5. 环境探测结果。就绪与否决定界面进对话还是进向导。
     if (data.type === 'setup_status') {
       const setup = data.setup as SetupStatus | undefined;
-      if (setup) this.setStatus((prev: BridgeStatus) => ({ ...prev, setup }));
+      if (!setup) return;
+
+      this.setStatus((prev: BridgeStatus) => ({
+        ...prev,
+        setup,
+        installCommand: data.installCommand ?? prev.installCommand,
+        preflight: data.preflight ?? prev.preflight,
+      }));
+      return;
+    }
+
+    // 代跑安装器：开始 / 逐行输出 / 结束。失败必须留下原因，
+    // 否则用户点了「帮我安装」就只看到按钮变灰。
+    if (data.type === 'install_started') {
+      this.setStatus((prev: BridgeStatus) => ({
+        ...prev,
+        installing: true,
+        installLog: [],
+        installError: undefined,
+      }));
+      return;
+    }
+
+    if (data.type === 'install_output') {
+      this.setStatus((prev: BridgeStatus) => ({
+        ...prev,
+        installLog: [...(prev.installLog ?? []), String(data.line)].slice(-MAX_INSTALL_LOG_LINES),
+      }));
+      return;
+    }
+
+    if (data.type === 'install_done') {
+      this.setStatus((prev: BridgeStatus) => ({
+        ...prev,
+        installing: false,
+        installError: data.ok ? undefined : String(data.error ?? '安装失败'),
+      }));
+      return;
+    }
+
+    if (data.type === 'install_refused') {
+      this.setStatus((prev: BridgeStatus) => ({
+        ...prev,
+        installing: false,
+        installError: String(data.error ?? '无法自动安装'),
+      }));
       return;
     }
 

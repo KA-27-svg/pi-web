@@ -17,7 +17,7 @@ import { ChatInput } from './components/ChatInput';
 import { Settings, PanelLeftOpen } from 'lucide-react';
 
 export default function App() {
-  const { messages, status, sendPrompt, interrupt, changeCwd, newSession, setModel, setThinkingLevel, requestSessions, requestStats, uploadFile, listDir, readAttachment, pickFile, openAttachment, switchSession, renameSession, deleteSession, requestTrash, restoreSession, purgeSession, emptyTrash, requestSetupStatus } =
+  const { messages, status, sendPrompt, interrupt, changeCwd, newSession, setModel, setThinkingLevel, requestSessions, requestStats, uploadFile, listDir, readAttachment, pickFile, openAttachment, switchSession, renameSession, deleteSession, requestTrash, restoreSession, purgeSession, emptyTrash, requestSetupStatus, installPi } =
     usePiWebSocket();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLElement>(null);
@@ -175,7 +175,9 @@ export default function App() {
    * 不如直接把「缺什么」摆在他面前。
    */
   if (status.setup && !status.setup.ready) {
-    return <SetupWizard status={status} onRecheck={requestSetupStatus} />;
+    return (
+      <SetupWizard status={status} onRecheck={requestSetupStatus} onInstall={installPi} />
+    );
   }
 
   return (

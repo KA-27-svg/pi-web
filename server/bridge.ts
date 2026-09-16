@@ -14,6 +14,7 @@ import { reply } from './reply.js';
 import { attachOriginGuard, parseAllowedOrigins } from './origin.js';
 import { defaultRunCommand, probeEnvironment } from './env.js';
 import { resolvePiCommand } from './piLocate.js';
+import { buildInstallCommand, installPreflight, runInstall } from './piInstall.js';
 import { PiSupervisor } from './pi.js';
 import {
   emptyTrash,
@@ -148,6 +149,9 @@ async function refreshPiCommand(): Promise<string | null> {
   return resolved;
 }
 
+/** 安装进行中标记：同一时间只允许一个，否则两个安装器会互相踩 */
+let installInFlight = false;
+
 /**
  * 把指令写给 pi。写不进去时必须报错：
  * 静默丢弃会让前端永远等不到回包（例如切会话后对话区一直空着）。
@@ -214,7 +218,65 @@ wss.on('connection', (ws: WebSocket) => {
         reply(ws, 'setup_status', () => probeEnvironment(defaultRunCommand), value => ({
           // 包一层：顶层已占用 type / success，直接把探测结果摊平会把它俩混进状态里
           setup: value,
+          // 展示用命令与「能不能代跑」的判定一并给前端，向导不必自己拼
+          installCommand: buildInstallCommand().display,
+          preflight: installPreflight(value),
         }));
+        return;
+      }
+
+      // 代跑官方安装器。输出逐行广播，整个界面都能看到进度。
+      if (data.type === 'install_pi') {
+        if (installInFlight) {
+          ws.send(JSON.stringify({ type: 'install_refused', error: '已经有一个安装在进行中' }));
+          return;
+        }
+
+        void (async () => {
+          // 重新探一次：用户可能在向导打开期间自己装好了 Node
+          const before = await probeEnvironment(defaultRunCommand);
+          const preflight = installPreflight(before);
+          if (!preflight.allowed) {
+            ws.send(JSON.stringify({ type: 'install_refused', error: preflight.reason }));
+            return;
+          }
+
+          installInFlight = true;
+          broadcast(JSON.stringify({ type: 'install_started' }));
+
+          try {
+            const result = await runInstall({
+              onLine: line => broadcast(JSON.stringify({ type: 'install_output', line })),
+            });
+
+            // 解析新路径必须在探测之前：装完后当前进程的 PATH 还是旧的
+            await refreshPiCommand();
+            const after = await probeEnvironment(defaultRunCommand);
+            const nextPreflight = installPreflight(after);
+
+            broadcast(JSON.stringify({ type: 'install_done', ...result }));
+            broadcast(
+              JSON.stringify({
+                type: 'setup_status',
+                success: true,
+                setup: after,
+                installCommand: buildInstallCommand().display,
+                preflight: nextPreflight,
+              })
+            );
+
+            // 用新装的 pi 重新拉起。失败时不动：让用户自己重试，
+            // 而不是把一个起不来的进程换成另一个。
+            if (result.ok) pi.restart(currentCwd);
+          } catch (err) {
+            console.error('[Pi Bridge] Install failed:', err);
+            broadcast(
+              JSON.stringify({ type: 'install_done', ok: false, code: null, error: String((err as Error)?.message ?? err) })
+            );
+          } finally {
+            installInFlight = false;
+          }
+        })();
         return;
       }
 
