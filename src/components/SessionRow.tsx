@@ -43,7 +43,7 @@ export function SessionRow({ session, active, onOpen, onRename, onDelete }: Sess
           }}
           onBlur={submitRename}
           aria-label="重命名对话"
-          className="w-full rounded-md bg-surface px-2.5 py-2 text-[13.5px] text-foreground outline-none ring-1 ring-border focus:ring-foreground/30"
+          className="w-full rounded-md bg-surface px-2.5 py-2 text-[12.5px] text-foreground outline-none ring-1 ring-border focus:ring-foreground/30"
         />
       </li>
     );
@@ -60,7 +60,7 @@ export function SessionRow({ session, active, onOpen, onRename, onDelete }: Sess
         }`}
       >
         <div
-          className={`truncate text-[13.5px] ${
+          className={`truncate text-[12.5px] ${
             active ? 'text-foreground' : 'text-foreground/85'
           }`}
         >

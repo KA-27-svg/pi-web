@@ -38,7 +38,7 @@ export function TrashList({ items, onRestore, onPurge, onEmpty }: TrashListProps
 
           return (
             <li key={item.path} className="rounded-md px-2.5 py-2 hover:bg-surface">
-              <div className="truncate text-[13.5px] text-foreground/85" title={title}>
+              <div className="truncate text-[12.5px] text-foreground/85" title={title}>
                 {title}
               </div>
               <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-muted">

@@ -165,7 +165,7 @@ export function Sidebar({
             <span className="grid h-7 w-7 place-items-center rounded-full bg-foreground font-mono text-[11px] text-background">
               Pi
             </span>
-            <span className="text-[13.5px] font-medium text-foreground">Pi Agent</span>
+            <span className="text-[12.5px] font-medium text-foreground">Pi Agent</span>
           </span>
           <button
             onClick={onToggle}
@@ -180,7 +180,7 @@ export function Sidebar({
         <div className="px-3 pb-2">
           <button
             onClick={onNewSession}
-            className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-[13.5px] text-foreground/90 transition-colors hover:bg-surface"
+            className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-[12.5px] text-foreground/90 transition-colors hover:bg-surface"
           >
             <SquarePen className="w-4 h-4" />
             新建对话
@@ -199,7 +199,7 @@ export function Sidebar({
                 placeholder="搜索对话…"
                 aria-label="搜索历史对话"
                 spellCheck={false}
-                className="min-w-0 flex-1 bg-transparent text-[13px] text-foreground outline-none placeholder:text-muted [&::-webkit-search-cancel-button]:hidden"
+                className="min-w-0 flex-1 bg-transparent text-[12px] text-foreground outline-none placeholder:text-muted [&::-webkit-search-cancel-button]:hidden"
               />
               {query && (
                 <button
@@ -312,14 +312,14 @@ export function Sidebar({
           {view === 'trash' ? (
             <button
               onClick={() => setView('history')}
-              className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-[13px] text-muted transition-colors hover:bg-surface hover:text-foreground"
+              className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-[12px] text-muted transition-colors hover:bg-surface hover:text-foreground"
             >
               返回历史对话
             </button>
           ) : (
             <button
               onClick={switchToTrash}
-              className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-[13px] text-muted transition-colors hover:bg-surface hover:text-foreground"
+              className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-[12px] text-muted transition-colors hover:bg-surface hover:text-foreground"
             >
               <Trash2 className="w-4 h-4" />
               回收箱

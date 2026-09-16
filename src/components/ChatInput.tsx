@@ -450,7 +450,7 @@ export function ChatInput({
       {dragging &&
         createPortal(
           <div className="pointer-events-none fixed inset-0 z-[135] flex items-center justify-center bg-background/80">
-            <div className="flex items-center gap-2 rounded-2xl border-2 border-dashed border-muted/40 bg-background px-8 py-6 text-[13.5px] text-muted shadow-[0_8px_32px_-12px_rgba(0,0,0,0.25)]">
+            <div className="flex items-center gap-2 rounded-2xl border-2 border-dashed border-muted/40 bg-background px-8 py-6 text-[12.5px] text-muted shadow-[0_8px_32px_-12px_rgba(0,0,0,0.25)]">
               <Paperclip className="w-4 h-4 shrink-0" />
               松手以添加附件
             </div>
@@ -541,7 +541,7 @@ export function ChatInput({
             placeholder="给 Pi 发送消息…"
             rows={1}
             tabIndex={showIcon ? -1 : undefined}
-            className="w-full resize-none bg-transparent py-3.5 pl-4 pr-24 text-[14.5px] leading-[1.7] text-foreground placeholder:text-[color:var(--placeholder)] focus:outline-none max-h-48"
+            className="w-full resize-none bg-transparent py-3.5 pl-4 pr-24 text-[13.5px] leading-[1.7] text-foreground placeholder:text-[color:var(--placeholder)] focus:outline-none max-h-48"
           />
 
           <div className="pi-controls absolute right-2 bottom-2 flex items-center gap-1">

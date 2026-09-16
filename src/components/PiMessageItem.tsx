@@ -73,7 +73,7 @@ export function PiMessageItem({
         )}
 
         {hasText && (
-          <div className="max-w-[85%] rounded-2xl rounded-br-md bg-surface px-4 py-2.5 text-[14.5px] leading-[1.7] whitespace-pre-wrap break-words">
+          <div className="max-w-[85%] rounded-2xl rounded-br-md bg-surface px-4 py-2.5 text-[13.5px] leading-[1.7] whitespace-pre-wrap break-words">
             {message.content}
           </div>
         )}

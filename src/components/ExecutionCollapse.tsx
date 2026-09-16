@@ -63,7 +63,7 @@ export function ExecutionCollapse({
                 {reasoningParagraphs(reasoning as string).map((paragraph, index) => (
                   <p
                     key={index}
-                    className="text-[13px] leading-[1.85] text-muted whitespace-pre-wrap break-words"
+                    className="text-[12px] leading-[1.85] text-muted whitespace-pre-wrap break-words"
                   >
                     {paragraph}
                   </p>

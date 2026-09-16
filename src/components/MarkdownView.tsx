@@ -8,7 +8,7 @@ interface MarkdownViewProps {
 
 export function MarkdownView({ content }: MarkdownViewProps) {
   return (
-    <div className="text-[14.5px] leading-[1.75] text-foreground break-words">
+    <div className="text-[13.5px] leading-[1.75] text-foreground break-words">
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
@@ -48,21 +48,21 @@ export function MarkdownView({ content }: MarkdownViewProps) {
 
           h1({ children }) {
             return (
-              <h1 className="mt-6 mb-3 text-[19px] font-semibold tracking-tight">
+              <h1 className="mt-6 mb-3 text-[17.5px] font-semibold tracking-tight">
                 {children}
               </h1>
             );
           },
           h2({ children }) {
             return (
-              <h2 className="mt-5 mb-2.5 text-[16.5px] font-semibold tracking-tight">
+              <h2 className="mt-5 mb-2.5 text-[15.5px] font-semibold tracking-tight">
                 {children}
               </h2>
             );
           },
           h3({ children }) {
             return (
-              <h3 className="mt-4 mb-2 text-[15px] font-semibold">{children}</h3>
+              <h3 className="mt-4 mb-2 text-[14px] font-semibold">{children}</h3>
             );
           },
 
@@ -95,7 +95,7 @@ export function MarkdownView({ content }: MarkdownViewProps) {
           table({ children }) {
             return (
               <div className="my-4 w-full overflow-x-auto">
-                <table className="w-full border-collapse text-[13px]">
+                <table className="w-full border-collapse text-[12px]">
                   {children}
                 </table>
               </div>
