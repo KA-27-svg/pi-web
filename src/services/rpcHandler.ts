@@ -67,7 +67,11 @@ export class RpcEventHandler {
   public handleEvent(data: any, ws: WebSocket) {
     // 1. 桥接服务连接与目录变化
     if (data.type === 'bridge_status' || data.type === 'cwd_changed') {
-      this.setStatus((prev: BridgeStatus) => ({ ...prev, cwd: data.cwd }));
+      this.setStatus((prev: BridgeStatus) => ({
+        ...prev,
+        cwd: data.cwd,
+        ...(typeof data.readOnly === 'boolean' ? { readOnly: data.readOnly } : {}),
+      }));
       return;
     }
 
@@ -228,6 +232,11 @@ export class RpcEventHandler {
     // 档位可能被模型能力收窄（clamp），以 get_state 的结果为准
     if (data.command === 'set_thinking_level' && data.success) {
       ws.send(JSON.stringify({ type: 'get_state' }));
+    }
+
+    // 换 shell 工具：桥接已经改了配置并重启了 pi，这里把开关拨过去
+    if (data.command === 'read_only_set' && data.success && typeof data.value === 'boolean') {
+      this.setStatus((prev: BridgeStatus) => ({ ...prev, readOnly: data.value }));
     }
 
     if (data.command === 'new_session' && data.success) {

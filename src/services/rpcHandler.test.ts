@@ -602,3 +602,46 @@ describe('会话用量', () => {
     expect(h.status().stats.cost).toBe(0.00413724);
   });
 });
+
+describe('只读模式', () => {
+  it('连接时桥接报告的 readOnly 写进状态', () => {
+    const h = createHarness();
+
+    h.handler.handleEvent({ type: 'bridge_status', cwd: 'C:/w', readOnly: true }, h.ws);
+
+    expect(h.status().readOnly).toBe(true);
+  });
+
+  it('旧桥接不发这个字段时不会把已有的值清掉', () => {
+    const h = createHarness();
+    h.handler.handleEvent({ type: 'bridge_status', cwd: 'C:/w', readOnly: true }, h.ws);
+
+    h.handler.handleEvent({ type: 'cwd_changed', cwd: 'C:/other' }, h.ws);
+
+    expect(h.status().readOnly).toBe(true);
+    expect(h.status().cwd).toBe('C:/other');
+  });
+
+  it('切换成功后把开关拨过去', () => {
+    const h = createHarness();
+
+    h.handler.handleEvent(
+      { type: 'response', command: 'read_only_set', success: true, value: true },
+      h.ws
+    );
+
+    expect(h.status().readOnly).toBe(true);
+  });
+
+  it('切换失败时不改开关，避免显示成功实际没生效', () => {
+    const h = createHarness();
+    h.handler.handleEvent({ type: 'bridge_status', cwd: 'C:/w', readOnly: false }, h.ws);
+
+    h.handler.handleEvent(
+      { type: 'response', command: 'read_only_set', success: false, error: '写不进偏好文件' },
+      h.ws
+    );
+
+    expect(h.status().readOnly).toBe(false);
+  });
+});

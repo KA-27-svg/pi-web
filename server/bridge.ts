@@ -11,6 +11,7 @@ import { ATTACHMENT_PREFIX, attachmentPathsInMessages } from './attachmentPaths.
 import { openWithSystem } from './openFile.js';
 import { readAttachment, resolveAttachment } from './textAttachment.js';
 import { reply } from './reply.js';
+import { readPrefs, writePrefs, DEFAULT_PREFS, type WebPrefs } from './piWebPrefs.js';
 import { attachOriginGuard, parseAllowedOrigins } from './origin.js';
 import { PiSupervisor } from './pi.js';
 import {
@@ -46,6 +47,40 @@ let pendingSwitchCwd: string | null = null;
 
 /** 用户亲手选过的文件路径（工作目录之外的只允许读/打开这些） */
 const picked = new PickedFiles(pickedFilesStorePath());
+
+/** pi-web 自己的偏好（只读模式），启动时读一次 */
+let prefs: WebPrefs = DEFAULT_PREFS;
+
+/**
+ * 只读模式要排除的工具。
+ *
+ * 用**黑名单**而不是 `--tools` 白名单：白名单会把扩展工具一起关掉（实测过，
+ * exa_* 会全部消失），黑名单只拿掉指定的几个。
+ * bash 必须在里面——否则模型可以绕过去用 `echo > file` 写文件。
+ */
+const READ_ONLY_ARGS: readonly string[] = ['--exclude-tools', 'bash,powershell,edit,write'];
+
+const spawnArgs = (): readonly string[] => (prefs.readOnly ? READ_ONLY_ARGS : []);
+
+/**
+ * 记住当前会话文件。
+ *
+ * 每次启动 pi 都是**全新会话**（实测三次启动 sessionId 完全不同），而切换只读模式
+ * 必须重启 pi（工具集在启动时定死）。不把会话切回来的话，用户一拨开关对话就空了。
+ */
+let currentSessionFile: string | null = null;
+
+function trackSession(line: string) {
+  if (!line.includes('get_state')) return;
+
+  try {
+    const message = JSON.parse(line);
+    if (message?.type !== 'response' || message.command !== 'get_state') return;
+    if (typeof message.data?.sessionFile === 'string') currentSessionFile = message.data.sessionFile;
+  } catch {
+    // 不是完整 JSON，忽略
+  }
+}
 
 function broadcast(msg: string) {
   wss.clients.forEach(client => {
@@ -111,6 +146,7 @@ function applyPendingSwitch(line: string) {
 const pi = new PiSupervisor(
   {
     onLine: line => {
+      trackSession(line);
       claimAttachments(line);
       applyPendingSwitch(line);
       broadcast(line);
@@ -150,13 +186,14 @@ wss.on('connection', (ws: WebSocket) => {
   console.log('[Pi Bridge] Client connected via WebSocket');
 
   // 保证 Pi 运行时已拉起
-  pi.ensure(currentCwd);
+  pi.ensure(currentCwd, spawnArgs());
 
   // 发送初始桥接状态
   ws.send(JSON.stringify({
     type: 'bridge_status',
     cwd: currentCwd,
     running: pi.running,
+    readOnly: prefs.readOnly,
   }));
 
   ws.on('message', (message: string) => {
@@ -170,7 +207,7 @@ wss.on('connection', (ws: WebSocket) => {
           .then(stat => {
             if (!stat.isDirectory()) throw new Error('not a directory');
             currentCwd = target;
-            pi.restart(currentCwd);
+            pi.restart(currentCwd, spawnArgs());
             broadcast(JSON.stringify({ type: 'cwd_changed', cwd: currentCwd }));
           })
           .catch(err => {
@@ -187,7 +224,31 @@ wss.on('connection', (ws: WebSocket) => {
 
       // 重启 Pi 进程
       if (data.type === 'restart_pi') {
-        pi.restart(currentCwd);
+        pi.restart(currentCwd, spawnArgs());
+        return;
+      }
+
+      // 只读模式：关掉能改文件、能跑命令的工具。
+      // pi 的工具集在启动时定死，RPC 没有改的接口，所以只能改偏好 + 重启；
+      // 重启会开新会话，紧接着把原来的切回来，否则对话会凭空清空。
+      if (data.type === 'set_read_only' && typeof data.value === 'boolean') {
+        const value = data.value;
+        reply(
+          ws,
+          'read_only_set',
+          async () => {
+            prefs = { ...prefs, readOnly: value };
+            await writePrefs(prefs);
+
+            pi.restart(currentCwd, spawnArgs());
+            if (currentSessionFile) {
+              pi.send({ type: 'switch_session', sessionPath: currentSessionFile });
+            }
+            return { value };
+          },
+          payload => ({ ...payload }),
+          () => ({ id: data.id })
+        );
         return;
       }
 
@@ -354,6 +415,14 @@ wss.on('connection', (ws: WebSocket) => {
 server.listen(PORT, HOST, () => {
   console.log(`[Pi Bridge] Server listening on http://${HOST}:${PORT}`);
   console.log(`[Pi Bridge] WebSocket ready on ws://${HOST}:${PORT}`);
+
+  // 读一次 pi-web 自己的偏好（只读模式）
+  void readPrefs()
+    .then(saved => {
+      prefs = saved;
+      console.log(`[Pi Bridge] Read-only mode: ${saved.readOnly ? 'on' : 'off'}`);
+    })
+    .catch(err => console.error('[Pi Bridge] Failed to read prefs:', err));
 
   // 读一次之前记住的文件名单：历史消息里那些「从电脑选择」的附件重启后才还能打开
   void picked

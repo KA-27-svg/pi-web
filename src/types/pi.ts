@@ -118,6 +118,8 @@ export interface BridgeStatus {
   cwd: string;
   isStreaming: boolean;
   currentTool?: string;
+  /** 只读模式：agent 手上只有读取类工具 */
+  readOnly?: boolean;
   model?: ModelInfo;
   thinkingLevel?: string;
   sessionId?: string;

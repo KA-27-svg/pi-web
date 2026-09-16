@@ -136,6 +136,17 @@ export function usePiWebSocket() {
   );
 
   /**
+   * 只读模式：把能改文件、能跑命令的工具全部排除。
+   * 桥接会重启 pi（工具集在启动时定死），重启后自动切回当前会话。
+   */
+  const setReadOnly = useCallback(
+    async (value: boolean): Promise<void> => {
+      await request('set_read_only', { value });
+    },
+    [request]
+  );
+
+  /**
    * 弹系统原生的文件选择框，拿回**绝对路径**。
    *
    * 关键：浏览器出于安全拿不到本地路径，但桥接就跑在同一台机器上，可以替用户
@@ -430,6 +441,7 @@ export function usePiWebSocket() {
     readAttachment,
     pickFile,
     openAttachment,
+    setReadOnly,
     switchSession,
     renameSession,
     deleteSession,

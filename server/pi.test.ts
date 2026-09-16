@@ -145,6 +145,29 @@ describe('PiSupervisor 生命周期', () => {
     expect(h.events.onError).not.toHaveBeenCalled();
   });
 
+  it('额外启动参数会透传给 spawn', () => {
+    // 只读模式就靠这个：把 bash/edit/write 从工具集里排除掉
+    h.supervisor.ensure('C:/demo', ['--exclude-tools', 'bash,edit']);
+
+    expect(h.spawnPi).toHaveBeenCalledWith('C:/demo', ['--exclude-tools', 'bash,edit']);
+  });
+
+  it('restart 不带参数时沿用上一次的参数，不会把只读模式弄丢', () => {
+    h.supervisor.ensure('C:/demo', ['--exclude-tools', 'bash']);
+    h.supervisor.restart('C:/other');
+
+    expect(h.spawnPi).toHaveBeenLastCalledWith('C:/other', ['--exclude-tools', 'bash']);
+  });
+
+  it('自愈重启（send 内部）也带上同一套参数', () => {
+    h.supervisor.ensure('C:/demo', ['--exclude-tools', 'bash']);
+    h.spawned[0].close(1);
+
+    h.supervisor.send({ type: 'get_state' });
+
+    expect(h.spawnPi).toHaveBeenLastCalledWith('C:/demo', ['--exclude-tools', 'bash']);
+  });
+
   it('没有进程时 send 会先把它拉起来', () => {
     expect(h.supervisor.send({ type: 'get_state' })).toBe(true);
 
