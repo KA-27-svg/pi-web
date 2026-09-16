@@ -42,21 +42,46 @@ pi --mode rpc
 
 ## 快速开始
 
-需要 Node.js 22+，以及已在 PATH 中的 `pi`（`pi --version` 可用）。
+### 前置条件
+
+这个项目**不是独立应用**——它只是 pi 的一个界面，所以得先有 pi：
+
+1. **Node.js 22+**（`node --version` 确认）
+2. **`pi` 已装在 PATH 里**（`pi --version` 能打印版本）
+   ```bash
+   npm install -g @earendil-works/pi-coding-agent
+   ```
+3. **pi 已经配好 provider 和模型**——先在终端跑一次 `pi`，用 `/settings` 登录或填 API key。
+   没配的话网页能打开，但发消息不会有人回。
+
+### 启动
 
 ```bash
+git clone https://github.com/KA-27-svg/pi-web.git
+cd pi-web
 npm install
 npm run dev
 ```
 
-`npm run dev` 会同时启动桥接和 Vite，然后打开 http://localhost:5173 。
+`npm run dev` 会同时启动桥接（:3001）和 Vite（:5173），然后打开 http://localhost:5173 。
 
-Windows 上也可以直接双击 `start.bat`（或把它做成快捷方式放在桌面 / 开始菜单）。它会：
+### Windows
+
+可以直接双击 `start.bat`（或把它做成快捷方式放在桌面 / 开始菜单）。它会：
 
 - 先确认 Node 已安装，缺依赖时自动 `npm install`；
 - 服务已在运行时不再重复启动，直接打开页面；
 - 等端口真的监听后再开浏览器，避免先看到「无法访问」；
 - 关闭那个控制台窗口即停服务。
+
+### macOS / Linux
+
+启动方式一样（`npm run dev`），但有两点不同：
+
+- 没有 `start.bat`，手动跑 `npm run dev` 就行。
+- **「从电脑选择…」不可用**：系统原生文件框目前只在 Windows 上实现（`server/fileDialog.ts`
+  用 PowerShell 调 WinForms），其它平台点它会明确报错，而不是假装能用。
+  拖拽、粘贴、「从项目里选择…」都正常。
 
 ## 附件
 
