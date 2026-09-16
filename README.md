@@ -1,8 +1,11 @@
 # Pi Web
 
-Pi Agent 的本地网页工作台 —— 极简、无框、以阅读和输入为核心。
+Pi Agent 的本地网页工作台 —— 一条命令起服务，pi 和模型配置都能在网页里配好。
 
 它直接驱动本机安装的 [`pi`](https://github.com/earendil-works/pi) 编码代理，共用 pi 自己的会话文件与模型配置：终端里聊过的对话，在网页里能接着聊。
+
+只需要 **Node.js 22.19+**：`npm install && npm start`，打开 http://127.0.0.1:3001 即可。
+本机缺 pi 或没配模型时，网页里会有向导带你装、带你填。
 
 > 这不是官方的 `@agegr/pi-web`（那是一个 Next.js 全功能应用）。本项目是自建的轻量实现：一个 WebSocket 桥接 + 一个 Vite + React 界面。
 
