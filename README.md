@@ -1,60 +1,45 @@
 # Pi Web
 
-Pi Agent 的本地网页工作台 —— 一个极简、无框、以阅读和输入为核心的自定义前端，直接驱动本机安装的
-[`pi`](https://github.com/earendil-works/pi) 编码代理。
+Pi Agent 的本地网页工作台 —— 极简、无框、以阅读和输入为核心。
 
-> 这不是官方的 `@agegr/pi-web`（那是一个 Next.js 全功能应用）。本项目是自建的轻量实现：一个
-> WebSocket 桥接加一个 Vite + React 界面，共用 pi 自己的会话文件与模型配置。
+它直接驱动本机安装的 [`pi`](https://github.com/earendil-works/pi) 编码代理，共用 pi 自己的会话文件与模型配置：终端里聊过的对话，在网页里能接着聊。
 
-## 它有什么不一样
+> 这不是官方的 `@agegr/pi-web`（那是一个 Next.js 全功能应用）。本项目是自建的轻量实现：一个 WebSocket 桥接 + 一个 Vite + React 界面。
 
-- **极简到无框**：没有头像、没有气泡边框，Pi 的回答就是纯正文流。常驻的界面元素只有右下角的设置和左下角的侧栏入口。
-- **选文件不复制文件**：用回形针选的文件，桥接替你在本机弹原生对话框、只把**路径**拿回来，文件原地不动。
-  文本内容直接内联进 prompt，不指望模型「愿意去读一次文件」。
-- **桥接补上 pi 缺的那半边**：pi 的 RPC 没有「列出 / 重命名 / 删除历史会话」这类接口，
-  桥接直接按 pi 的存储约定读写会话文件，所以历史会话、回收箱、重命名都能在网页里做。
-- **省 token 是有意为之**：图片先压到 2000px（provider 按像素收费）、只渲染最近 50 条消息、
-  思考与工具默认折叠。
-- **安全边界是主动做的**：握手阶段校验 `Origin`（挡 CSWSH）、附件路径限制在工作目录内或你亲手
-  选过的、用系统程序打开文件不经过 shell。
-- **依赖只有 8 个**（React、react-markdown、prism、lucide、ws 等）：没有状态管理库、没有组件库，
-  界面全部手写。
+---
 
-## 架构
+## 介绍
 
 ```
-浏览器 (Vite :5173)
-   │  WebSocket
-   ▼
-server/bridge.ts (:3001，默认只监听 127.0.0.1)
-   │  stdin/stdout JSONL
-   ▼
-pi --mode rpc
+浏览器 ──WebSocket──▶ 桥接（Node） ──stdin/stdout──▶ pi --mode rpc
 ```
 
-- **`server/bridge.ts`** — 以子进程方式运行 `pi --mode rpc`，把 stdout 的 JSONL 事件广播给浏览器，
-  把浏览器指令写回 stdin；同时自愈重启崩溃的 pi 进程。
-- **`server/sessions.ts`** — pi 的 RPC 没有「列出 / 重命名 / 删除历史会话」接口，这部分直接读写
-  `~/.pi/agent/sessions`：重命名沿用 pi 的存储约定，在 JSONL 末尾追加一条 `session_info`。
-  所有路径都会校验必须落在会话目录内且以 `.jsonl` 结尾。
-- **前端** — `usePiWebSocket` 负责连接与重连，`RpcEventHandler` 把 RPC 事件翻译成消息与状态，
-  组件本身只负责渲染。发消息 / 会话 / 附件三块动作分别放在 `src/services/pi*Actions.ts`。
+pi 负责思考、调工具、读写文件；这个项目只负责让它好读、好输入。会话和配置仍然是 pi 自己的，删掉这个项目不影响你的 pi。
 
-## 快速开始
+**它有什么不一样**
 
-### 前置条件
+- **极简到无框**：没有头像、没有气泡边框，Pi 的回答就是纯正文流。
+- **选文件不复制文件**：用回形针选的文件，桥接替你在本机弹原生对话框、只把**路径**拿回来，文件原地不动。文本内容直接内联进 prompt，不指望模型「愿意去读一次文件」。
+- **桥接补上 pi 缺的那半边**：pi 的 RPC 没有「列出 / 重命名 / 删除历史会话」这类接口，桥接按 pi 的存储约定直接读写会话文件，所以历史会话、回收站、重命名都能在网页里做。
+- **省 token 是有意为之**：图片先压到 2000px（provider 按像素收费）、只渲染最近 50 条消息、思考与工具默认折叠。
+- **安全边界是主动做的**：握手阶段校验来源（挡跨站 WebSocket 劫持）、附件路径限制在工作目录内或你亲手选过的、用系统程序打开文件不经过 shell。
+- **只有 8 个依赖**：没有状态管理库、没有组件库，界面全部手写。
 
-这个项目**不是独立应用**——它只是 pi 的一个界面，所以得先有 pi：
+---
 
-1. **Node.js 22+**（`node --version` 确认）
-2. **`pi` 已装在 PATH 里**（`pi --version` 能打印版本）
-   ```bash
-   npm install -g @earendil-works/pi-coding-agent
-   ```
-3. **pi 已经配好 provider 和模型**——先在终端跑一次 `pi`，用 `/settings` 登录或填 API key。
-   没配的话网页能打开，但发消息不会有人回。
+## 教程
 
-### 启动
+### 1. 准备
+
+这个项目**不是独立应用**，它只是 pi 的界面，所以得先有 pi：
+
+1. **Node.js 22+** —— `node --version` 确认
+2. **装 pi** —— `npm install -g @earendil-works/pi-coding-agent`，装完 `pi --version` 能打印版本
+3. **配好模型** —— 在终端跑一次 `pi`，用 `/settings` 登录或填 API key
+
+> 第 3 步别跳过。没配的话网页能打开、能打字，但发消息**不会有任何回复**。
+
+### 2. 启动
 
 ```bash
 git clone https://github.com/KA-27-svg/pi-web.git
@@ -63,175 +48,56 @@ npm install
 npm run dev
 ```
 
-`npm run dev` 会同时启动桥接（:3001）和 Vite（:5173），然后打开 http://localhost:5173 。
+打开 http://localhost:5173 。
 
-### Windows
+Windows 也可以直接双击 `start.bat`：它会自动装依赖、等端口真的起来再开浏览器，关掉那个窗口就停服务。
 
-可以直接双击 `start.bat`（或把它做成快捷方式放在桌面 / 开始菜单）。它会：
+> 桥接在 :3001（只监听本机），页面在 :5173，两个都得在。
 
-- 先确认 Node 已安装，缺依赖时自动 `npm install`；
-- 服务已在运行时不再重复启动，直接打开页面；
-- 等端口真的监听后再开浏览器，避免先看到「无法访问」；
-- 关闭那个控制台窗口即停服务。
+### 3. 用起来
 
-### macOS / Linux
+| 想做什么 | 怎么做 |
+| --- | --- |
+| 发消息 | 底部输入框打字，Enter 发送，Shift+Enter 换行 |
+| 停止生成 | 点方块按钮，或按 Esc |
+| 生成中还想补一句 | 直接打字，点**时钟按钮**排队，当前回答结束后自动处理 |
+| 换工作目录 | 右下角设置 → 工作目录 → 切换（pi 会以新目录重启） |
+| 换模型 / 思考强度 | 右下角设置里选 |
+| 新建对话 | 侧栏「新建对话」 |
+| 翻历史对话 | 左下角展开侧栏，可搜索、重命名、删除（删除进回收箱，保留 30 天） |
+| 快速跳到某次提问 | 对话区右侧的短横线轨道：一条线对应一次提问，悬停预览，点击跳过去 |
 
-启动方式一样（`npm run dev`），但有两点不同：
+### 4. 附件
 
-- 没有 `start.bat`，手动跑 `npm run dev` 就行。
-- **「从电脑选择…」不可用**：系统原生文件框目前只在 Windows 上实现（`server/fileDialog.ts`
-  用 PowerShell 调 WinForms），其它平台点它会明确报错，而不是假装能用。
-  拖拽、粘贴、「从项目里选择…」都正常。
+点输入框右下角的**回形针**：
 
-## 附件
-
-点输入框右下角的**回形针**，出来两个选项：
-
-- **从电脑选择…** —— 弹系统原生的文件选择框。**一个字节都不复制**：浏览器拿不到本地
-  路径，但桥接就跑在同一台机器上，可以替你弹这个框、把真实路径拿回来。文件原地不动。
+- **从电脑选择…** —— 弹系统原生的文件选择框。**一个字节都不复制**，只把真实路径拿回来，文件原地不动。
 - **从项目里选择…** —— 列当前工作目录，点一个文件。同样不复制。
 
-也可以**拖拽**文件到输入框，或直接**粘贴**截图（Ctrl+V）。
+也可以**拖拽**文件进来，或者直接**粘贴**截图（Ctrl+V）。
 
-### 文件最终怎么送到模型
+文件最终怎么送到模型：
 
-| 类型 | 怎么送 | 会不会被复制 |
-| --- | --- | --- |
-| 图片 | 缩到 2000px 后以 base64 走 `prompt.images` | 不会 |
-| 文本（`.ts` `.md` `.json` `.csv` `.log` …） | **内容直接内联进 prompt** | 不会 |
-| 二进制（`.docx` `.pdf` `.xlsx` …） | 只给路径，agent 自己用 `read` / `bash` | 拖拽进来才会 |
-
-把文本内容直接内联，是为了**不依赖「模型愿不愿意去读一次文件」**——内容直接摆在它面前。
-上限 100 KB，超了只取开头并注明「完整内容请用 read 读取」。
-
-**只有拖拽 / 粘贴进来的二进制文件会被复制**到工作目录的 `.pi-web-uploads/`：浏览器不会
-告诉我们这类文件的本地路径，没有别的办法。用回形针选的文件永远不被复制。
-
-图片会自动缩放到最长边 2000px（超了转 JPEG q0.85，导出前铺白底）：provider 的 token
-成本随像素增长，而 pi 自己的 `images.autoResize` 只管 CLI 的 `@file` 附件和 `read` 工具，
-RPC 传进去的 `images` 是原样透传的。
-
-二进制格式（docx / pdf）**pi 自己不解析**，agent 通常会调用本机的 `pandoc`，装了体验会
-好很多。
-
-对话里图片显示为缩略图、文件显示为卡片；路径不会直接暴露在气泡里。落盘目录里会自动写
-一个 `.gitignore`（内容为 `*`），所以不会出现在项目 `git status` 里；同名文件不覆盖。
-
-### 点开附件
-
-- **图片**：点一下在应用内放大查看（铺满屏幕，点任意处或按 Esc 关闭）
-- **文件**：点一下用**系统默认程序**打开
-
-打开文件的路径沿用与读取相同的边界：工作目录内的相对路径、你刚在系统对话框里亲手
-选过的绝对路径，**或这个话题里你自己贴过的附件**。第三条是从会话内容里认领的
-（只看用户消息）——否则换个工作目录或重启一次桥接，历史里那些绝对路径的附件就全
-打不开了。认领到的路径也会落盘到 `~/.pi/agent/pi-web-picked-files.json`。
-
-### 安全边界
-
-- 「从项目里选择」只能在**当前工作目录内**浏览（`server/browse.ts` 的 `resolveWithin`）
-- `read_attachment` 只允许读工作目录内的相对路径，或**你刚在系统对话框里亲手选过**的
-  绝对路径（`server/pickedFiles.ts`），不是任意绝对路径
-- `pick_file` 只在 Windows 上实现；其它平台会明确报错，而不是假装能用
-
-## 脚本
-
-| 命令 | 作用 |
+| 类型 | 怎么送 |
 | --- | --- |
-| `npm run dev` | 同时启动桥接与前端 |
-| `npm run dev:server` | 只启动桥接 |
-| `npm run dev:vite` | 只启动前端 |
-| `npm run build` | 类型检查 + 生产构建 |
-| `npm test` | 运行测试（vitest，一次性） |
-| `npm run test:watch` | 监听模式跑测试 |
-| `npm run lint` | oxlint |
-| `npm run preview` | 预览构建产物 |
+| 图片 | 压到最长边 2000px 后以 base64 直接给模型「看」 |
+| 文本（`.ts` `.md` `.json` `.csv` …） | 内容直接内联进 prompt |
+| 二进制（`.docx` `.pdf` `.xlsx` …） | 只给路径，由 agent 自己读（装了 `pandoc` 体验会好很多） |
 
-## 配置
+> 只有**拖拽 / 粘贴**进来的二进制文件会被复制到工作目录的 `.pi-web-uploads/`——浏览器不告诉页面这类文件的本地路径，没有别的办法。用回形针选的文件永远不复制。
 
-| 环境变量 | 作用 | 默认 |
-| --- | --- | --- |
-| `PI_BRIDGE_HOST` | 桥接监听地址 | `127.0.0.1` |
-| `PI_BRIDGE_ORIGINS` | 允许连入的前端来源（逗号分隔，仅 `http://`） | `localhost` / `127.0.0.1` 的 5173、4173、3001 |
+### 5. 两点注意
 
-> ⚠️ 桥接能以任意工作目录拉起 `pi --mode rpc`，等同于把本机命令执行能力开放出去。
-> 除非你完全清楚后果，否则不要把 `PI_BRIDGE_HOST` 设成 `0.0.0.0`。
->
-> WebSocket **不受同源策略约束**，任何网页都能发起到 `ws://127.0.0.1:3001` 的连接，
-> 所以桥接在握手阶段校验 `Origin`（白名单外一律 403）。跨设备使用时，用
-> `PI_BRIDGE_ORIGINS` 显式列出来源，不要直接把校验关掉。
+- **macOS / Linux**：「从电脑选择…」不可用——系统原生文件框目前只在 Windows 上实现，点它会明确报错（不会假装能用）。拖拽、粘贴、「从项目里选择」都正常。
+- **不要**把 `PI_BRIDGE_HOST` 设成 `0.0.0.0`。桥接能以任意目录拉起 `pi`，等同于把你本机的命令执行能力开放出去。真要跨设备访问，用 `PI_BRIDGE_ORIGINS` 显式列出来源，别把校验关掉。
 
-## 目录结构
+---
 
-```
-server/
-  bridge.ts        WebSocket 服务、会话指令分发
-  origin.ts        握手阶段的 Origin 白名单（挡 CSWSH）
-  pi.ts            pi 子进程生命周期（自愈重启、身份校验）
-  lines.ts         stdout 字节流 → 整行（多字节字符跨块安全）
-  uploads.ts       附件落盘（只在拖拽二进制文件时才用得上）
-  browse.ts        列工作目录（只读，路径限制在工作目录内）
-  fileDialog.ts    弹系统原生的文件选择框（拿回真实路径，不复制文件）
-  pickedFiles.ts   记住可读/可打开的路径（含从会话内容里认领的）
-  attachmentPaths.ts 从会话内容里挖出用户贴过的附件路径
-  textAttachment.ts 读附件：文本→内联，图片→base64，二进制→只报大小
-  reply.ts         统一的异步回包封装
-  sessions.ts      会话列表 / 重命名 / 删除（含路径穿越防护）
-  trash.ts         回收箱：移入 / 恢复 / 彻底删除 / 过期清理
-src/
-  components/      展示组件（对话流、侧栏、输入框、附件条…）
-  hooks/
-    usePiWebSocket.ts          连接、重连、RPC 事件翻译
-    useComposerAttachments.ts  附件的四条来源与转换
-    useComposerHeight.ts       输入框高度自适应与开场形变
-    useRubberBandScroll.ts     滚到边界后的阻尼回弹
-  services/
-    rpcHandler.ts              RPC 事件 → 消息与状态
-    piBridge.ts                动作模块共用的连接上下文
-    piStreamingActions.ts      发消息 / 排队 / 中断
-    piSessionActions.ts        历史会话与回收箱
-    piAttachmentActions.ts     附件
-  utils/           历史消息解析（MessageParser）等纯函数
-  types/           共享类型
-  index.css        设计变量（浅色 / 深色，跟随系统）
-```
+## 致谢
 
-## 测试
-
-```bash
-npm test
-```
-
-不追求覆盖率，只覆盖最容易**静默改坏**的地方：
-
-- `server/origin.test.ts` — Origin 白名单判定，以及真实 http + ws 握手下陌生来源被 403。
-- `server/pi.test.ts` — 子进程生命周期：自愈重启、**旧进程迟到退出不干扰新进程**、stdin 不可写时 `send` 返回 false。
-- `server/lines.test.ts` — 分块解码：多字节字符跨块、逐字节喂入。
-- `server/sessions.test.ts` — 会话扫描（含头部被注入内容撞满、多字节分块边界）、重命名追加、删除、路径穿越防护。
-- `src/services/rpcHandler.test.ts` — 一轮的生命周期（`agent_end` vs `agent_settled`）、`get_state` 竞态、崩溃收尾、工具调用状态机。
-- `src/utils/messageParser.test.ts` — 历史消息还原与稳定 ID（ID 不稳定会导致刷新时整段对话重新挂载并重播动画）。
-
-## 已知限制
-
-- **单用户本地使用**：桥接全局共享一个 pi 子进程，多标签页会互相影响。
-- **工具结果不回填**：从历史加载时只还原工具调用本身，不还原其结果。
-- **中断取回只有文字**：生成中排队的消息如果带附件，中断后只有正文回到输入框，附件得重新加一次
-  ——pi 的 `clear_queue` 只退还文本。
-- **超过 2000px 的图片会被重编码**：这会丢掉动画（GIF 变静态帧）和透明通道。
-- **没有端到端测试**：单元测试盖的是「最容易静默改坏」的部分，真实 pi 的行为（排队投递、
-  错误上报、扩展交互）需要人工验证。
-
-## 参考与致谢
-
-- [pi](https://github.com/earendil-works/pi)（earendil-works）—— 这个前端只是它的一个壳：
-  RPC 协议、事件流、会话文件格式、模型与思考档位都来自 pi 自己，接入时主要依据它的
-  `docs/rpc.md`。
-- 官方 [`@agegr/pi-web`](https://www.npmjs.com/package/@agegr/pi-web) —— 交互上的参考：
-  历史消息分页加载、右侧滚动轨道（一条横线对应一次提问）都受它启发。本项目在功能上是它
-  刻意精简的子集。
-- [React](https://react.dev) · [Vite](https://vite.dev) · [Tailwind CSS](https://tailwindcss.com) ·
-  [react-markdown](https://github.com/remarkjs/react-markdown) + [remark-gfm](https://github.com/remarkjs/remark-gfm) ·
-  [Prism](https://prismjs.com) · [lucide](https://lucide.dev) · [ws](https://github.com/websockets/ws)
+- [pi](https://github.com/earendil-works/pi)（earendil-works）—— 这个前端只是它的一个壳：RPC 协议、事件流、会话文件格式、模型与思考档位都来自 pi 自己，接入时主要依据它的 `docs/rpc.md`。
+- 官方 [`@agegr/pi-web`](https://www.npmjs.com/package/@agegr/pi-web) —— 交互上的参考：历史消息分页加载、右侧滚动轨道都受它启发。本项目在功能上是它刻意精简的子集。
+- 用到的库：[React](https://react.dev) · [Vite](https://vite.dev) · [Tailwind CSS](https://tailwindcss.com) · [react-markdown](https://github.com/remarkjs/react-markdown) + [remark-gfm](https://github.com/remarkjs/remark-gfm) · [Prism](https://prismjs.com) · [lucide](https://lucide.dev) · [ws](https://github.com/websockets/ws)
 
 ## License
 
