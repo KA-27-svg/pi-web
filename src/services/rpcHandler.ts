@@ -1,5 +1,5 @@
 import { MessageParser } from '../utils/messageParser';
-import type { PiMessage, ToolCallState, ModelInfo, BridgeStatus } from '../types/pi';
+import type { PiMessage, ToolCallState, ModelInfo, BridgeStatus, SetupStatus } from '../types/pi';
 
 function toModelInfo(model: any): ModelInfo | undefined {
   if (!model) return undefined;
@@ -219,7 +219,14 @@ export class RpcEventHandler {
       return;
     }
 
-    // 5. 桥接扫描会话目录的结果
+    // 5. 环境探测结果。就绪与否决定界面进对话还是进向导。
+    if (data.type === 'setup_status') {
+      const setup = data.setup as SetupStatus | undefined;
+      if (setup) this.setStatus((prev: BridgeStatus) => ({ ...prev, setup }));
+      return;
+    }
+
+    // 6. 桥接扫描会话目录的结果
     if (data.type === 'sessions_list') {
       this.setStatus((prev: BridgeStatus) => ({
         ...prev,
@@ -235,7 +242,7 @@ export class RpcEventHandler {
       return;
     }
 
-    // 6. 会话增删改的结果。失败必须说出来，不能点了没反应。
+    // 7. 会话增删改的结果。失败必须说出来，不能点了没反应。
     if (
       data.type === 'session_renamed' ||
       data.type === 'session_trashed' ||
@@ -256,7 +263,7 @@ export class RpcEventHandler {
       return;
     }
 
-    // 7. 工具调用生命周期
+    // 8. 工具调用生命周期
     this.handleToolLifecycle(data);
   }
 

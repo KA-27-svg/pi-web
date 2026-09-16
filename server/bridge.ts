@@ -12,6 +12,7 @@ import { openWithSystem } from './openFile.js';
 import { readAttachment, resolveAttachment } from './textAttachment.js';
 import { reply } from './reply.js';
 import { attachOriginGuard, parseAllowedOrigins } from './origin.js';
+import { defaultRunCommand, probeEnvironment } from './env.js';
 import { PiSupervisor } from './pi.js';
 import {
   emptyTrash,
@@ -188,6 +189,16 @@ wss.on('connection', (ws: WebSocket) => {
       // 重启 Pi 进程
       if (data.type === 'restart_pi') {
         pi.restart(currentCwd);
+        return;
+      }
+
+      // 环境探测：本机够不够跑 pi。向导靠它决定「缺什么、下一步做什么」，
+      // 也是「网页能打开但模型不回话」这类困惑的第一道解释。
+      if (data.type === 'get_setup_status') {
+        reply(ws, 'setup_status', () => probeEnvironment(defaultRunCommand), value => ({
+          // 包一层：顶层已占用 type / success，直接把探测结果摊平会把它俩混进状态里
+          setup: value,
+        }));
         return;
       }
 

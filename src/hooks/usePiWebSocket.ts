@@ -5,6 +5,7 @@ import type { PiBridge } from '../services/piBridge';
 import { createStreamingActions } from '../services/piStreamingActions';
 import { createSessionActions } from '../services/piSessionActions';
 import { createAttachmentActions } from '../services/piAttachmentActions';
+import { createSetupActions } from '../services/piSetupActions';
 
 interface PendingRequest {
   resolve: (value: any) => void;
@@ -51,6 +52,8 @@ export function usePiWebSocket() {
     ws.send(JSON.stringify({ type: 'get_available_models' }));
     ws.send(JSON.stringify({ type: 'get_available_thinking_levels' }));
     ws.send(JSON.stringify({ type: 'get_session_stats' }));
+    // 环境探测：未就绪时界面要进向导，不能等用户发完消息才发现没回复
+    ws.send(JSON.stringify({ type: 'get_setup_status' }));
     // 连接建立后再拉历史会话，否则首屏调用时连接尚未就绪
     ws.send(JSON.stringify({ type: 'list_sessions' }));
   };
@@ -197,11 +200,11 @@ export function usePiWebSocket() {
   );
 
   /**
-   * 三个领域的动作。
+   * 四个领域的动作。
    *
    * oxlint 会在下面报「渲染期访问 ref」，是误报：create*Actions 只是把访问 ref 的
    * 函数装进返回对象，真正读 ref 发生在用户点击之后。bridge 的字段都是稳定的，
-   * 所以这三块只会构造一次。
+   * 所以这四块只会构造一次。
    */
   /* oxlint-disable react/refs */
   const actions = useMemo(
@@ -209,6 +212,7 @@ export function usePiWebSocket() {
       ...createStreamingActions(bridge),
       ...createSessionActions(bridge),
       ...createAttachmentActions(bridge),
+      ...createSetupActions(bridge),
     }),
     [bridge]
   );

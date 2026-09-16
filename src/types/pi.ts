@@ -120,6 +120,24 @@ export interface TrashedSession {
   expiresAt: number;
 }
 
+/** 环境探测结果（桥接 server/env.ts 的产出） */
+export interface SetupStatus {
+  platform: string;
+  node: { version: string | null; ok: boolean; minimum: string };
+  npm: { available: boolean };
+  pi: { installed: boolean; version: string | null };
+  /** Git Bash 只在 Windows 上必需 */
+  gitBash: { required: boolean; available: boolean };
+  /** pi 可用、可以开始对话。模型配置是否就绪是另一件事 */
+  ready: boolean;
+  issues: SetupIssue[];
+}
+
+export interface SetupIssue {
+  code: 'node-missing' | 'node-too-old' | 'npm-missing' | 'pi-missing' | 'git-bash-missing';
+  message: string;
+}
+
 export interface BridgeStatus {
   connected: boolean;
   cwd: string;
@@ -150,6 +168,12 @@ export interface BridgeStatus {
   sessionLoaded?: boolean;
   /** 中断后从队列里取回的文本，交回输入框继续编辑。seq 区分重复的同一段文本。 */
   restoredDraft?: { text: string; seq: number };
+  /**
+   * 环境探测结果。
+   * 有值且 ready 为假时，界面应该显示向导而不是对话区——
+   * 否则用户只会看到「界面能打字但永远没有回复」。
+   */
+  setup?: SetupStatus;
   /**
    * 正在自动重试（过载 / 限流 / 5xx）。
    * 有值时界面要明说“在重试”，否则用户看着不动的界面会以为卡死了。

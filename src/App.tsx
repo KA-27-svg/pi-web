@@ -11,12 +11,13 @@ import { composerLayout } from './utils/composerLayout';
 const NARROW_VIEWPORT = '(max-width: 640px)';
 const isOverlaySidebar = () => window.matchMedia(NARROW_VIEWPORT).matches;
 import { SettingsPanel } from './components/SettingsPanel';
+import { SetupWizard } from './components/SetupWizard';
 import { Sidebar } from './components/Sidebar';
 import { ChatInput } from './components/ChatInput';
 import { Settings, PanelLeftOpen } from 'lucide-react';
 
 export default function App() {
-  const { messages, status, sendPrompt, interrupt, changeCwd, newSession, setModel, setThinkingLevel, requestSessions, requestStats, uploadFile, listDir, readAttachment, pickFile, openAttachment, switchSession, renameSession, deleteSession, requestTrash, restoreSession, purgeSession, emptyTrash } =
+  const { messages, status, sendPrompt, interrupt, changeCwd, newSession, setModel, setThinkingLevel, requestSessions, requestStats, uploadFile, listDir, readAttachment, pickFile, openAttachment, switchSession, renameSession, deleteSession, requestTrash, restoreSession, purgeSession, emptyTrash, requestSetupStatus } =
     usePiWebSocket();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLElement>(null);
@@ -167,6 +168,15 @@ export default function App() {
     setOpeningIcon(true);
     setComposerEngaged(false);
   };
+
+  /**
+   * 环境没就绪不进对话界面。
+   * 缺 pi 时继续显示输入框，用户打完字永远等不到回复，只会以为程序坏了——
+   * 不如直接把「缺什么」摆在他面前。
+   */
+  if (status.setup && !status.setup.ready) {
+    return <SetupWizard status={status} onRecheck={requestSetupStatus} />;
+  }
 
   return (
     <div className="relative flex h-screen w-full bg-background text-foreground selection:bg-foreground/10 overflow-hidden">
