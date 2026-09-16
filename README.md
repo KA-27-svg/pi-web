@@ -6,6 +6,20 @@ Pi Agent 的本地网页工作台 —— 一个极简、无框、以阅读和输
 > 这不是官方的 `@agegr/pi-web`（那是一个 Next.js 全功能应用）。本项目是自建的轻量实现：一个
 > WebSocket 桥接加一个 Vite + React 界面，共用 pi 自己的会话文件与模型配置。
 
+## 它有什么不一样
+
+- **极简到无框**：没有头像、没有气泡边框，Pi 的回答就是纯正文流。常驻的界面元素只有右下角的设置和左下角的侧栏入口。
+- **选文件不复制文件**：用回形针选的文件，桥接替你在本机弹原生对话框、只把**路径**拿回来，文件原地不动。
+  文本内容直接内联进 prompt，不指望模型「愿意去读一次文件」。
+- **桥接补上 pi 缺的那半边**：pi 的 RPC 没有「列出 / 重命名 / 删除历史会话」这类接口，
+  桥接直接按 pi 的存储约定读写会话文件，所以历史会话、回收箱、重命名都能在网页里做。
+- **省 token 是有意为之**：图片先压到 2000px（provider 按像素收费）、只渲染最近 50 条消息、
+  思考与工具默认折叠。
+- **安全边界是主动做的**：握手阶段校验 `Origin`（挡 CSWSH）、附件路径限制在工作目录内或你亲手
+  选过的、用系统程序打开文件不经过 shell。
+- **依赖只有 8 个**（React、react-markdown、prism、lucide、ws 等）：没有状态管理库、没有组件库，
+  界面全部手写。
+
 ## 架构
 
 ```
@@ -24,7 +38,7 @@ pi --mode rpc
   `~/.pi/agent/sessions`：重命名沿用 pi 的存储约定，在 JSONL 末尾追加一条 `session_info`。
   所有路径都会校验必须落在会话目录内且以 `.jsonl` 结尾。
 - **前端** — `usePiWebSocket` 负责连接与重连，`RpcEventHandler` 把 RPC 事件翻译成消息与状态，
-  组件本身只负责渲染。
+  组件本身只负责渲染。发消息 / 会话 / 附件三块动作分别放在 `src/services/pi*Actions.ts`。
 
 ## 快速开始
 
@@ -140,10 +154,19 @@ server/
   sessions.ts      会话列表 / 重命名 / 删除（含路径穿越防护）
   trash.ts         回收箱：移入 / 恢复 / 彻底删除 / 过期清理
 src/
-  components/      纯展示组件
-  hooks/           连接与状态（usePiWebSocket）
-  services/        RPC 事件翻译（RpcEventHandler）
-  utils/           历史消息解析（MessageParser）
+  components/      展示组件（对话流、侧栏、输入框、附件条…）
+  hooks/
+    usePiWebSocket.ts          连接、重连、RPC 事件翻译
+    useComposerAttachments.ts  附件的四条来源与转换
+    useComposerHeight.ts       输入框高度自适应与开场形变
+    useRubberBandScroll.ts     滚到边界后的阻尼回弹
+  services/
+    rpcHandler.ts              RPC 事件 → 消息与状态
+    piBridge.ts                动作模块共用的连接上下文
+    piStreamingActions.ts      发消息 / 排队 / 中断
+    piSessionActions.ts        历史会话与回收箱
+    piAttachmentActions.ts     附件
+  utils/           历史消息解析（MessageParser）等纯函数
   types/           共享类型
   index.css        设计变量（浅色 / 深色，跟随系统）
 ```
@@ -154,7 +177,7 @@ src/
 npm test
 ```
 
-覆盖三块最容易静默改坏的地方：
+不追求覆盖率，只覆盖最容易**静默改坏**的地方：
 
 - `server/origin.test.ts` — Origin 白名单判定，以及真实 http + ws 握手下陌生来源被 403。
 - `server/pi.test.ts` — 子进程生命周期：自愈重启、**旧进程迟到退出不干扰新进程**、stdin 不可写时 `send` 返回 false。
@@ -167,5 +190,24 @@ npm test
 
 - **单用户本地使用**：桥接全局共享一个 pi 子进程，多标签页会互相影响。
 - **工具结果不回填**：从历史加载时只还原工具调用本身，不还原其结果。
-- **生成中不能再发消息**：pi 要求带 `streamingBehavior` 才能排队，目前界面在生成时禁用发送。
+- **中断取回只有文字**：生成中排队的消息如果带附件，中断后只有正文回到输入框，附件得重新加一次
+  ——pi 的 `clear_queue` 只退还文本。
 - **超过 2000px 的图片会被重编码**：这会丢掉动画（GIF 变静态帧）和透明通道。
+- **没有端到端测试**：单元测试盖的是「最容易静默改坏」的部分，真实 pi 的行为（排队投递、
+  错误上报、扩展交互）需要人工验证。
+
+## 参考与致谢
+
+- [pi](https://github.com/earendil-works/pi)（earendil-works）—— 这个前端只是它的一个壳：
+  RPC 协议、事件流、会话文件格式、模型与思考档位都来自 pi 自己，接入时主要依据它的
+  `docs/rpc.md`。
+- 官方 [`@agegr/pi-web`](https://www.npmjs.com/package/@agegr/pi-web) —— 交互上的参考：
+  历史消息分页加载、右侧滚动轨道（一条横线对应一次提问）都受它启发。本项目在功能上是它
+  刻意精简的子集。
+- [React](https://react.dev) · [Vite](https://vite.dev) · [Tailwind CSS](https://tailwindcss.com) ·
+  [react-markdown](https://github.com/remarkjs/react-markdown) + [remark-gfm](https://github.com/remarkjs/remark-gfm) ·
+  [Prism](https://prismjs.com) · [lucide](https://lucide.dev) · [ws](https://github.com/websockets/ws)
+
+## License
+
+[MIT](./LICENSE)

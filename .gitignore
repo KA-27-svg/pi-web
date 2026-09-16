@@ -23,3 +23,6 @@ dist-ssr
 *.sln
 *.sw?
 bridge.log
+
+# 附件落盘目录：里面是用户拖进来的文件，绝不该提交
+.pi-web-uploads/
