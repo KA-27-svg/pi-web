@@ -10,7 +10,6 @@ interface SettingsPanelProps {
   onNewSession: () => void;
   onSelectModel: (provider: string, modelId: string) => void;
   onSelectThinkingLevel: (level: string) => void;
-  onToggleReadOnly: (value: boolean) => void;
 }
 
 function Row({
@@ -32,58 +31,6 @@ function Row({
 
 function modelKey(model: ModelInfo) {
   return `${model.provider}/${model.id}`;
-}
-
-function ReadOnlyToggle({
-  status,
-  onToggle,
-}: {
-  status: BridgeStatus;
-  onToggle: (value: boolean) => void;
-}) {
-  const [pending, setPending] = useState(false);
-  const on = status.readOnly ?? false;
-
-  const toggle = () => {
-    setPending(true);
-    onToggle(!on);
-    // 桥接重启 pi 大约一秒，回包之后按钮会被真实状态覆盖
-    window.setTimeout(() => setPending(false), 3000);
-  };
-
-  return (
-    <div className="py-2">
-      <div className="flex items-center justify-between gap-4">
-        <span
-          className="text-[11px] text-muted"
-          title="这不是沙盒。它只是把能改文件、能跑命令的工具从模型手上拿走；真正隔离要把 pi 关进容器或虚拟机。它挡的是「改坏 / 执行」，挡不住「读走」。"
-        >
-          只读模式
-        </span>
-
-        <button
-          role="switch"
-          aria-checked={on}
-          aria-label="只读模式"
-          disabled={!status.connected || pending}
-          onClick={toggle}
-          className={`relative h-4 w-7 shrink-0 rounded-full transition-colors disabled:cursor-default disabled:opacity-50 ${
-            on ? 'bg-foreground' : 'bg-border'
-          }`}
-        >
-          <span
-            className={`absolute left-[2px] top-[2px] h-3 w-3 rounded-full bg-background transition-transform ${
-              on ? 'translate-x-3' : ''
-            }`}
-          />
-        </button>
-      </div>
-
-      <p className="mt-1.5 text-[10.5px] leading-[1.6] text-muted">
-        agent 只能看，不能改文件、不能跑命令——适合问问题和审代码。
-      </p>
-    </div>
-  );
 }
 
 function ModelPicker({
@@ -209,7 +156,6 @@ export function SettingsPanel({
   onNewSession,
   onSelectModel,
   onSelectThinkingLevel,
-  onToggleReadOnly,
 }: SettingsPanelProps) {
   const [cwdDraft, setCwdDraft] = useState(status.cwd);
 
@@ -274,8 +220,6 @@ export function SettingsPanel({
               status={status}
               onSelectThinkingLevel={onSelectThinkingLevel}
             />
-
-            <ReadOnlyToggle status={status} onToggle={onToggleReadOnly} />
 
             <Row label="本会话花费">
               <span title={costTitle}>{stats ? formatCost(stats.cost) : '—'}</span>

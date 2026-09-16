@@ -11,16 +11,11 @@ export interface PiSupervisorCallbacks {
   onError: (message: string) => void;
 }
 
-export type SpawnPi = (
-  cwd: string,
-  extraArgs: readonly string[]
-) => ChildProcessWithoutNullStreams;
+export type SpawnPi = (cwd: string) => ChildProcessWithoutNullStreams;
 
-export const defaultSpawnPi: SpawnPi = (cwd, extraArgs) => {
-  const args = ['--mode', 'rpc', ...extraArgs];
-  console.log(`[Pi Bridge] Spawning pi ${args.join(' ')} in: ${cwd}`);
-
-  return spawn('pi', args, {
+export const defaultSpawnPi: SpawnPi = cwd => {
+  console.log(`[Pi Bridge] Spawning pi --mode rpc in: ${cwd}`);
+  return spawn('pi', ['--mode', 'rpc'], {
     cwd,
     // shell: true 是 Windows 上运行 npm 全局 CLI（pi.cmd）所必需的；
     // 命令行参数是静态字面量，cwd 也只通过 spawn 的 cwd 选项传递，不经过 shell 拼接。
@@ -38,8 +33,6 @@ export const defaultSpawnPi: SpawnPi = (cwd, extraArgs) => {
 export class PiSupervisor {
   private proc: ChildProcessWithoutNullStreams | null = null;
   private cwd: string;
-  /** 上一次用过的额外启动参数（比如只读模式的 --exclude-tools） */
-  private extraArgs: readonly string[] = [];
   private callbacks: PiSupervisorCallbacks;
   private spawnPi: SpawnPi;
 
@@ -61,16 +54,12 @@ export class PiSupervisor {
     return this.cwd;
   }
 
-  /**
-   * 进程不在（崩了 / 没起过）就拉起一个。幂等，可以随便调。
-   * extraArgs 会记下来，后续隐式重启（比如 send 时的自愈）沿用同一套。
-   */
-  ensure(cwd: string = this.cwd, extraArgs: readonly string[] = this.extraArgs): void {
-    this.extraArgs = extraArgs;
+  /** 进程不在（崩了 / 没起过）就拉起一个。幂等，可以随便调。 */
+  ensure(cwd: string = this.cwd): void {
     if (this.isAlive(this.proc)) return;
 
     this.cwd = cwd;
-    const proc = this.spawnPi(cwd, extraArgs);
+    const proc = this.spawnPi(cwd);
     this.proc = proc;
     const decoder = new LineDecoder();
     // stderr 不是按行协议的，但也得避免把多字节字符从中间劈开
@@ -103,9 +92,8 @@ export class PiSupervisor {
     });
   }
 
-  /** 换一个工作目录（或换一套启动参数）重启：先断开引用再杀，旧进程的回调因此不会影响新进程 */
-  restart(cwd: string = this.cwd, extraArgs: readonly string[] = this.extraArgs): void {
-    this.extraArgs = extraArgs;
+  /** 换一个工作目录重启：先断开引用再杀，旧进程的回调因此不会影响新进程 */
+  restart(cwd: string = this.cwd): void {
     const old = this.proc;
     this.proc = null;
     if (old) {
