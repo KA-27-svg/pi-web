@@ -15,5 +15,13 @@ export function createSetupActions({ sendCommand }: PiBridge) {
    */
   const installPi = () => sendCommand({ type: 'install_pi' });
 
-  return { requestSetupStatus, installPi };
+  /**
+   * 保存供应商凭证。
+   * 走 sendCommand 而不是 request：结果由桥接以 provider_saved 事件广播，
+   * 成功与失败都经过同一条路径，界面不必多一套状态。
+   */
+  const saveProviderKey = (provider: string, key: string) =>
+    sendCommand({ type: 'save_provider_key', provider, key });
+
+  return { requestSetupStatus, installPi, saveProviderKey };
 }

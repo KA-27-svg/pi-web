@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { BridgeStatus } from '../types/pi';
+import { ProviderSetup } from './ProviderSetup';
 import { AlertCircle, Check, Copy, Download, RefreshCw } from 'lucide-react';
 
 /** 自动轮询间隔：用户可能正在自己的终端里跑那条命令，页面应该自己认出来 */
@@ -14,6 +15,8 @@ interface SetupWizardProps {
   onRecheck: () => void;
   /** 让桥接代跑官方安装器 */
   onInstall: () => void;
+  /** 保存供应商凭证 */
+  onSaveProvider?: (provider: string, key: string) => void;
 }
 
 /**
@@ -26,13 +29,16 @@ interface SetupWizardProps {
  * 官方脚本在无终端下不会自己装 Node）就只把命令摆出来让人自己跑。
  * 无论哪条路，命令原文都先展示——用户有权知道要执行什么。
  */
-export function SetupWizard({ status, onRecheck, onInstall }: SetupWizardProps) {
+export function SetupWizard({ status, onRecheck, onInstall, onSaveProvider }: SetupWizardProps) {
   const setup = status.setup;
   const ready = setup?.ready ?? false;
   const installing = status.installing ?? false;
   const issues = setup?.issues ?? [];
   const log = status.installLog ?? [];
   const canInstall = status.preflight?.allowed ?? false;
+  const piInstalled = setup?.pi.installed ?? false;
+  /** 装了 pi 但一个凭证都没配——这两种情况该看到的东西不一样 */
+  const needsCredentials = piInstalled && (setup?.credentials.providers.length ?? 0) === 0;
   const [copied, setCopied] = useState(false);
 
   // 未就绪且没在装时定期重探。用户在自己终端装完之后，页面不该还停在旧结论上。
@@ -104,7 +110,8 @@ export function SetupWizard({ status, onRecheck, onInstall }: SetupWizardProps) 
           )}
         </dl>
 
-        {status.installCommand && (
+        {/* 没装 pi 才展示安装；已经装好了还摆着「帮我安装 pi」只会让人困惑 */}
+        {!piInstalled && status.installCommand && (
           <section className="mt-6">
             <div className="flex items-baseline justify-between gap-3">
               <h2 className="text-[12px] text-muted">用 pi 官方的方式安装</h2>
@@ -150,6 +157,10 @@ export function SetupWizard({ status, onRecheck, onInstall }: SetupWizardProps) 
               <p className="mt-2 text-[12.5px] leading-[1.7] text-rose-500">{status.installError}</p>
             )}
           </section>
+        )}
+
+        {needsCredentials && onSaveProvider && (
+          <ProviderSetup status={status} onSave={onSaveProvider} />
         )}
 
         <button

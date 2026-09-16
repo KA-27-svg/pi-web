@@ -56,16 +56,24 @@ const status = (s: SetupStatus, extra: Partial<BridgeStatus> = {}): BridgeStatus
 const render = (
   s: SetupStatus,
   extra: Partial<BridgeStatus> = {},
-  handlers: { onRecheck?: () => void; onInstall?: () => void } = {}
+  handlers: { onRecheck?: () => void; onInstall?: () => void; onSaveProvider?: (p: string, k: string) => void } = {}
 ) => {
   const onRecheck = handlers.onRecheck ?? vi.fn();
   const onInstall = handlers.onInstall ?? vi.fn();
+  const onSaveProvider = handlers.onSaveProvider ?? vi.fn();
 
   act(() => {
-    root.render(<SetupWizard status={status(s, extra)} onRecheck={onRecheck} onInstall={onInstall} />);
+    root.render(
+      <SetupWizard
+        status={status(s, extra)}
+        onRecheck={onRecheck}
+        onInstall={onInstall}
+        onSaveProvider={onSaveProvider}
+      />
+    );
   });
 
-  return { onRecheck, onInstall };
+  return { onRecheck, onInstall, onSaveProvider };
 };
 
 const text = () => host.textContent ?? '';
@@ -151,6 +159,39 @@ describe('SetupWizard 安装', () => {
     render(setup(), { installError: '安装器以退出码 1 结束' });
 
     expect(text()).toContain('安装器以退出码 1 结束');
+  });
+});
+
+describe('SetupWizard 按缺什么决定展示', () => {
+  const installed = (over: Partial<SetupStatus> = {}) =>
+    setup({
+      pi: { installed: true, version: '0.85.1' },
+      ...over,
+    });
+
+  it('装了 pi 但没配凭证时，展示配置模型而不是安装', () => {
+    // 这两种情况该做的事完全不同：一个是装 pi，一个是填 key
+    render(
+      installed({
+        credentials: { providers: [] },
+        issues: [{ code: 'no-credentials', message: '还没有配置任何模型凭证。' }],
+      })
+    );
+
+    expect(text()).toContain('配置模型');
+    expect(buttonWith('帮我安装')).toBeUndefined();
+  });
+
+  it('没装 pi 时不展示配置模型', () => {
+    render(setup());
+
+    expect(text()).not.toContain('配置模型');
+  });
+
+  it('装了 pi 且已有凭证时也不展示配置模型', () => {
+    render(installed({ credentials: { providers: ['anthropic'] } }));
+
+    expect(text()).not.toContain('配置模型');
   });
 });
 

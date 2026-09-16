@@ -70,7 +70,7 @@
   - Verify: 组件测试；手动走成功与失败
   - Files: `src/components/SetupWizard.tsx`, `src/services/piSetupActions.ts`, `src/App.tsx`
 
-## Slice 4：预设供应商填 key（进行中）
+## Slice 4：预设供应商填 key ✅
 
 - [x] Task 4.0（已砍）：Git Bash 缺失时只提示，不改配置
   - 决定：不做 `defaultTools` 开关。它要重启 pi，且 `defaultTools` 是全量替换工具集，
@@ -93,12 +93,13 @@
   - Verify: 单测响应体不含 key
   - Files: `server/bridge.ts`, `server/setupConfig.ts`
 
-- [ ] Task 4.4：前端供应商选择 + key 输入步骤
+- [x] Task 4.4：前端供应商选择 + key 输入步骤
   - Acceptance: 保存后立即能用；模型列表为空时给可读错误
   - Verify: 组件测试；手动配真实供应商
-  - Files: `src/components/SetupWizard.tsx`, `src/services/piSetupActions.ts`
+  - 实现落在新文件 `src/components/ProviderSetup.tsx`（SetupWizard 只做壳，避免单文件过大）
+  - Files: `src/components/ProviderSetup.tsx`, `src/components/SetupWizard.tsx`, `src/services/piSetupActions.ts`
 
-- [ ] Task 4.5：OAuth 订阅登录引导
+- [x] Task 4.5：OAuth 订阅登录引导
   - Acceptance: 说明在终端跑 `/login`；轮询 `auth.json` 变化后自动继续
   - Verify: 单测轮询逻辑；手动
   - Files: `src/components/SetupWizard.tsx`, `server/setupConfig.ts`
