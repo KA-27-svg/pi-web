@@ -4,11 +4,17 @@ import { CodeBlock } from './CodeBlock';
 
 interface MarkdownViewProps {
   content: string;
+  /** 还在流式输出：正文末尾跟一个闪烁光标，表示模型还在写 */
+  streaming?: boolean;
 }
 
-export function MarkdownView({ content }: MarkdownViewProps) {
+export function MarkdownView({ content, streaming = false }: MarkdownViewProps) {
   return (
-    <div className="text-[14.5px] leading-[1.75] text-foreground break-words">
+    <div
+      className={`text-[14.5px] leading-[1.75] text-foreground break-words ${
+        streaming ? 'md-streaming' : ''
+      }`}
+    >
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{

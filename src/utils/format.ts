@@ -61,3 +61,16 @@ export function formatTokens(count: number): string {
 export function remainingDays(expiresAt: number, now = Date.now()): number {
   return Math.max(0, Math.ceil((expiresAt - now) / DAY_MS));
 }
+
+/**
+ * 回答末尾的时间（时:分）。只让人看出“这一条什么时候答的”，不带日期。
+ * 历史消息可能没有时间戳（会传 0），这时返回空串，调用方直接不渲染。
+ */
+export function formatClockTime(timestamp: number): string {
+  if (!Number.isFinite(timestamp) || timestamp <= 0) return '';
+
+  const date = new Date(timestamp);
+  const hours = String(date.getHours()).padStart(2, '0');
+  const minutes = String(date.getMinutes()).padStart(2, '0');
+  return `${hours}:${minutes}`;
+}

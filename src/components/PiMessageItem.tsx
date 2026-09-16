@@ -4,6 +4,7 @@ import { MarkdownView } from './MarkdownView';
 import { ExecutionCollapse } from './ExecutionCollapse';
 import { ImageLightbox } from './ImageLightbox';
 import { FileIcon } from './FileIcon';
+import { formatClockTime } from '../utils/format';
 
 interface PiMessageItemProps {
   message: PiMessage;
@@ -88,11 +89,21 @@ export function PiMessageItem({ message, onOpenFile }: PiMessageItemProps) {
         isStreaming={isStreaming}
       />
 
-      {message.content && <MarkdownView content={message.content} />}
+      {message.content && (
+        <MarkdownView content={message.content} streaming={isStreaming} />
+      )}
 
       {message.error && (
         <p className="mt-2 text-[12.5px] leading-[1.7] text-rose-500 break-words">
           {message.error}
+        </p>
+      )}
+
+      {/* 回答结束的安静标记：光标消失后，末尾留下这条是什么时候答的。
+          历史消息可能没有时间戳（为 0），这时什么都不显示。 */}
+      {!isStreaming && formatClockTime(message.timestamp) && (
+        <p data-answer-time className="mt-2 text-[11px] text-muted">
+          {formatClockTime(message.timestamp)}
         </p>
       )}
     </div>

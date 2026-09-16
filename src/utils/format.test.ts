@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { win32 } from 'node:path';
-import { formatCost, formatRelativeTime, formatTokens, projectName, reasoningParagraphs, remainingDays } from '../utils/format';
+import { formatCost, formatClockTime, formatRelativeTime, formatTokens, projectName, reasoningParagraphs, remainingDays } from '../utils/format';
 
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
@@ -132,5 +132,22 @@ describe('formatTokens', () => {
 
   it('百万位保留两位', () => {
     expect(formatTokens(1_234_567)).toBe('1.23M');
+  });
+});
+
+describe('回答时间戳', () => {
+  // 用本地时间构造，免得测试结果随时区变
+  const at = (hours: number, minutes: number) => new Date(2026, 0, 1, hours, minutes).getTime();
+
+  it('输出补零的时:分', () => {
+    expect(formatClockTime(at(9, 5))).toBe('09:05');
+    expect(formatClockTime(at(14, 32))).toBe('14:32');
+    expect(formatClockTime(at(23, 59))).toBe('23:59');
+  });
+
+  it('没有时间戳（历史消息可能为 0）时返回空串，调用方就不渲染', () => {
+    expect(formatClockTime(0)).toBe('');
+    expect(formatClockTime(-1)).toBe('');
+    expect(formatClockTime(Number.NaN)).toBe('');
   });
 });

@@ -222,3 +222,24 @@ describe('点开附件', () => {
     expect(card.disabled).toBe(true);
   });
 });
+
+describe('回答结束的标记', () => {
+  it('还在生成时正文末尾带光标（挂在 md-streaming 上）', () => {
+    render(message({ status: 'streaming' }));
+
+    expect(host.querySelector('.md-streaming')).not.toBeNull();
+  });
+
+  it('结束后光标消失，末尾留下时间戳', () => {
+    render(message({ status: 'done', timestamp: new Date(2026, 0, 1, 14, 32).getTime() }));
+
+    expect(host.querySelector('.md-streaming')).toBeNull();
+    expect(host.querySelector('[data-answer-time]')?.textContent).toBe('14:32');
+  });
+
+  it('历史消息没有时间戳时不渲染空的一行', () => {
+    render(message({ status: 'done', timestamp: 0 }));
+
+    expect(host.querySelector('[data-answer-time]')).toBeNull();
+  });
+});
