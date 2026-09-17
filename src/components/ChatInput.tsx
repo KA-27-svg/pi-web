@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { ArrowUp, Clock, Paperclip, Square } from 'lucide-react';
 import type { AttachmentContent, DirListing } from '../types/pi';
 import type { PromptDraft, UploadedFile } from '../utils/attachments';
+import { isSendableAttachment } from '../utils/attachments';
 import { useComposerAttachments } from '../hooks/useComposerAttachments';
 import { useComposerHeight } from '../hooks/useComposerHeight';
 import { ComposerAttachments } from './ComposerAttachments';
@@ -9,7 +10,7 @@ import { FilePicker } from './FilePicker';
 import './ChatInput.css';
 
 interface ChatInputProps {
-  onSend: (draft: PromptDraft, options?: { queue?: boolean }) => void;
+  onSend: (draft: PromptDraft, options?: { queue?: boolean }) => boolean | void;
   onStop: () => void;
   isLoading: boolean;
   onFocusChange?: (focused: boolean) => void;
@@ -90,10 +91,10 @@ export function ChatInput({
     textareaRef.current?.focus();
   }, [restoredDraft]);
 
-  const canSend = !!input.trim() || attachments.some(item => item.status === 'ready');
+  const canSend = !!input.trim() || attachments.some(isSendableAttachment);
 
   const handleSend = () => {
-    const ready = attachments.filter(item => item.status === 'ready');
+    const ready = attachments.filter(isSendableAttachment);
     const images = ready
       .filter(item => item.kind === 'image' && item.data && item.mimeType)
       .map(item => ({
@@ -112,7 +113,9 @@ export function ChatInput({
 
     if (!input.trim() && images.length === 0 && files.length === 0) return;
 
-    onSend({ text: input, images, files }, { queue: isLoading });
+    // 没发出去（例如连接断了）就别清空：先把气泡/输入内容弄没、却什么都没发，
+    // 用户只能重打一遍
+    if (onSend({ text: input, images, files }, { queue: isLoading }) === false) return;
     setInput('');
     clear();
     if (textareaRef.current) textareaRef.current.style.height = 'auto';

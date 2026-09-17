@@ -65,7 +65,9 @@ describe('生成中排队发送', () => {
     const calls: Array<{ options?: { queue?: boolean } }> = [];
     mount({
       isLoading: true,
-      onSend: (_draft, options) => calls.push({ options }),
+      onSend: (_draft, options) => {
+        calls.push({ options });
+      },
     });
     type('顺便改成 useMemo');
 
@@ -80,7 +82,9 @@ describe('生成中排队发送', () => {
     const calls: Array<{ options?: { queue?: boolean } }> = [];
     mount({
       isLoading: false,
-      onSend: (_draft, options) => calls.push({ options }),
+      onSend: (_draft, options) => {
+        calls.push({ options });
+      },
     });
     type('普通消息');
 

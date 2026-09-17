@@ -9,6 +9,7 @@ import {
   fileKind,
   formatBytes,
   isImageFile,
+  isSendableAttachment,
   parseFileAttachments,
   planImageResize,
   prepareImageAttachment,
@@ -325,5 +326,37 @@ describe('readFileAsBase64', () => {
     const encoded = await readFileAsBase64(new Blob([big]));
 
     expect(atob(encoded).length).toBe(200 * 1024);
+  });
+});
+
+describe('isSendableAttachment', () => {
+  it('图片要有 base64 与 MIME 才算能发', () => {
+    expect(
+      isSendableAttachment({ id: '1', name: 'a.png', bytes: 1, kind: 'image', status: 'ready', data: 'x', mimeType: 'image/png' })
+    ).toBe(true);
+    expect(
+      isSendableAttachment({ id: '1', name: 'a.png', bytes: 1, kind: 'image', status: 'ready' })
+    ).toBe(false);
+  });
+
+  it('文件要有路径或内联内容才算能发', () => {
+    expect(
+      isSendableAttachment({ id: '1', name: 'a.ts', bytes: 1, kind: 'file', status: 'ready', path: 'a.ts' })
+    ).toBe(true);
+    expect(
+      isSendableAttachment({ id: '1', name: 'a.ts', bytes: 1, kind: 'file', status: 'ready', content: 'x' })
+    ).toBe(true);
+    expect(
+      isSendableAttachment({ id: '1', name: 'a.ts', bytes: 1, kind: 'file', status: 'ready' })
+    ).toBe(false);
+  });
+
+  it('没 ready 的一律不能发', () => {
+    expect(
+      isSendableAttachment({ id: '1', name: 'a.ts', bytes: 1, kind: 'file', status: 'loading', path: 'a.ts' })
+    ).toBe(false);
+    expect(
+      isSendableAttachment({ id: '1', name: 'a.ts', bytes: 1, kind: 'file', status: 'error', path: 'a.ts' })
+    ).toBe(false);
   });
 });

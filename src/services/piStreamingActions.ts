@@ -37,12 +37,13 @@ export function createStreamingActions(bridge: PiBridge) {
    * 界面上的 user 消息只存干净的正文 + 结构化 attachments，不存那行路径，
    * 这样气泡里能渲染成图片 / 文件卡片而不是一堆文字。
    */
-  const sendPrompt = (draft: PromptDraft, options?: { queue?: boolean }) => {
+  const sendPrompt = (draft: PromptDraft, options?: { queue?: boolean }): boolean => {
     const text = draft.text.trim();
     const hasAttachments = draft.images.length > 0 || draft.files.length > 0;
-    if (!text && !hasAttachments) return;
-    // 连接断了就别先把气泡加进对话——否则界面上有一条永远等不到回复的消息
-    if (!isOpen()) return;
+    if (!text && !hasAttachments) return false;
+    // 连接断了就别先把气泡加进对话——否则界面上有一条永远等不到回复的消息。
+    // 返回 false 让调用方把草稿留着。
+    if (!isOpen()) return false;
 
     const attachments: MessageAttachment[] = [
       ...draft.images.map(image => ({
@@ -97,7 +98,7 @@ export function createStreamingActions(bridge: PiBridge) {
         streamingBehavior: 'followUp',
         ...images,
       });
-      return;
+      return true;
     }
 
     const asstId = `asst-${Date.now()}`;
@@ -118,6 +119,7 @@ export function createStreamingActions(bridge: PiBridge) {
     setStatus(prev => ({ ...prev, isStreaming: true }));
 
     sendCommand({ type: 'prompt', message: wireText, ...images });
+    return true;
   };
 
   /**

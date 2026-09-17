@@ -31,6 +31,20 @@ export interface PendingAttachment {
   dataUrl?: string;
 }
 
+/**
+ * 待发送附件里哪些真的能发。
+ *
+ * 发送按钮的可用性与 handleSend 的过滤必须用同一套判据，否则会出现
+ * 「按钮是亮的、点下去却因为过滤后为空而没反应」。
+ */
+export function isSendableAttachment(item: PendingAttachment): boolean {
+  if (item.status !== 'ready') return false;
+  // 图片要走 prompt.images，必须有 base64 与 MIME
+  if (item.kind === 'image') return Boolean(item.data && item.mimeType);
+  // 文件要么有路径（agent 自己读），要么内联了内容
+  return item.path !== undefined || item.content !== undefined;
+}
+
 /** 发送时每个文件附件带的信息 */
 export interface PromptFile {
   name: string;

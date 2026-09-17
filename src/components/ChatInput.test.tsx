@@ -279,3 +279,31 @@ describe('高度过渡只在开场形变期间生效', () => {
     expect(morphing()).toBe(false);
   });
 });
+
+describe('发送失败时不丢草稿', () => {
+  const pressEnter = () => {
+    act(() => {
+      textarea().dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })
+      );
+    });
+  };
+
+  it('onSend 返回 false（断线）时保留输入内容', () => {
+    mount({ onSend: vi.fn(() => false) });
+
+    type('别弄丢这段字');
+    pressEnter();
+
+    expect(textarea().value).toBe('别弄丢这段字');
+  });
+
+  it('发送成功后才清空', () => {
+    mount({ onSend: vi.fn(() => true) });
+
+    type('发得出去');
+    pressEnter();
+
+    expect(textarea().value).toBe('');
+  });
+});
