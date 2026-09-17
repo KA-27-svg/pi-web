@@ -145,24 +145,33 @@ describe('SettingsPanel 重新检测的点击反馈', () => {
   });
 
   it('探测结果换了新对象后，短暂显示「已刷新」', () => {
-    render(setup());
-    const button = recheckButton();
-    click(button);
+    vi.useFakeTimers();
+    try {
+      render(setup());
+      click(recheckButton());
 
-    // 桥接每次都用新建的 setup 对象广播回来
-    act(() => {
-      root.render(
-        <SettingsPanel
-          status={{ connected: true, cwd: '/demo', isStreaming: false, setup: setup() }}
-          onClose={vi.fn()}
-          onSelectModel={vi.fn()}
-          onSelectThinkingLevel={vi.fn()}
-          onRecheckSetup={vi.fn()}
-        />
-      );
-    });
+      // 桥接每次都用新建的 setup 对象广播回来
+      act(() => {
+        root.render(
+          <SettingsPanel
+            status={{ connected: true, cwd: '/demo', isStreaming: false, setup: setup() }}
+            onClose={vi.fn()}
+            onSelectModel={vi.fn()}
+            onSelectThinkingLevel={vi.fn()}
+            onRecheckSetup={vi.fn()}
+          />
+        );
+      });
 
-    expect(host.querySelector('.animate-spin')).toBeNull();
-    expect(text()).toContain('已刷新');
+      // 数据到了也要把转圈走完，不然一下跳过去看不出在刷
+      act(() => {
+        vi.advanceTimersByTime(500);
+      });
+
+      expect(host.querySelector('.animate-spin')).toBeNull();
+      expect(text()).toContain('已刷新');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

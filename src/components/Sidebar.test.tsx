@@ -410,15 +410,48 @@ describe('侧栏刷新按钮的点击反馈', () => {
     expect(host.querySelector('.animate-spin')).toBeTruthy();
   });
 
-  it('数据回来（换了新数组）后换成对勾', () => {
-    mount(3);
-    clickRefresh();
+  it('数据回来后还要转够时间才出对勾，不然一下跳过去像没刷', () => {
+    vi.useFakeTimers();
+    try {
+      mount(3);
+      clickRefresh();
 
-    // 桥接那边每次都是 `sessions: data.sessions ?? []`，必然是新数组
-    mount(3);
+      // 桥接那边每次都是 `sessions: data.sessions ?? []`，必然是新数组
+      mount(3);
 
-    expect(host.querySelector('.animate-spin')).toBeNull();
-    expect(refreshButton().title).toBe('已刷新');
+      // 数据已经到了，但转圈不到 500ms，先接着转
+      expect(host.querySelector('.animate-spin')).toBeTruthy();
+      expect(refreshButton().title).toBe('刷新');
+
+      act(() => {
+        vi.advanceTimersByTime(500);
+      });
+
+      expect(host.querySelector('.animate-spin')).toBeNull();
+      expect(refreshButton().title).toBe('已刷新');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('本来就在转够 500ms 之后才回来的，不用再等', () => {
+    vi.useFakeTimers();
+    try {
+      mount(3);
+      clickRefresh();
+
+      act(() => {
+        vi.advanceTimersByTime(600);
+      });
+      expect(host.querySelector('.animate-spin')).toBeTruthy();
+
+      mount(3); // 数据迟到
+
+      expect(host.querySelector('.animate-spin')).toBeNull();
+      expect(refreshButton().title).toBe('已刷新');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('对勾停一下就回到原样，不会一直留着', () => {
@@ -427,6 +460,9 @@ describe('侧栏刷新按钮的点击反馈', () => {
       mount(3);
       clickRefresh();
       mount(3);
+      act(() => {
+        vi.advanceTimersByTime(500);
+      });
       expect(refreshButton().title).toBe('已刷新');
 
       act(() => {

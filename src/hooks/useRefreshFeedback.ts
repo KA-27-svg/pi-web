@@ -2,6 +2,14 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 export type RefreshPhase = 'idle' | 'pending' | 'done';
 
+/**
+ * 转圈至少停这么久，哪怕数据已经回来了。
+ *
+ * `list_sessions` 有时几十毫秒就回来了，不兜一下的话点下去直接跳到对勾，
+ * 看起来就像根本没在刷新。
+ */
+const MIN_PENDING_MS = 500;
+
 /** 「已刷新」停多久。太快了看不见，太久了像卡住 */
 const DONE_VISIBLE_MS = 1200;
 
@@ -27,9 +35,12 @@ export function useRefreshFeedback<T>(signal: T, onRefresh: () => void) {
   const [phase, setPhase] = useState<RefreshPhase>('idle');
   /** 点下去那一刻的 signal。之后它换了对象，就说明这一轮回来了 */
   const signalAtClickRef = useRef<T>(signal);
+  /** 点下去的时刻，用来算转圈够不够久 */
+  const clickedAtRef = useRef(0);
 
   const trigger = useCallback(() => {
     signalAtClickRef.current = signal;
+    clickedAtRef.current = Date.now();
     setPhase('pending');
     onRefresh();
   }, [onRefresh, signal]);
@@ -37,12 +48,20 @@ export function useRefreshFeedback<T>(signal: T, onRefresh: () => void) {
   useEffect(() => {
     if (phase !== 'pending') return;
 
+    const settle = () => setPhase('done');
+
     if (signal !== signalAtClickRef.current) {
-      setPhase('done');
-      return;
+      // 数据回来了。但转圈得让人看得见，不够久就再等一会儿
+      const remaining = MIN_PENDING_MS - (Date.now() - clickedAtRef.current);
+      if (remaining <= 0) {
+        settle();
+        return;
+      }
+      const timer = window.setTimeout(settle, remaining);
+      return () => window.clearTimeout(timer);
     }
 
-    const timer = window.setTimeout(() => setPhase('done'), GIVE_UP_MS);
+    const timer = window.setTimeout(settle, GIVE_UP_MS);
     return () => window.clearTimeout(timer);
   }, [phase, signal]);
 
