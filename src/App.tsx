@@ -12,6 +12,8 @@ const NARROW_VIEWPORT = '(max-width: 640px)';
 const isOverlaySidebar = () => window.matchMedia(NARROW_VIEWPORT).matches;
 import { SettingsPanel } from './components/SettingsPanel';
 import { SetupWizard } from './components/SetupWizard';
+import { ProviderDialog } from './components/ProviderDialog';
+import { CwdDialog } from './components/CwdDialog';
 import { Sidebar } from './components/Sidebar';
 import { ChatInput } from './components/ChatInput';
 import { Settings, PanelLeftOpen } from 'lucide-react';
@@ -28,6 +30,8 @@ export default function App() {
   const [panelOpen, setPanelOpen] = useState(false);
   const [openingIcon, setOpeningIcon] = useState(true);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  /** 侧栏那两个弹窗。同时只开一个，所以用一个 state 而不是两个 boolean */
+  const [dialog, setDialog] = useState<'provider' | 'cwd' | null>(null);
 
   const switching = status.switching ?? false;
   /**
@@ -194,6 +198,8 @@ export default function App() {
         status={status}
         onToggle={() => setSidebarOpen(false)}
         onNewSession={startNewSession}
+        onOpenProviders={() => setDialog('provider')}
+        onOpenCwd={() => setDialog('cwd')}
         onSwitchSession={sessionPath => {
           switchSession(sessionPath);
           // 侧栏保持展开，便于继续挑别的会话；
@@ -236,15 +242,24 @@ export default function App() {
           <SettingsPanel
             status={status}
             onClose={() => setPanelOpen(false)}
-            onChangeCwd={changeCwd}
-            onNewSession={startNewSession}
             onSelectModel={setModel}
             onSelectThinkingLevel={setThinkingLevel}
             onRecheckSetup={requestSetupStatus}
+          />
+        )}
+
+        {dialog === 'provider' && (
+          <ProviderDialog
+            status={status}
+            onClose={() => setDialog(null)}
             onSaveProvider={saveProviderKey}
             onListModels={listProviderModels}
             onSaveCustom={saveCustomProvider}
           />
+        )}
+
+        {dialog === 'cwd' && (
+          <CwdDialog cwd={status.cwd} onClose={() => setDialog(null)} onChangeCwd={changeCwd} />
         )}
 
         <div className="relative min-h-0 min-w-0 flex-1">

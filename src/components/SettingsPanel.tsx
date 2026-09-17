@@ -1,24 +1,15 @@
 import { useState } from 'react';
-import type { BridgeStatus, CustomProviderDraft, ModelInfo } from '../types/pi';
+import type { BridgeStatus, ModelInfo } from '../types/pi';
 import { formatCost, formatTokens } from '../utils/format';
-import { ProviderSetup } from './ProviderSetup';
-import { X, FolderGit2, PlusCircle, ChevronDown, RefreshCw } from 'lucide-react';
+import { X, ChevronDown, RefreshCw } from 'lucide-react';
 
 interface SettingsPanelProps {
   status: BridgeStatus;
   onClose: () => void;
-  onChangeCwd: (cwd: string) => void;
-  onNewSession: () => void;
   onSelectModel: (provider: string, modelId: string) => void;
   onSelectThinkingLevel: (level: string) => void;
   /** 重新探测环境（自检区用） */
   onRecheckSetup: () => void;
-  /** 保存一个供应商凭证 */
-  onSaveProvider: (provider: string, key: string) => void;
-  /** 拉自定义端点的模型列表 */
-  onListModels: (baseUrl: string, key: string) => Promise<string[]>;
-  /** 保存自定义端点 */
-  onSaveCustom: (draft: CustomProviderDraft) => void;
 }
 
 function Row({
@@ -161,29 +152,12 @@ function ThinkingLevelPicker({
 export function SettingsPanel({
   status,
   onClose,
-  onChangeCwd,
-  onNewSession,
   onSelectModel,
   onSelectThinkingLevel,
   onRecheckSetup,
-  onSaveProvider,
-  onListModels,
-  onSaveCustom,
 }: SettingsPanelProps) {
-  const [cwdDraft, setCwdDraft] = useState(status.cwd);
-  const [addingProvider, setAddingProvider] = useState(false);
-
-  const applyCwd = () => {
-    const next = cwdDraft.trim();
-    if (next && next !== status.cwd) onChangeCwd(next);
-  };
-
   const stats = status.stats;
   const setup = status.setup;
-  const configured = setup?.credentials.providers ?? [];
-  /** 供应商 id → 显示名。预设目录由桥接下发，取不到就退回 id */
-  const providerLabel = (id: string) =>
-    status.providers?.find(preset => preset.id === id)?.label ?? id;
   const context = stats?.contextUsage;
   const contextText = context
     ? `${formatTokens(context.tokens)} / ${formatTokens(context.contextWindow)} · ${Math.round(context.percent)}%`
@@ -248,31 +222,6 @@ export function SettingsPanel({
           </div>
         </div>
 
-        {/* 工作目录 */}
-        <div className="border-t border-border px-4 py-3">
-          <div className="mb-2 flex items-center gap-1.5 text-[11px] text-muted">
-            <FolderGit2 className="w-3 h-3" />
-            工作目录
-          </div>
-          <div className="flex items-center gap-2">
-            <input
-              value={cwdDraft}
-              onChange={e => setCwdDraft(e.target.value)}
-              onKeyDown={e => {
-                if (e.key === 'Enter') applyCwd();
-              }}
-              spellCheck={false}
-              className="min-w-0 flex-1 rounded-md bg-surface px-2.5 py-1.5 font-mono text-[11.5px] text-foreground outline-none focus:bg-surface-hover transition-colors"
-            />
-            <button
-              onClick={applyCwd}
-              className="shrink-0 rounded-md px-2.5 py-1.5 text-[11.5px] text-muted hover:bg-surface hover:text-foreground transition-colors"
-            >
-              切换
-            </button>
-          </div>
-        </div>
-
         {/* 环境自检：出问题时先看这里，比让用户自己猜快得多 */}
         {setup && (
           <div className="border-t border-border px-4 py-3">
@@ -315,72 +264,6 @@ export function SettingsPanel({
             </p>
           </div>
         )}
-
-        {/*
-          模型供应商。向导里那个表单只在「一个凭证都没有」时出现，配完第一个它就永远
-          消失——想再加一个供应商只能去终端改 pi 的配置文件。所以设置里必须留一个
-          常驻入口。
-        */}
-        {setup && (
-          <div className="border-t border-border px-4 py-3">
-            <div className="mb-2 flex items-center justify-between gap-2">
-              <span className="text-[11px] text-muted">模型供应商</span>
-              <button
-                onClick={() => setAddingProvider(a => !a)}
-                aria-expanded={addingProvider}
-                className="flex items-center gap-1 text-[11px] text-muted transition-colors hover:text-foreground"
-              >
-                <PlusCircle className="w-3 h-3" />
-                {addingProvider ? '收起' : '添加 / 更换'}
-              </button>
-            </div>
-
-            {configured.length > 0 ? (
-              <div className="flex flex-wrap gap-1">
-                {configured.map(id => (
-                  <span
-                    key={id}
-                    className="rounded bg-surface px-1.5 py-0.5 font-mono text-[10.5px] text-foreground/80"
-                  >
-                    {providerLabel(id)}
-                  </span>
-                ))}
-              </div>
-            ) : (
-              <p className="text-[11.5px] leading-[1.7] text-muted">
-                还没有配置，先添加一个才能对话。
-              </p>
-            )}
-
-            {addingProvider && (
-              <ProviderSetup
-                status={status}
-                variant="settings"
-                onSave={onSaveProvider}
-                onListModels={onListModels}
-                onSaveCustom={onSaveCustom}
-              />
-            )}
-
-            <p className="mt-2 text-[10.5px] leading-[1.6] text-muted/80">
-              写进 pi 自己的 auth.json / models.json。加完回到上面选模型。
-            </p>
-          </div>
-        )}
-
-        {/* 新建会话 */}
-        <div className="border-t border-border px-4 py-3">
-          <button
-            onClick={() => {
-              onNewSession();
-              onClose();
-            }}
-            className="flex w-full items-center justify-center gap-1.5 rounded-md bg-surface py-2 text-[12px] text-foreground/90 hover:bg-surface-hover transition-colors"
-          >
-            <PlusCircle className="w-3.5 h-3.5" />
-            新建会话
-          </button>
-        </div>
       </div>
     </>
   );

@@ -47,6 +47,8 @@ const mount = (count: number, overrides: Partial<React.ComponentProps<typeof Sid
         status={status(count)}
         onToggle={noop}
         onNewSession={noop}
+        onOpenProviders={noop}
+        onOpenCwd={noop}
         onSwitchSession={noop}
         onRenameSession={noop}
         onDeleteSession={noop}
@@ -143,6 +145,8 @@ describe('历史对话侧栏', () => {
           status={status(3)}
           onToggle={noop}
           onNewSession={noop}
+          onOpenProviders={noop}
+          onOpenCwd={noop}
           onSwitchSession={noop}
           onRenameSession={noop}
           onDeleteSession={noop}
@@ -338,5 +342,49 @@ describe('撤销契约', () => {
     clickButton('撤销');
 
     expect(onRestoreSession).toHaveBeenCalledWith('/tmp/proj/session-0.jsonl');
+  });
+});
+
+describe('侧栏顶部动作', () => {
+  const action = (label: string) =>
+    [...host.querySelectorAll('button')].find(b => b.textContent?.trim() === label);
+
+  const clickAction = (label: string) =>
+    act(() => {
+      action(label)?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+
+  it('三个条目长得一样：一个图标加几个字', () => {
+    mount(0);
+
+    // 只有图标和文字，没有副标题、没有摘要——堆了就不叫「简单」了
+    for (const label of ['新建对话', '模型供应商', '工作目录']) {
+      const button = action(label);
+      expect(button, label).toBeTruthy();
+      expect(button?.querySelector('svg'), label).toBeTruthy();
+      expect(button?.textContent?.trim(), label).toBe(label);
+    }
+  });
+
+  it('模型供应商和工作目录都是从侧栏打开的', () => {
+    // 这两项以前挤在设置下拉里，跟模型、思考强度、花费、环境自检堆在一起
+    const onOpenProviders = vi.fn();
+    const onOpenCwd = vi.fn();
+    mount(0, { onOpenProviders, onOpenCwd });
+
+    clickAction('模型供应商');
+    expect(onOpenProviders).toHaveBeenCalledTimes(1);
+
+    clickAction('工作目录');
+    expect(onOpenCwd).toHaveBeenCalledTimes(1);
+  });
+
+  it('新建对话仍然照旧', () => {
+    const onNewSession = vi.fn();
+    mount(0, { onNewSession });
+
+    clickAction('新建对话');
+
+    expect(onNewSession).toHaveBeenCalledTimes(1);
   });
 });

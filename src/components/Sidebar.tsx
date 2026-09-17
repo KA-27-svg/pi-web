@@ -4,6 +4,8 @@ import { useRubberBandScroll } from '../hooks/useRubberBandScroll';
 import { SessionRow } from './SessionRow';
 import { TrashList } from './TrashList';
 import {
+  FolderGit2,
+  KeyRound,
   PanelLeftClose,
   RefreshCw,
   Search,
@@ -17,6 +19,10 @@ interface SidebarProps {
   status: BridgeStatus;
   onToggle: () => void;
   onNewSession: () => void;
+  /** 打开模型供应商弹窗 */
+  onOpenProviders: () => void;
+  /** 打开工作目录弹窗 */
+  onOpenCwd: () => void;
   onSwitchSession: (sessionPath: string) => void;
   onRenameSession: (sessionPath: string, name: string) => void;
   /** 删除 = 移入回收箱 */
@@ -49,11 +55,34 @@ function isTypingTarget(target: EventTarget | null) {
   );
 }
 
+/** 顶部那几个动作，长得都一样：图标 + 几个字，不堆别的 */
+function Action({
+  icon,
+  label,
+  onClick,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-[12.5px] text-foreground/90 transition-colors hover:bg-surface"
+    >
+      {icon}
+      {label}
+    </button>
+  );
+}
+
 export function Sidebar({
   open,
   status,
   onToggle,
   onNewSession,
+  onOpenProviders,
+  onOpenCwd,
   onSwitchSession,
   onRenameSession,
   onDeleteSession,
@@ -177,14 +206,22 @@ export function Sidebar({
           </button>
         </div>
 
-        <div className="px-3 pb-2">
-          <button
+        <div className="space-y-0.5 px-3 pb-2">
+          <Action
+            icon={<SquarePen className="w-4 h-4" />}
+            label="新建对话"
             onClick={onNewSession}
-            className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-[12.5px] text-foreground/90 transition-colors hover:bg-surface"
-          >
-            <SquarePen className="w-4 h-4" />
-            新建对话
-          </button>
+          />
+          <Action
+            icon={<KeyRound className="w-4 h-4" />}
+            label="模型供应商"
+            onClick={onOpenProviders}
+          />
+          <Action
+            icon={<FolderGit2 className="w-4 h-4" />}
+            label="工作目录"
+            onClick={onOpenCwd}
+          />
         </div>
 
         {view === 'history' && (
