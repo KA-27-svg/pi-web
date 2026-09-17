@@ -1,5 +1,7 @@
 # Pi/Pi-web一键部署
 
+[![最新版本](https://img.shields.io/github/v/release/KA-27-svg/pi-web?label=%E4%B8%8B%E8%BD%BD&color=blue)](https://github.com/KA-27-svg/pi-web/releases/latest)
+
 在浏览器里使用本机的 [`pi`](https://github.com/earendil-works/pi) 编码代理。
 
 **Windows 上零基础也能用。** 不用先装 Node、不用先装 pi、不用碰终端——双击一下，缺什么它自己
@@ -22,11 +24,15 @@ pi 负责思考、调工具、读写文件；这个项目只负责让它好读�
 
 ### 1. 下载
 
+**不想用 Git**：点最上面那个蓝色的「下载」徽章（或仓库右侧的 Releases），下载 zip 解压到任意目录。
+
+**用 Git**：
+
 ```bash
 git clone https://github.com/KA-27-svg/pi-web.git
 ```
 
-没有 Git 也行：在 GitHub 页面上点 **Code → Download ZIP**，解压到任意目录。
+也可以直接在 GitHub 页面上点 **Code → Download ZIP**。
 
 ### 2. 双击 `start.bat`
 
