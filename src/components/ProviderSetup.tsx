@@ -10,6 +10,12 @@ interface ProviderSetupProps {
   onListModels: (baseUrl: string, key: string) => Promise<string[]>;
   /** 保存自定义端点 */
   onSaveCustom: (draft: CustomProviderDraft) => void;
+  /**
+   * wizard：首次运行向导里用，自带「配置模型」标题，按钮说「保存并开始」
+   * settings：设置面板里用，外面已经有分区标题了（而且不是「开始」什么），
+   *           所以不要标题、按钮只说「保存」
+   */
+  variant?: 'wizard' | 'settings';
 }
 
 /**
@@ -19,7 +25,15 @@ interface ProviderSetupProps {
  * 交互流程。所以两种方式都摆出来：贴 API key 是本页的事，订阅登录只做引导，
  * 并说明授权完成后页面会自己继续（外层每 5 秒重探一次）。
  */
-export function ProviderSetup({ status, onSave, onListModels, onSaveCustom }: ProviderSetupProps) {
+export function ProviderSetup({
+  status,
+  onSave,
+  onListModels,
+  onSaveCustom,
+  variant = 'wizard',
+}: ProviderSetupProps) {
+  const wizard = variant === 'wizard';
+  const submitLabel = wizard ? '保存并开始' : '保存';
   const providers = status.providers ?? [];
   const subscriptions = status.subscriptions ?? [];
   const [selected, setSelected] = useState('');
@@ -36,8 +50,8 @@ export function ProviderSetup({ status, onSave, onListModels, onSaveCustom }: Pr
   };
 
   return (
-    <section className="mt-6">
-      <h2 className="text-[12px] text-muted">配置模型</h2>
+    <section className={wizard ? 'mt-6' : ''}>
+      {wizard && <h2 className="text-[12px] text-muted">配置模型</h2>}
 
       <form onSubmit={submit} className="mt-2 space-y-2.5">
         <label className="block">
@@ -72,7 +86,7 @@ export function ProviderSetup({ status, onSave, onListModels, onSaveCustom }: Pr
           disabled={!canSubmit}
           className="rounded-full bg-accent px-3.5 py-1.5 text-[12px] text-accent-foreground transition-colors hover:bg-accent-hover disabled:cursor-default disabled:opacity-40"
         >
-          保存并开始
+          {submitLabel}
         </button>
 
         {status.setupNotice && (
@@ -104,7 +118,12 @@ export function ProviderSetup({ status, onSave, onListModels, onSaveCustom }: Pr
         <summary className="cursor-pointer text-[12px] text-foreground/90">
           或者用自定义端点（中转站 / 自建服务）
         </summary>
-        <CustomProviderSetup status={status} onListModels={onListModels} onSave={onSaveCustom} />
+        <CustomProviderSetup
+          status={status}
+          onListModels={onListModels}
+          onSave={onSaveCustom}
+          submitLabel={submitLabel}
+        />
       </details>
     </section>
   );

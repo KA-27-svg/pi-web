@@ -23,6 +23,8 @@ interface CustomProviderSetupProps {
   /** 从 <baseUrl>/models 拉模型列表；失败请抛错，这里会把原因显示出来 */
   onListModels: (baseUrl: string, key: string) => Promise<string[]>;
   onSave: (draft: CustomProviderDraft) => void;
+  /** 按钮文案。向导里说「保存并开始」，设置面板里只是「保存」 */
+  submitLabel?: string;
 }
 
 /**
@@ -32,7 +34,12 @@ interface CustomProviderSetupProps {
  * API 类型、一组模型 id。模型 id 可以手填，也可以从 `<baseUrl>/models` 拉——
  * 但很多自建服务没实现那个接口，所以拉取失败只是提示，不阻断保存。
  */
-export function CustomProviderSetup({ status, onListModels, onSave }: CustomProviderSetupProps) {
+export function CustomProviderSetup({
+  status,
+  onListModels,
+  onSave,
+  submitLabel = '保存并开始',
+}: CustomProviderSetupProps) {
   const [id, setId] = useState('');
   const [label, setLabel] = useState('');
   const [baseUrl, setBaseUrl] = useState('');
@@ -182,7 +189,7 @@ export function CustomProviderSetup({ status, onListModels, onSave }: CustomProv
         disabled={!canSave}
         className="rounded-full bg-accent px-3.5 py-1.5 text-[12px] text-accent-foreground transition-colors hover:bg-accent-hover disabled:cursor-default disabled:opacity-40"
       >
-        保存并开始
+        {submitLabel}
       </button>
 
       {status.setupNotice && (

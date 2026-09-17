@@ -241,6 +241,9 @@ export default function App() {
             onSelectModel={setModel}
             onSelectThinkingLevel={setThinkingLevel}
             onRecheckSetup={requestSetupStatus}
+            onSaveProvider={saveProviderKey}
+            onListModels={listProviderModels}
+            onSaveCustom={saveCustomProvider}
           />
         )}
 

@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import type { BridgeStatus, ModelInfo } from '../types/pi';
+import type { BridgeStatus, CustomProviderDraft, ModelInfo } from '../types/pi';
 import { formatCost, formatTokens } from '../utils/format';
+import { ProviderSetup } from './ProviderSetup';
 import { X, FolderGit2, PlusCircle, ChevronDown, RefreshCw } from 'lucide-react';
 
 interface SettingsPanelProps {
@@ -12,6 +13,12 @@ interface SettingsPanelProps {
   onSelectThinkingLevel: (level: string) => void;
   /** 重新探测环境（自检区用） */
   onRecheckSetup: () => void;
+  /** 保存一个供应商凭证 */
+  onSaveProvider: (provider: string, key: string) => void;
+  /** 拉自定义端点的模型列表 */
+  onListModels: (baseUrl: string, key: string) => Promise<string[]>;
+  /** 保存自定义端点 */
+  onSaveCustom: (draft: CustomProviderDraft) => void;
 }
 
 function Row({
@@ -159,8 +166,12 @@ export function SettingsPanel({
   onSelectModel,
   onSelectThinkingLevel,
   onRecheckSetup,
+  onSaveProvider,
+  onListModels,
+  onSaveCustom,
 }: SettingsPanelProps) {
   const [cwdDraft, setCwdDraft] = useState(status.cwd);
+  const [addingProvider, setAddingProvider] = useState(false);
 
   const applyCwd = () => {
     const next = cwdDraft.trim();
@@ -169,6 +180,10 @@ export function SettingsPanel({
 
   const stats = status.stats;
   const setup = status.setup;
+  const configured = setup?.credentials.providers ?? [];
+  /** 供应商 id → 显示名。预设目录由桥接下发，取不到就退回 id */
+  const providerLabel = (id: string) =>
+    status.providers?.find(preset => preset.id === id)?.label ?? id;
   const context = stats?.contextUsage;
   const contextText = context
     ? `${formatTokens(context.tokens)} / ${formatTokens(context.contextWindow)} · ${Math.round(context.percent)}%`
@@ -190,7 +205,7 @@ export function SettingsPanel({
       {/* 点击空白处关闭 */}
       <div className="fixed inset-0 z-40" onClick={onClose} />
 
-      <div className="absolute right-4 top-14 z-50 w-[19rem] origin-top-right rounded-xl border border-border bg-background shadow-[0_4px_24px_-8px_rgba(0,0,0,0.12)] paper-in">
+      <div className="absolute right-4 top-14 z-50 max-h-[calc(100vh-5rem)] w-[19rem] origin-top-right overflow-y-auto rounded-xl border border-border bg-background shadow-[0_4px_24px_-8px_rgba(0,0,0,0.12)] paper-in">
         <div className="flex items-center justify-between px-4 pt-3.5 pb-1">
           <span className="text-[12px] font-medium text-foreground">设置</span>
           <button
@@ -289,11 +304,6 @@ export function SettingsPanel({
                       : '未找到'}
                 </Row>
               )}
-              <Row label="模型凭证">
-                {setup.credentials.providers.length > 0
-                  ? `${setup.credentials.providers.length} 个供应商`
-                  : '还没有配置'}
-              </Row>
             </div>
 
             {/*
@@ -302,6 +312,58 @@ export function SettingsPanel({
             */}
             <p className="mt-2 text-[10.5px] leading-[1.6] text-muted/80">
               只检查本机配置，不测网络连通性。
+            </p>
+          </div>
+        )}
+
+        {/*
+          模型供应商。向导里那个表单只在「一个凭证都没有」时出现，配完第一个它就永远
+          消失——想再加一个供应商只能去终端改 pi 的配置文件。所以设置里必须留一个
+          常驻入口。
+        */}
+        {setup && (
+          <div className="border-t border-border px-4 py-3">
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <span className="text-[11px] text-muted">模型供应商</span>
+              <button
+                onClick={() => setAddingProvider(a => !a)}
+                aria-expanded={addingProvider}
+                className="flex items-center gap-1 text-[11px] text-muted transition-colors hover:text-foreground"
+              >
+                <PlusCircle className="w-3 h-3" />
+                {addingProvider ? '收起' : '添加 / 更换'}
+              </button>
+            </div>
+
+            {configured.length > 0 ? (
+              <div className="flex flex-wrap gap-1">
+                {configured.map(id => (
+                  <span
+                    key={id}
+                    className="rounded bg-surface px-1.5 py-0.5 font-mono text-[10.5px] text-foreground/80"
+                  >
+                    {providerLabel(id)}
+                  </span>
+                ))}
+              </div>
+            ) : (
+              <p className="text-[11.5px] leading-[1.7] text-muted">
+                还没有配置，先添加一个才能对话。
+              </p>
+            )}
+
+            {addingProvider && (
+              <ProviderSetup
+                status={status}
+                variant="settings"
+                onSave={onSaveProvider}
+                onListModels={onListModels}
+                onSaveCustom={onSaveCustom}
+              />
+            )}
+
+            <p className="mt-2 text-[10.5px] leading-[1.6] text-muted/80">
+              写进 pi 自己的 auth.json / models.json。加完回到上面选模型。
             </p>
           </div>
         )}
