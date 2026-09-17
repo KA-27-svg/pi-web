@@ -41,12 +41,14 @@ export function ProviderSetup({
 }: ProviderSetupProps) {
   const wizard = variant === 'wizard';
   const submitLabel = wizard ? '保存并开始' : '保存';
-  const providers = status.providers ?? [];
+  // 只收能贴 API key 的供应商：subscriptionOnly 的（如 GitHub Copilot）只认 OAuth，
+  // 给它写一个 { type: 'api_key' } 进 auth.json 语义就是错的
+  const providers = (status.providers ?? []).filter(preset => !preset.subscriptionOnly);
   const subscriptions = status.subscriptions ?? [];
 
   const [selected, setSelected] = useState('');
   const [key, setKey] = useState('');
-  const [baseUrl, setBaseUrl] = useState('');
+  const [baseUrlDraft, setBaseUrlDraft] = useState<Record<string, string>>({});
   /** 用户改过的名字。没改的供应商就用它已有那个 */
   const [nameDraft, setNameDraft] = useState<Record<string, string>>({});
 
@@ -55,7 +57,12 @@ export function ProviderSetup({
   const savedName = status.providerNames?.[provider] ?? '';
   // 切供应商时跟着换成那一个已有的名字；用户打过字就以他打过的为准
   const name = nameDraft[provider] ?? savedName;
-  const canSubmit = Boolean(provider) && key.trim().length > 0;
+  // 已经配过凭证的供应商可以留空密钥：只改名字/地址，不必把不回显的密钥重贴一遍
+  const alreadyConfigured = (status.setup?.credentials.providers ?? []).includes(provider);
+  // 地址也要回显：不给的话，用户只换 key 会在空地址上提交，把中转地址覆盖掉
+  const savedBaseUrl = status.providerBaseUrls?.[provider] ?? '';
+  const baseUrl = baseUrlDraft[provider] ?? savedBaseUrl;
+  const canSubmit = Boolean(provider) && (key.trim().length > 0 || alreadyConfigured);
 
   // 保存结果由桥接广播回来（provider_saved → setup_status），拿 setup 的引用变化
   // 当完成信号；不然点一下「保存」什么都不变，用户不知道到底存上没
@@ -87,7 +94,12 @@ export function ProviderSetup({
           <span className="text-[11px] text-muted">供应商</span>
           <select
             value={provider}
-            onChange={event => setSelected(event.target.value)}
+            onChange={event => {
+              setSelected(event.target.value);
+              // 密钥是单个输入框、又不回显；换供应商时必须清掉，
+              // 否则容易把 A 刚贴的 key 存到 B 名下
+              setKey('');
+            }}
             className={`mt-1 ${inputClass}`}
           >
             {providers.map(preset => (
@@ -104,10 +116,15 @@ export function ProviderSetup({
             type="password"
             value={key}
             onChange={event => setKey(event.target.value)}
-            placeholder="sk-..."
+            placeholder={alreadyConfigured ? '留空则不改动已有密钥' : 'sk-...'}
             autoComplete="off"
             className={`mt-1 font-mono ${inputClass}`}
           />
+          {alreadyConfigured && (
+            <span className="mt-1 block text-[10.5px] leading-[1.6] text-muted/80">
+              这个供应商已经配过，留空密钥就只更新下面的名称 / 地址。
+            </span>
+          )}
         </label>
 
         <label className="block">
@@ -129,7 +146,9 @@ export function ProviderSetup({
           <input
             data-field="baseUrl"
             value={baseUrl}
-            onChange={event => setBaseUrl(event.target.value)}
+            onChange={event =>
+              setBaseUrlDraft(draft => ({ ...draft, [provider]: event.target.value }))
+            }
             placeholder="仅中转填写"
             autoComplete="off"
             className={`mt-1 font-mono ${inputClass}`}

@@ -26,18 +26,17 @@ import { PROVIDER_PRESETS, SUBSCRIPTION_LOGINS } from './providers.js';
 import { findGitBash } from './gitBash.js';
 import { planToolFallback } from './toolFallback.js';
 import {
-  listConfiguredProviders,
+  configPaths,
   readDefaultTools,
+  readProviderBaseUrls,
   readProviderNames,
   readShellPath,
-  saveCustomProvider,
   saveDefaultModel,
   saveDefaultTools,
-  saveProviderKey,
-  saveProviderName,
+  saveProviderConfig,
 } from './setupConfig.js';
-import { fetchProviderModels, normalizeBaseUrl, SUPPORTED_APIS } from './customProvider.js';
 import { PiSupervisor } from './pi.js';
+import { watchConfigFiles } from './configWatch.js';
 import {
   emptyTrash,
   listTrash,
@@ -286,6 +285,8 @@ async function setupPayloadFrom(setup: SetupStatus) {
     subscriptions: SUBSCRIPTION_LOGINS,
     // 用户给供应商起的名字（写在 models.json 里）。界面优先显示它，没有就用内置目录的名字
     providerNames: await readProviderNames(),
+    // 已配的中转地址。表单回显用，不然只换 key 会把地址覆盖掉
+    providerBaseUrls: await readProviderBaseUrls(),
   };
 }
 
@@ -359,12 +360,6 @@ wss.on('connection', (ws: WebSocket) => {
         return;
       }
 
-      // 重启 Pi 进程
-      if (data.type === 'restart_pi') {
-        pi.restart(currentCwd);
-        return;
-      }
-
       // 环境探测：本机够不够跑 pi。向导靠它决定「缺什么、下一步做什么」，
       // 也是「网页能打开但模型不回话」这类困惑的第一道解释。
       if (data.type === 'get_setup_status') {
@@ -382,22 +377,13 @@ wss.on('connection', (ws: WebSocket) => {
           'provider_saved',
           async () => {
             const provider = String(data.provider ?? '').trim();
-            const key = String(data.key ?? '').trim();
+            const key = typeof data.key === 'string' ? data.key.trim() : '';
             const baseUrl = typeof data.baseUrl === 'string' ? data.baseUrl.trim() : '';
             const name = typeof data.name === 'string' ? data.name.trim() : '';
 
-            if (!provider) throw new Error('缺少供应商标识');
-            if (!key) throw new Error('API key 不能为空');
-
-            await saveProviderKey(provider, {
-              type: 'api_key',
-              key,
-              ...(baseUrl ? { baseUrl } : {}),
-            });
-
-            // 显示名写在 models.json 里（pi 也读它）。空字符串 = 退回官方名字。
-            // 只碰 name 这一个键，那份文件里可能躺着用户手写的全套模型细节
-            await saveProviderName(provider, name);
+            // key 留空是允许的（只改名字/地址）：saveProviderConfig 会判断这个
+            // 供应商是不是已经配过，没配过才报「API key 不能为空」。
+            await saveProviderConfig({ provider, key, baseUrl, name });
 
             // 回包只带供应商名：key 不回显、也不进日志
             return { provider };
@@ -406,7 +392,7 @@ wss.on('connection', (ws: WebSocket) => {
           () => ({ id: data.id })
         );
 
-        // 必须等配置真的落盘再让 pi 重读：saveProviderKey / saveProviderName 是异步写文件，
+        // 必须等配置真的落盘再让 pi 重读：saveProviderConfig 是异步写文件，
         // 抢在它们前面发 get_available_models，pi 读到的还是旧配置——
         // 表现成「配了第二个模型，第一个才出现」这种差一的怪现象。
         void saved.then(() => {
@@ -426,84 +412,6 @@ wss.on('connection', (ws: WebSocket) => {
           () => ({ provider: data.provider, modelId: data.modelId }),
           () => ({ id: data.id })
         );
-        return;
-      }
-
-      // 已配好凭证的供应商。向导用它做 OAuth 轮询：用户在终端跑完 /login，
-      // 这里就能看到变化。
-      if (data.type === 'list_configured_providers') {
-        reply(ws, 'configured_providers', () => listConfiguredProviders(), providers => ({
-          providers,
-        }));
-        return;
-      }
-
-      // 从 <baseUrl>/models 拉模型列表，给自定义端点用。
-      // 失败时前端会退化成手填模型 id，所以这里只管把错误说清楚。
-      if (data.type === 'list_provider_models') {
-        reply(
-          ws,
-          'provider_models',
-          async () => {
-            const key = typeof data.key === 'string' ? data.key.trim() : '';
-            const models = await fetchProviderModels({
-              baseUrl: String(data.baseUrl ?? ''),
-              key: key || undefined,
-            });
-            return { models };
-          },
-          value => ({ models: value.models }),
-          () => ({ id: data.id })
-        );
-        return;
-      }
-
-      // 自定义端点：写 models.json（端点与模型），key 写 auth.json。
-      // models.json 每次打开 /model 都会重读，所以不需要重启 pi。
-      if (data.type === 'save_custom_provider') {
-        const saved = reply(
-          ws,
-          'custom_provider_saved',
-          async () => {
-            // 字段叫 providerId 而不是 id：`id` 已经被请求/回包配对占用了，
-            // 同名的话前端一旦改用 request 发指令，供应商 id 就会被配对 id 覆盖。
-            const id = String(data.providerId ?? '').trim();
-            // 这个 id 会变成 auth.json / models.json 里的键，也是 pi 报错时显示的
-            // 供应商名，所以限成可读字符，免得出现带空格或中文的键
-            if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(id)) {
-              throw new Error('供应商标识只能包含字母、数字、点、短横线和下划线');
-            }
-
-            const baseUrl = normalizeBaseUrl(String(data.baseUrl ?? ''));
-            if (!SUPPORTED_APIS.includes(data.api)) throw new Error('不支持的 API 类型');
-
-            const modelIds: string[] = (Array.isArray(data.models) ? data.models : [])
-              .map((item: unknown) => String(item).trim())
-              .filter(Boolean);
-            if (modelIds.length === 0) throw new Error('至少需要填一个模型 id');
-
-            await saveCustomProvider(id, {
-              name: String(data.label ?? '').trim() || id,
-              baseUrl,
-              api: data.api,
-              models: modelIds.map(modelId => ({ id: modelId })),
-            });
-
-            const key = typeof data.key === 'string' ? data.key.trim() : '';
-            if (key) await saveProviderKey(id, { type: 'api_key', key });
-
-            return { id, models: modelIds.length };
-          },
-          value => ({ provider: value.id, modelCount: value.models }),
-          () => ({ id: data.id })
-        );
-
-        // 同上：models.json 写完了再让 pi 重读
-        void saved.then(() => {
-          void broadcastSetupStatus();
-          pi.send({ type: 'get_available_models' });
-          pi.send({ type: 'get_state' });
-        });
         return;
       }
 
@@ -769,4 +677,18 @@ server.listen(PORT, HOST, () => {
       if (removed > 0) console.log(`[Pi Bridge] Swept ${removed} expired trashed session(s)`);
     })
     .catch(err => console.error('[Pi Bridge] Trash sweep failed:', err));
+
+  // 盯着 auth.json / models.json：用户在终端里跑完 /login、或手改 models.json
+  // 加了个模型之后，已打开的页面不该等到重连才发现新模型。
+  // 只读两个文件的 mtime，代价可忽略。
+  const { auth, models } = configPaths();
+  watchConfigFiles({
+    files: [auth, models],
+    onChange: () => {
+      console.log('[Pi Bridge] Config files changed, refreshing models');
+      void broadcastSetupStatus();
+      pi.send({ type: 'get_available_models' });
+      pi.send({ type: 'get_state' });
+    },
+  });
 });

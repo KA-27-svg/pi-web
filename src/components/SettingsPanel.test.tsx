@@ -274,3 +274,17 @@ describe('SettingsPanel 重新检测的点击反馈', () => {
     }
   });
 });
+
+describe('切模型失败', () => {
+  it('在设置面板里就地显示原因（侧栏收起时提示条看不见）', () => {
+    render(setup(), vi.fn(), { modelNotice: '切换模型失败：Model not found: x/y' });
+
+    expect(text()).toContain('切换模型失败');
+    expect(text()).toContain('Model not found');
+  });
+
+  it('没有出错时不占位置', () => {
+    render(setup());
+    expect(text()).not.toContain('切换模型失败');
+  });
+});

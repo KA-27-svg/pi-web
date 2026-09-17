@@ -84,6 +84,20 @@ describe('ProviderSetup', () => {
     expect(text()).toContain('Anthropic (Claude)');
   });
 
+  it('订阅登录专用的供应商不出现在贴 key 的下拉里', () => {
+    // github-copilot 只认 OAuth，贴一个 api_key 写进 auth.json 语义就是错的
+    render({
+      providers: [
+        ...PROVIDERS,
+        { id: 'github-copilot', label: 'GitHub Copilot', envVar: '', subscriptionOnly: true },
+      ],
+    });
+
+    const values = [...select().querySelectorAll('option')].map(o => o.value);
+    expect(values).toEqual(['anthropic', 'deepseek']);
+    expect(values).not.toContain('github-copilot');
+  });
+
   it('填了 key 才能提交', () => {
     const onSave = render();
 
@@ -94,6 +108,51 @@ describe('ProviderSetup', () => {
 
     submit();
     expect(onSave).toHaveBeenCalledWith('anthropic', 'sk-ant-1', undefined, undefined);
+  });
+
+  it('已配过的供应商留空密钥也能提交（只改名字 / 地址）', () => {
+    const onSave = render({
+      setup: { credentials: { providers: ['anthropic'] } } as SetupStatus,
+    });
+
+    // 密钥不回显，要求重填等于让用户把它翻出来重贴一遍
+    expect(submitButton().disabled).toBe(false);
+
+    setValue(nameInput(), '公司账号');
+    submit();
+
+    expect(onSave).toHaveBeenCalledWith('anthropic', '', undefined, '公司账号');
+  });
+
+  it('回显已有中转地址，换密钥时不会把它丢掉', () => {
+    const onSave = render({
+      setup: { credentials: { providers: ['deepseek'] } } as SetupStatus,
+      providerBaseUrls: { deepseek: 'https://relay.example/v1' },
+    });
+
+    setValue(select(), 'deepseek');
+    // 不回显的话，用户只想换 key 就会把地址一起提交没了
+    expect(baseUrlInput().value).toBe('https://relay.example/v1');
+
+    setValue(keyInput(), 'sk-new');
+    submit();
+
+    expect(onSave).toHaveBeenCalledWith(
+      'deepseek',
+      'sk-new',
+      'https://relay.example/v1',
+      undefined
+    );
+  });
+
+  it('换供应商时清掉刚填的密钥，不会把 A 的 key 存到 B 名下', () => {
+    render();
+
+    setValue(keyInput(), 'sk-anthropic');
+    setValue(select(), 'deepseek');
+
+    expect(keyInput().value).toBe('');
+    expect(submitButton().disabled).toBe(true);
   });
 
   it('换成另一个供应商后，提交用它', () => {

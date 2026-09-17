@@ -56,7 +56,3 @@ export const SUBSCRIPTION_LOGINS: readonly { id: string; label: string }[] = [
 export const PROVIDER_ENV_VARS: Record<string, string> = Object.fromEntries(
   PROVIDER_PRESETS.filter(preset => preset.envVar).map(preset => [preset.id, preset.envVar])
 );
-
-export function providerLabel(id: string): string {
-  return PROVIDER_PRESETS.find(preset => preset.id === id)?.label ?? id;
-}

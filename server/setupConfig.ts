@@ -114,6 +114,76 @@ export async function saveProviderKey(
 }
 
 /**
+ * 在已有的 api_key 凭证上改地址，密钥不动。
+ *
+ * 没有 api_key（没配过、或是 OAuth 凭证）时拒绝：只改地址而不给密钥，
+ * 等于凭空造一个半截凭证。
+ */
+export async function updateProviderBaseUrl(
+  provider: string,
+  baseUrl: string,
+  agentDir: string = resolveAgentDir()
+): Promise<void> {
+  const { auth } = configPaths(agentDir);
+  const existing = await readJsonObject(auth);
+
+  const entry = existing[provider];
+  if (!entry || typeof entry !== 'object' || Array.isArray(entry) || entry.type !== 'api_key') {
+    throw new Error('这个供应商还没有 API key，请先填入密钥再改地址');
+  }
+
+  existing[provider] = { ...entry, baseUrl };
+  await writeJsonObject(auth, existing, { mode: 0o600 });
+}
+
+export interface ProviderConfigInput {
+  provider: string;
+  /** 留空表示「不动已有密钥」，只更新地址 / 名字 */
+  key?: string;
+  baseUrl?: string;
+  /** 显示名。空字符串 = 退回官方名字 */
+  name: string;
+}
+
+/**
+ * 保存一个供应商的凭证 / 地址 / 显示名。
+ *
+ * `key` 留空是允许的，前提是这个供应商已经配过（auth.json 或环境变量）：
+ * 这样用户换个名字、改个地址时，不必把不回显的密钥再翻出来重贴一遍。
+ */
+export async function saveProviderConfig(
+  input: ProviderConfigInput,
+  agentDir: string = resolveAgentDir(),
+  env: NodeJS.ProcessEnv = process.env
+): Promise<void> {
+  const provider = input.provider.trim();
+  if (!provider) throw new Error('缺少供应商标识');
+
+  const key = input.key?.trim() ?? '';
+  const baseUrl = input.baseUrl?.trim() ?? '';
+
+  if (key) {
+    await saveProviderKey(
+      provider,
+      {
+        type: 'api_key',
+        key,
+        ...(baseUrl ? { baseUrl } : {}),
+      },
+      agentDir
+    );
+  } else if (baseUrl) {
+    await updateProviderBaseUrl(provider, baseUrl, agentDir);
+  } else {
+    // 什么都不更新的话，至少得是已经配过的，否则等于点了保存却没配任何东西
+    const configured = await listConfiguredProviders(agentDir, env);
+    if (!configured.includes(provider)) throw new Error('API key 不能为空');
+  }
+
+  await saveProviderName(provider, input.name, agentDir);
+}
+
+/**
  * pi 的 settings.json 里指定的 bash 路径。
  *
  * 读不到就返回 null（文件不存在、键没设、内容坏了都一样）：
@@ -236,6 +306,27 @@ export async function readProviderNames(
   return names;
 }
 
+/**
+ * 供应商 id → 已配的中转地址（auth.json 里的 `baseUrl`）。
+ *
+ * 给表单回显用：不回显的话，用户只想换个 key，地址那一栏是空的，一提交就被覆盖没了。
+ * 只读 baseUrl，不碰 key。读不到就当没有。
+ */
+export async function readProviderBaseUrls(
+  agentDir: string = resolveAgentDir()
+): Promise<Record<string, string>> {
+  const auth = await readJsonObject(configPaths(agentDir).auth).catch(
+    () => ({}) as Record<string, any>
+  );
+
+  const urls: Record<string, string> = {};
+  for (const [id, entry] of Object.entries(auth)) {
+    const baseUrl = (entry as { baseUrl?: unknown } | null)?.baseUrl;
+    if (typeof baseUrl === 'string' && baseUrl.trim()) urls[id] = baseUrl.trim();
+  }
+  return urls;
+}
+
 /** 记住启动时用的默认模型 */
 export async function saveDefaultModel(
   provider: string,
@@ -249,39 +340,6 @@ export async function saveDefaultModel(
   existing.defaultModel = modelId;
 
   await writeJsonObject(settings, existing);
-}
-
-export interface CustomProviderConfig {
-  /** 展示名；pi 的 models.json 用 `name` */
-  name: string;
-  baseUrl: string;
-  api: string;
-  models: { id: string; name?: string }[];
-}
-
-/**
- * 写入一个自定义供应商（中转站 / 自建服务）到 models.json。
- *
- * 同样是读改写：用户可能手写过好几个中转站，也可能在 models.json 里覆盖了内置
- * 供应商的配置，整体覆盖一次就全没了。
- */
-export async function saveCustomProvider(
-  id: string,
-  config: CustomProviderConfig,
-  agentDir: string = resolveAgentDir()
-): Promise<void> {
-  const { models } = configPaths(agentDir);
-  const existing = await readJsonObject(models);
-
-  const providers =
-    existing.providers && typeof existing.providers === 'object' && !Array.isArray(existing.providers)
-      ? (existing.providers as Record<string, unknown>)
-      : {};
-
-  providers[id] = config;
-  existing.providers = providers;
-
-  await writeJsonObject(models, existing, { mode: 0o600 });
 }
 
 /**

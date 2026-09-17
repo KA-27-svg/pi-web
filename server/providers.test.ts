@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { PROVIDER_ENV_VARS, PROVIDER_PRESETS, SUBSCRIPTION_LOGINS, providerLabel } from './providers';
+import { PROVIDER_ENV_VARS, PROVIDER_PRESETS, SUBSCRIPTION_LOGINS } from './providers';
 
 describe('PROVIDER_PRESETS', () => {
   it('id 唯一——它直接当 auth.json 的键用，重复会互相覆盖', () => {
@@ -47,16 +47,5 @@ describe('SUBSCRIPTION_LOGINS', () => {
     for (const entry of SUBSCRIPTION_LOGINS) {
       expect(entry.label.trim()).not.toBe('');
     }
-  });
-});
-
-describe('providerLabel', () => {
-  it('认得的供应商给展示名', () => {
-    expect(providerLabel('anthropic')).toBe('Anthropic (Claude)');
-  });
-
-  it('认不出来的直接回显 id，而不是变成空白', () => {
-    // 用户自己写进 models.json 的自定义供应商就会走到这里
-    expect(providerLabel('my-relay')).toBe('my-relay');
   });
 });

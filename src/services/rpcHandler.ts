@@ -234,13 +234,14 @@ export class RpcEventHandler {
         preflight: data.preflight ?? prev.preflight,
         providers: data.providers ?? prev.providers,
         providerNames: data.providerNames ?? prev.providerNames,
+        providerBaseUrls: data.providerBaseUrls ?? prev.providerBaseUrls,
         subscriptions: data.subscriptions ?? prev.subscriptions,
       }));
       return;
     }
 
     // 写入配置的结果。失败必须说出来，否则用户点了「保存」不知道到底成没成。
-    if (data.type === 'provider_saved' || data.type === 'default_model_saved') {
+    if (data.type === 'provider_saved') {
       if (!data.success) {
         this.setStatus((prev: BridgeStatus) => ({
           ...prev,
@@ -248,6 +249,19 @@ export class RpcEventHandler {
         }));
       } else {
         this.setStatus((prev: BridgeStatus) => ({ ...prev, setupNotice: undefined }));
+      }
+      return;
+    }
+
+    // 默认模型是否存下来了。它由「切模型时顺手保存」自动触发，失败同样要看得见。
+    if (data.type === 'default_model_saved') {
+      if (!data.success) {
+        this.setStatus((prev: BridgeStatus) => ({
+          ...prev,
+          modelNotice: `默认模型没存下来：${String(data.error ?? '未知原因')}`,
+        }));
+      } else {
+        this.setStatus((prev: BridgeStatus) => ({ ...prev, modelNotice: undefined }));
       }
       return;
     }
@@ -387,22 +401,58 @@ export class RpcEventHandler {
       }));
     }
 
-    // 切换模型后，agent 会重新解析该模型支持的思考档位，因此一并刷新
-    if (data.command === 'set_model' && data.success) {
+    // 切换模型：pi 的 set_model 只作用于当前会话（见 pi docs），失败也必须说出来，
+    // 否则选择器把菜单一关，用户以为切成功了
+    if (data.command === 'set_model') {
+      if (!data.success) {
+        this.setStatus((prev: BridgeStatus) => ({
+          ...prev,
+          modelNotice: `切换模型失败：${data.error ?? '未知原因'}`,
+        }));
+        return;
+      }
+
       const model = toModelInfo(data.data?.model ?? data.data);
       if (model) {
-        this.setStatus((prev: BridgeStatus) => ({ ...prev, model }));
+        this.setStatus((prev: BridgeStatus) => ({ ...prev, model, modelNotice: undefined }));
+
+        // 顺手把默认一起存：set_model 不写 settings.json，不存的话重启桥接就回到旧模型。
+        // 放在成功分支里——失败的模型不该被写成默认。
+        ws.send(
+          JSON.stringify({
+            type: 'set_default_model',
+            provider: model.provider,
+            modelId: model.id,
+          })
+        );
       }
+
       ws.send(JSON.stringify({ type: 'get_available_thinking_levels' }));
       ws.send(JSON.stringify({ type: 'get_state' }));
     }
 
-    // 档位可能被模型能力收窄（clamp），以 get_state 的结果为准
-    if (data.command === 'set_thinking_level' && data.success) {
+    // 档位可能被模型能力收窄（clamp），以 get_state 的结果为准；失败也要说出来
+    if (data.command === 'set_thinking_level') {
+      if (!data.success) {
+        this.setStatus((prev: BridgeStatus) => ({
+          ...prev,
+          modelNotice: `设置思考强度失败：${data.error ?? '未知原因'}`,
+        }));
+        return;
+      }
       ws.send(JSON.stringify({ type: 'get_state' }));
     }
 
-    if (data.command === 'new_session' && data.success) {
+    if (data.command === 'new_session') {
+      if (!data.success) {
+        // 扩展可以在 session_before_switch 里取消新会话；不说一声，用户只看到对话被清空
+        this.setStatus((prev: BridgeStatus) => ({
+          ...prev,
+          notice: data.error ? `新建会话被取消：${data.error}` : '新建会话被取消',
+        }));
+        return;
+      }
+
       this.currentAssistantId = null;
       this.pendingHistory = false;
       this.setMessages([]);
@@ -436,11 +486,6 @@ export class RpcEventHandler {
       this.pendingHistory = true;
       ws.send(JSON.stringify({ type: 'get_messages' }));
       return;
-    }
-
-    // 重命名当前会话后，列表里的名字需要刷新
-    if (data.command === 'set_session_name' && data.success) {
-      ws.send(JSON.stringify({ type: 'list_sessions' }));
     }
 
     if (data.command === 'get_messages' && data.success && data.data?.messages) {

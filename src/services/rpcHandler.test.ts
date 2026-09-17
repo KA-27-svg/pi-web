@@ -140,6 +140,80 @@ describe('get_state 与执行状态', () => {
   });
 });
 
+describe('切换模型', () => {
+  const setModelOk = (provider = 'openai', id = 'gpt-5') => ({
+    type: 'response',
+    command: 'set_model',
+    success: true,
+    data: { id, name: id, provider },
+  });
+
+  it('成功后顺手把默认模型写进设置，否则重启桥接就回到旧模型', () => {
+    const h = createHarness();
+
+    h.handler.handleEvent(setModelOk(), h.ws);
+
+    expect(h.status().model.id).toBe('gpt-5');
+    const sent = h.ws.sent.map(raw => JSON.parse(raw));
+    expect(sent).toContainEqual({
+      type: 'set_default_model',
+      provider: 'openai',
+      modelId: 'gpt-5',
+    });
+  });
+
+  it('失败时给出可见提示，而不是静默地把菜单关掉', () => {
+    const h = createHarness();
+
+    h.handler.handleEvent(
+      {
+        type: 'response',
+        command: 'set_model',
+        success: false,
+        error: 'Model not found: invalid/model',
+      },
+      h.ws
+    );
+
+    expect(h.status().modelNotice).toContain('Model not found');
+    expect(h.status().model).toBeUndefined();
+  });
+
+  it('失败时不把无效模型写成默认', () => {
+    const h = createHarness();
+
+    h.handler.handleEvent(
+      { type: 'response', command: 'set_model', success: false, error: '炸了' },
+      h.ws
+    );
+
+    const sent = h.ws.sent.map(raw => JSON.parse(raw));
+    expect(sent.some(m => m.type === 'set_default_model')).toBe(false);
+  });
+
+  it('保存默认失败时也在这里报，而不是丢给供应商表单', () => {
+    const h = createHarness();
+
+    h.handler.handleEvent(
+      { type: 'default_model_saved', success: false, error: 'settings.json 不是合法的 JSON' },
+      h.ws
+    );
+
+    expect(h.status().modelNotice).toContain('settings.json');
+  });
+
+  it('思考强度设置失败也报出来，和切模型一致', () => {
+    const h = createHarness();
+
+    h.handler.handleEvent(
+      { type: 'response', command: 'set_thinking_level', success: false, error: '不支持' },
+      h.ws
+    );
+
+    expect(h.status().modelNotice).toContain('思考强度');
+  });
+});
+
 describe('失败路径', () => {
   it('pi 进程退出时收尾并把原因写进消息', () => {
     const h = createHarness();
@@ -432,6 +506,17 @@ describe('切换会话时的消息处理', () => {
     );
 
     expect(h.messages()).toEqual([]);
+  });
+
+  it('新建会话被取消时给出提示，而不是静默空着', () => {
+    const h = createHarness();
+
+    h.handler.handleEvent(
+      { type: 'response', command: 'new_session', success: false, error: '被扩展取消' },
+      h.ws
+    );
+
+    expect(h.status().notice).toContain('被扩展取消');
   });
 });
 
@@ -903,6 +988,22 @@ describe('供应商配置事件', () => {
     );
 
     expect(h.status().providerNames).toEqual({ deepseek: '我的中转站' });
+  });
+
+  it('setup_status 记下各供应商的中转地址，供表单回显', () => {
+    const h = createHarness();
+
+    h.handler.handleEvent(
+      {
+        type: 'setup_status',
+        success: true,
+        setup: { ready: true, issues: [] },
+        providerBaseUrls: { deepseek: 'https://relay.example/v1' },
+      },
+      h.ws
+    );
+
+    expect(h.status().providerBaseUrls).toEqual({ deepseek: 'https://relay.example/v1' });
   });
 
   it('后续 setup_status 没带 providerNames 时保留上一次的', () => {

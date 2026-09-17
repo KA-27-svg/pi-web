@@ -6,15 +6,17 @@ import {
   configPaths,
   listConfiguredProviders,
   readJsonObject,
+  readProviderBaseUrls,
+  readProviderNames,
   resolveAgentDir,
-  saveCustomProvider,
   saveDefaultModel,
+  saveProviderConfig,
   saveProviderKey,
   writeJsonObject,
 } from './setupConfig';
 
 let dir: string;
-const models = () => path.join(dir, 'models.json');
+let originalAgentDir: string | undefined;
 const auth = () => path.join(dir, 'auth.json');
 const settings = () => path.join(dir, 'settings.json');
 const read = async (file: string) => JSON.parse(await fs.readFile(file, 'utf-8'));
@@ -24,9 +26,15 @@ const posixOnly = process.platform === 'win32' ? it.skip : it;
 
 beforeEach(async () => {
   dir = await fs.mkdtemp(path.join(os.tmpdir(), 'pi-web-cfg-'));
+  // 隔离默认目录：万一某个调用漏传 agentDir，也只会写到临时目录，
+  // 不会把测试数据（甚至假密钥）灌进用户真实的 ~/.pi/agent
+  originalAgentDir = process.env.PI_CODING_AGENT_DIR;
+  process.env.PI_CODING_AGENT_DIR = dir;
 });
 
 afterEach(async () => {
+  if (originalAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
+  else process.env.PI_CODING_AGENT_DIR = originalAgentDir;
   await fs.rm(dir, { recursive: true, force: true });
 });
 
@@ -155,6 +163,88 @@ describe('saveProviderKey', () => {
   });
 });
 
+describe('saveProviderConfig', () => {
+  it('有 key 时照旧写 auth.json，并写名字', async () => {
+    await saveProviderConfig({ provider: 'deepseek', key: 'sk-1', name: '我的中转站' }, dir, {});
+
+    expect(await read(auth())).toEqual({ deepseek: { type: 'api_key', key: 'sk-1' } });
+    expect(await readProviderNames(dir)).toEqual({ deepseek: '我的中转站' });
+  });
+
+  it('留空 key 只改名字：已配过的供应商不必重贴密钥', async () => {
+    await fs.writeFile(auth(), JSON.stringify({ deepseek: { type: 'api_key', key: 'sk-old' } }));
+
+    await saveProviderConfig({ provider: 'deepseek', key: '', name: '我的中转站' }, dir, {});
+
+    expect(await read(auth())).toEqual({ deepseek: { type: 'api_key', key: 'sk-old' } });
+    expect(await readProviderNames(dir)).toEqual({ deepseek: '我的中转站' });
+  });
+
+  it('只有环境变量也算已配置：留空 key 只改名字仍然可用', async () => {
+    await saveProviderConfig({ provider: 'deepseek', key: '', name: '我的' }, dir, {
+      DEEPSEEK_API_KEY: 'k',
+    });
+
+    expect(await readProviderNames(dir)).toEqual({ deepseek: '我的' });
+  });
+
+  it('没配过的供应商留空 key 会被拒绝', async () => {
+    await expect(
+      saveProviderConfig({ provider: 'deepseek', key: '', name: 'x' }, dir, {})
+    ).rejects.toThrow(/API key/);
+  });
+
+  it('留空 key 改地址：合并到已有 api_key 上，密钥不动', async () => {
+    await fs.writeFile(auth(), JSON.stringify({ deepseek: { type: 'api_key', key: 'sk-old' } }));
+
+    await saveProviderConfig(
+      { provider: 'deepseek', key: '', baseUrl: 'https://relay.example/v1', name: '' },
+      dir,
+      {}
+    );
+
+    expect(await read(auth())).toEqual({
+      deepseek: { type: 'api_key', key: 'sk-old', baseUrl: 'https://relay.example/v1' },
+    });
+  });
+
+  it('没有 api_key 时想改地址会被拒绝，不会凭空造一个半截凭证', async () => {
+    await fs.writeFile(auth(), JSON.stringify({ anthropic: { type: 'oauth', refresh: 'r' } }));
+
+    await expect(
+      saveProviderConfig(
+        { provider: 'anthropic', key: '', baseUrl: 'https://relay.example/v1', name: '' },
+        dir,
+        {}
+      )
+    ).rejects.toThrow(/API key/);
+  });
+});
+
+describe('readProviderBaseUrls', () => {
+  it('只取带 baseUrl 的中转供应商', async () => {
+    await fs.writeFile(
+      auth(),
+      JSON.stringify({
+        deepseek: { type: 'api_key', key: 'k', baseUrl: 'https://relay.example/v1' },
+        openai: { type: 'api_key', key: 'k' },
+        anthropic: { type: 'oauth', refresh: 'r' },
+      })
+    );
+
+    expect(await readProviderBaseUrls(dir)).toEqual({
+      deepseek: 'https://relay.example/v1',
+    });
+  });
+
+  it('文件不存在或坏掉时返回空对象，不影响界面其余部分', async () => {
+    expect(await readProviderBaseUrls(dir)).toEqual({});
+
+    await fs.writeFile(auth(), '坏');
+    expect(await readProviderBaseUrls(dir)).toEqual({});
+  });
+});
+
 describe('saveDefaultModel', () => {
   it('记住默认模型，并保留用户已有的其它设置', async () => {
     await fs.writeFile(
@@ -203,56 +293,5 @@ describe('listConfiguredProviders', () => {
 
   it('空环境变量不算配置', async () => {
     expect(await listConfiguredProviders(dir, { ANTHROPIC_API_KEY: '  ' })).toEqual([]);
-  });
-});
-
-describe('saveCustomProvider', () => {
-  const config = {
-    name: '我的中转站',
-    baseUrl: 'https://relay.example/v1',
-    api: 'openai-completions',
-    models: [{ id: 'gpt-x' }, { id: 'claude-y' }],
-  };
-
-  it('新装一个自定义供应商', async () => {
-    await saveCustomProvider('my-relay', config, dir);
-
-    expect(await read(models())).toEqual({ providers: { 'my-relay': config } });
-  });
-
-  it('保留已有的供应商：用户可能手写过好几个中转站', async () => {
-    await fs.writeFile(
-      models(),
-      JSON.stringify({ providers: { ollama: { baseUrl: 'http://localhost:11434/v1', models: [] } } })
-    );
-
-    await saveCustomProvider('my-relay', config, dir);
-
-    const written = await read(models());
-    expect(Object.keys(written.providers)).toEqual(['ollama', 'my-relay']);
-    expect(written.providers.ollama.baseUrl).toBe('http://localhost:11434/v1');
-  });
-
-  it('保留顶层其它字段', async () => {
-    await fs.writeFile(models(), JSON.stringify({ 别的: 1 }));
-
-    await saveCustomProvider('my-relay', config, dir);
-
-    expect((await read(models())).别的).toBe(1);
-  });
-
-  it('providers 字段被写坏成数组时也不崩，直接重建', async () => {
-    await fs.writeFile(models(), JSON.stringify({ providers: [1, 2] }));
-
-    await saveCustomProvider('my-relay', config, dir);
-
-    expect((await read(models())).providers['my-relay']).toEqual(config);
-  });
-
-  it('models.json 损坏时拒绝写入，且原文件不动', async () => {
-    await fs.writeFile(models(), '{ 坏掉的');
-
-    await expect(saveCustomProvider('my-relay', config, dir)).rejects.toThrow();
-    expect(await fs.readFile(models(), 'utf-8')).toBe('{ 坏掉的');
   });
 });

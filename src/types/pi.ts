@@ -149,17 +149,6 @@ export interface SetupStatus {
   issues: SetupIssue[];
 }
 
-/** 自定义端点草稿（向导表单 → 桥接写 models.json） */
-export interface CustomProviderDraft {
-  /** 会变成 models.json / auth.json 里的键，也是 pi 报错时显示的供应商名 */
-  id: string;
-  label: string;
-  baseUrl: string;
-  api: string;
-  models: string[];
-  key: string;
-}
-
 /** 内置供应商（桥接 server/providers.ts 的产出） */
 export interface ProviderPreset {
   /** auth.json 里的键 */
@@ -227,6 +216,11 @@ export interface BridgeStatus {
    * 没起过的供应商不在里面，界面就退回内置目录的名字。
    */
   providerNames?: Record<string, string>;
+  /**
+   * 供应商 id → 已配的中转地址（auth.json 的 baseUrl）。
+   * 表单回显用：不回显的话，用户只换 key 就会把地址覆盖掉。
+   */
+  providerBaseUrls?: Record<string, string>;
   /** 支持订阅登录（OAuth）的供应商，只能在终端跑 /login */
   subscriptions?: { id: string; label: string }[];
   /** 正在代跑安装器 */
@@ -243,6 +237,8 @@ export interface BridgeStatus {
   installNotice?: string;
   /** 写配置失败的原因（保存供应商 / 默认模型 / 默认工具） */
   setupNotice?: string;
+  /** 切换模型失败的原因。就地显示在设置面板里，不依赖侧栏提示条 */
+  modelNotice?: string;
   /**
    * 正在自动重试（过载 / 限流 / 5xx）。
    * 有值时界面要明说“在重试”，否则用户看着不动的界面会以为卡死了。

@@ -80,8 +80,7 @@ function ModelPicker({
       </button>
 
       {open && (
-        <div className="mt-1.5 max-h-52 overflow-y-auto rounded-md border border-border/70">
-          {(managing ? models : visible).map(model => {
+        <div className="mt-1.5 max-h-52 overflow-y-auto rounded-md border border-border/70">          {(managing ? models : visible).map(model => {
             const key = modelKey(model);
             const active = key === current;
             const hiddenNow = isHidden(key);
@@ -155,6 +154,11 @@ function ModelPicker({
             {managing ? '完成' : '管理'}
           </button>
         </div>
+      )}
+
+      {/* 切模型失败就地报错：侧栏的提示条在侧栏收起时根本看不见 */}
+      {status.modelNotice && (
+        <p className="mt-1.5 text-[11.5px] leading-[1.6] text-rose-500">{status.modelNotice}</p>
       )}
     </div>
   );
