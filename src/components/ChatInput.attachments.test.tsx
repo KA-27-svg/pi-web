@@ -399,3 +399,17 @@ describe('移除与发送', () => {
     expect(sendButton()?.disabled).toBe(true);
   });
 });
+
+describe('拖拽非文件内容', () => {
+  it('拖文字 / 链接进来也会 preventDefault，不让浏览器把页面导航走', () => {
+    mount();
+
+    const over = new Event('dragover', { bubbles: true, cancelable: true });
+    window.dispatchEvent(over);
+    expect(over.defaultPrevented).toBe(true);
+
+    const dropped = new Event('drop', { bubbles: true, cancelable: true });
+    window.dispatchEvent(dropped);
+    expect(dropped.defaultPrevented).toBe(true);
+  });
+});

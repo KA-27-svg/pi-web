@@ -239,9 +239,10 @@ export function useComposerAttachments({
       Array.from(event.dataTransfer?.types ?? []).includes('Files');
 
     const onDragOver = (event: DragEvent) => {
-      if (!hasFiles(event)) return;
+      // 无论拖的是不是文件都要 preventDefault：否则拖动文字 / 链接时的默认行为
+      // 会把整个页面导航走（当前对话就没了）
       event.preventDefault();
-      setDragging(true);
+      if (hasFiles(event)) setDragging(true);
     };
 
     const onDragLeave = (event: DragEvent) => {
@@ -251,10 +252,11 @@ export function useComposerAttachments({
     };
 
     const onDrop = (event: DragEvent) => {
+      // 同上：非文件的拖放也要拦默认行为
+      event.preventDefault();
       const files = Array.from(event.dataTransfer?.files ?? []);
       if (files.length === 0) return;
 
-      event.preventDefault();
       setDragging(false);
       void addFiles(files);
     };
