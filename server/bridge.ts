@@ -37,6 +37,7 @@ import {
 } from './setupConfig.js';
 import { PiSupervisor } from './pi.js';
 import { watchConfigFiles } from './configWatch.js';
+import { piNotReadyReply } from './bridgeMessages.js';
 import {
   emptyTrash,
   listTrash,
@@ -316,7 +317,7 @@ function sendToPi(ws: WebSocket, command: object): boolean {
   const type = (command as { type?: string }).type ?? 'unknown';
   console.warn(`[Pi Bridge] Pi process not ready, dropped command: ${type}`);
   if (ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({ type: 'bridge_error', error: 'Pi 进程未就绪，指令没有送达' }));
+    ws.send(piNotReadyReply(command));
   }
   return false;
 }
