@@ -889,6 +889,37 @@ describe('供应商配置事件', () => {
     expect(h.status().subscriptions[0].label).toContain('ChatGPT');
   });
 
+  it('setup_status 记下用户起的供应商名（否则界面永远看不到它）', () => {
+    const h = createHarness();
+
+    h.handler.handleEvent(
+      {
+        type: 'setup_status',
+        success: true,
+        setup: { ready: true, issues: [] },
+        providerNames: { deepseek: '我的中转站' },
+      },
+      h.ws
+    );
+
+    expect(h.status().providerNames).toEqual({ deepseek: '我的中转站' });
+  });
+
+  it('后续 setup_status 没带 providerNames 时保留上一次的', () => {
+    const h = createHarness();
+
+    h.handler.handleEvent(
+      { type: 'setup_status', success: true, setup: { ready: true, issues: [] }, providerNames: { deepseek: '我的中转站' } },
+      h.ws
+    );
+    h.handler.handleEvent(
+      { type: 'setup_status', success: true, setup: { ready: true, issues: [] } },
+      h.ws
+    );
+
+    expect(h.status().providerNames).toEqual({ deepseek: '我的中转站' });
+  });
+
   it('保存失败时留下原因，成功时清掉', () => {
     const h = createHarness();
 

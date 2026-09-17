@@ -155,4 +155,11 @@ describe('createStaticHandler', () => {
 
     expect(result.body).not.toContain('不该被读到');
   });
+
+  it('畸形的百分号编码不抛错，交给上层报 404', async () => {
+    // decodeURIComponent('%zz') 会抛 URIError；让它冒出去会变成 500
+    const result = await request('/%zz');
+
+    expect(result.handled).toBe(false);
+  });
 });

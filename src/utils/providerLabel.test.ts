@@ -31,7 +31,9 @@ describe('providerLabel', () => {
 
   it('名字是空白字符串时不算起过名', () => {
     // 桥接那边读的时候会把纯空白的过滤掉，这里也一致
-    expect(providerLabel(status({ providerNames: {} }), 'deepseek')).toBe('DeepSeek');
+    expect(providerLabel(status({ providerNames: { deepseek: '   ' } }), 'deepseek')).toBe(
+      'DeepSeek'
+    );
   });
 
   it('只给一个供应商起名不影响别的', () => {

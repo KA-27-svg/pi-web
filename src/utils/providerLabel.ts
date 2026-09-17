@@ -8,9 +8,10 @@ import type { BridgeStatus } from '../types/pi';
  * 3. 兜底用 id——至少不会是一片空白
  */
 export function providerLabel(status: BridgeStatus, id: string): string {
+  // 空白名不算起过名（桥接读取时也会过滤，这里再兜一道，两边约定一致）
   return (
-    status.providerNames?.[id] ??
-    status.providers?.find(preset => preset.id === id)?.label ??
+    status.providerNames?.[id]?.trim() ||
+    status.providers?.find(preset => preset.id === id)?.label ||
     id
   );
 }

@@ -233,6 +233,7 @@ export class RpcEventHandler {
         installCommand: data.installCommand ?? prev.installCommand,
         preflight: data.preflight ?? prev.preflight,
         providers: data.providers ?? prev.providers,
+        providerNames: data.providerNames ?? prev.providerNames,
         subscriptions: data.subscriptions ?? prev.subscriptions,
       }));
       return;

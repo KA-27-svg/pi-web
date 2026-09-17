@@ -98,7 +98,15 @@ export function createStaticHandler({ root, index = 'index.html' }: StaticHandle
     if (req.method !== 'GET' && req.method !== 'HEAD') return false;
     const headOnly = req.method === 'HEAD';
 
-    const urlPath = decodeURIComponent((req.url ?? '/').split('?')[0] ?? '/');
+    const rawUrlPath = (req.url ?? '/').split('?')[0] ?? '/';
+    // 畸形百分号编码（如 /%zz）会让 decodeURIComponent 抛 URIError；
+    // 这种路径不可能对应任何真实文件，直接交给上层报 404
+    let urlPath: string;
+    try {
+      urlPath = decodeURIComponent(rawUrlPath);
+    } catch {
+      return false;
+    }
     const candidate = resolveFileWithin(root, urlPath);
 
     if (candidate) {
