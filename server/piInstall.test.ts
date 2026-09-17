@@ -106,6 +106,35 @@ describe('installPreflight', () => {
     expect(result.reason).toContain('22.19.0');
   });
 
+  it('Windows 上的「Node 版本不够」引导用户重启，而不是让他去终端装', () => {
+    // launch.ps1 的 Ensure-Node 会在下次启动时装好达标的 Node；
+    // 这里再说「请到终端自己跑一次」就是过时的、且多此一举的
+    const status: SetupStatus = {
+      ...base,
+      platform: 'win32',
+      node: { version: 'v20.19.0', ok: false, minimum: '22.19.0' },
+    };
+
+    const reason = installPreflight(status).reason ?? '';
+
+    expect(reason).toContain('重新打开');
+    // 不能再用 Unix 那句话，它在这条路上是多余的
+    expect(reason).not.toContain('终端');
+  });
+
+  it('Unix 上的「Node 版本不够」仍然给终端命令（没有启动脚本可以托底）', () => {
+    const status: SetupStatus = {
+      ...base,
+      platform: 'linux',
+      node: { version: 'v20.19.0', ok: false, minimum: '22.19.0' },
+    };
+
+    const reason = installPreflight(status).reason ?? '';
+
+    expect(reason).toContain('终端');
+    expect(reason).not.toContain('重新打开');
+  });
+
   it('没有 npm 时不允许代跑', () => {
     const status: SetupStatus = { ...base, npm: { available: false } };
 

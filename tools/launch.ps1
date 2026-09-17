@@ -34,10 +34,146 @@ Write-Host '  ============================================'
 Write-Host ''
 
 # ── Node ────────────────────────────────────────────────────────────────────
-if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
-  Write-Host '  [错误] 没有找到 Node.js，请先安装 Node 22.19.0 或更高版本。'
-  Wait-ForExit
-  exit 1
+# pi 需要 Node ≥ 22.19.0，而本项目自己只要 22.12 就能跑——所以「网页能开」不等于
+# 「能用」，这个空档必须在这里补上：本机没有达标 Node 时，下一份官方 zip 解压到
+# runtime\node 并插到 PATH 最前面。
+#
+# 装到项目目录而不是系统，是因为：不需要管理员权限、不改系统 PATH、不和 nvm /
+# fnm / volta 打架、删掉 runtime\ 就等于卸载干净。
+#
+# 这里也是整条链上唯一能装 Node 的地方：桥接自己就跑在 Node 上，没有 Node 的机器
+# 根本到不了网页，也就抳不到任何页面上的按钮。
+$NodeMinimum = [version]'22.19.0'
+$NodeDistBase = 'https://nodejs.org/dist/latest-v22.x'
+$LocalNodeDir = Join-Path $ProjectDir 'runtime\node'
+$LocalNodeExe = Join-Path $LocalNodeDir 'node.exe'
+
+function Get-NodeVersion {
+  param([string]$Exe)
+
+  if (-not (Get-Command $Exe -ErrorAction SilentlyContinue)) { return $null }
+
+  try {
+    return [version]((& $Exe '--version').TrimStart('v'))
+  } catch {
+    return $null
+  }
+}
+
+function Get-Sha256 {
+  param([string]$Path)
+
+  # 直接用 .NET 而不是 Get-FileHash：本机实测 Microsoft.PowerShell.Utility 被外部
+  # 工具（scoop 装的 pwsh）改过，导出的命令里根本没有 Get-FileHash，正常环境也会
+  # 报 CommandNotFound。加密与压缩这两块由 .NET Framework 保证，不受 PSModulePath 影响。
+  $sha = [System.Security.Cryptography.SHA256]::Create()
+  $stream = [System.IO.File]::OpenRead($Path)
+  try {
+    return [BitConverter]::ToString($sha.ComputeHash($stream)).Replace('-', '')
+  } finally {
+    $stream.Dispose()
+    $sha.Dispose()
+  }
+}
+
+function Install-LocalNode {
+  # 老 PowerShell 默认走 TLS 1.0，而 nodejs.org 只收 TLS 1.2+。不设这一行会得到
+  # 一句和「版本」毫不相干的连接错误。（官方安装器里也做了同样的事）
+  [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+
+  $arch = switch ($env:PROCESSOR_ARCHITECTURE) {
+    'ARM64' { 'arm64' }
+    'x86'   { 'x86' }
+    default { 'x64' }
+  }
+  $suffix = "win-$arch.zip"
+
+  $tmp = Join-Path ([System.IO.Path]::GetTempPath()) "pi-web-node-$PID"
+  Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
+  New-Item -ItemType Directory -Force -Path $tmp | Out-Null
+
+  try {
+    # 先取官方公布的校验清单，从里面挑出要下的文件名。
+    # 版本号硬编码在脚本里会过期，而 latest-v22.x 是官方一直维护的指向。
+    $sumsPath = Join-Path $tmp 'SHASUMS256.txt'
+    Invoke-WebRequest -UseBasicParsing -Uri "$NodeDistBase/SHASUMS256.txt" -OutFile $sumsPath
+
+    $pattern = "^\S+\s+node-v[\d.]+-$([regex]::Escape($suffix))$"
+    $line = Get-Content -LiteralPath $sumsPath | Where-Object { $_ -match $pattern } | Select-Object -First 1
+    if (-not $line) { throw "官方校验清单里没有 $suffix 的条目" }
+
+    $parts = @($line.Trim() -split '\s+')
+    $expected = $parts[0]
+    $fileName = $parts[1]
+    $zipPath = Join-Path $tmp $fileName
+
+    Write-Host "  正在下载 $fileName ..."
+    Invoke-WebRequest -UseBasicParsing -Uri "$NodeDistBase/$fileName" -OutFile $zipPath
+
+    # 校验 SHA256：下载坏、中途被换包，都在这里拦住，
+    # 而不是等到解压出一堆坏文件才报错
+    $actual = Get-Sha256 -Path $zipPath
+    if ($actual -ne $expected.ToUpperInvariant()) {
+      throw "下载的 $fileName 校验不通过（期望 $expected，实际 $actual）"
+    }
+
+    Write-Host '  校验通过，正在解压...'
+    # 同样不用 Expand-Archive（它住在一个可能被改掉的模块里）。
+    # 解到子目录而不是 $tmp：ExtractToDirectory 碰到同名文件会直接报错，
+    # 而 SHASUMS256.txt 和 zip 本体就在 $tmp 里
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $extractDir = Join-Path $tmp 'x'
+    New-Item -ItemType Directory -Force -Path $extractDir | Out-Null
+    [System.IO.Compression.ZipFile]::ExtractToDirectory($zipPath, $extractDir)
+
+    # zip 里套着一层 node-v22.x.y-win-x64\，把它整体搬到 runtime\node
+    $inner = Join-Path $extractDir ($fileName -replace '\.zip$', '')
+    Remove-Item -LiteralPath $LocalNodeDir -Recurse -Force -ErrorAction SilentlyContinue
+    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $LocalNodeDir) | Out-Null
+    Move-Item -LiteralPath $inner -Destination $LocalNodeDir
+  } finally {
+    Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
+  }
+
+  # 插到最前面：后面的 npm install / npm start 都会用这一份。
+  # 只改本进程的 PATH，系统一点没动。
+  $env:PATH = "$LocalNodeDir;$env:PATH"
+  Write-Host "  已装好 Node $(& $LocalNodeExe --version)"
+}
+
+$systemNode = Get-NodeVersion 'node'
+# 本地那份也验版本再用：只看「文件在不在」的话，之前中断过的安装或以后提高门槛时
+# 都会静默用一个不达标的 Node
+$localNode = Get-NodeVersion $LocalNodeExe
+if ($localNode -and $localNode -ge $NodeMinimum) {
+  # 本地优先：这个项目的 Node 从哪来就是确定的，不受用户系统环境影响
+  $env:PATH = "$LocalNodeDir;$env:PATH"
+  Write-Host "  使用项目自带的 Node v$localNode"
+} elseif ($systemNode -and $systemNode -ge $NodeMinimum) {
+  # 系统那份够用，不白白再装 87 MB
+  Write-Host "  使用系统 Node v$systemNode"
+} else {
+  if ($localNode) {
+    Write-Host "  项目自带的 Node 是 v$localNode，pi 需要 $NodeMinimum 或更新。"
+  } elseif ($systemNode) {
+    Write-Host "  系统 Node 是 v$systemNode，pi 需要 $NodeMinimum 或更新。"
+  } else {
+    Write-Host "  没找到 Node.js，pi 需要 $NodeMinimum 或更新。"
+  }
+  Write-Host '  正在装一份到本项目目录（约 34 MB 下载，不动系统 PATH）...'
+  Write-Host ''
+
+  try {
+    Install-LocalNode
+  } catch {
+    Write-Host ''
+    Write-Host "  [错误] 自动安装 Node 失败：$_"
+    Write-Host '  请手动装上 Node 22.19.0 或更高版本后重试：https://nodejs.org/'
+    Wait-ForExit
+    exit 1
+  }
+
+  Write-Host ''
 }
 
 # ── 桌面快捷方式 ─────────────────────────────────────────────────────────────
@@ -80,6 +216,7 @@ if ($portBusy) {
 }
 
 # ── 依赖 ────────────────────────────────────────────────────────────────────
+# 这里起 npm 就是前面刚接进 PATH 的那份 Node，所以它必然是达标的
 if (-not (Test-Path (Join-Path $ProjectDir 'node_modules'))) {
   Write-Host '  首次运行，正在安装依赖，可能需要几分钟...'
   Write-Host ''

@@ -59,13 +59,20 @@ export interface InstallPreflight {
 
 /**
  * 判断能不能代跑。
- * Node 不够版本时不能：官方脚本在无终端下会直接报错退出，代跑只会得到一条看不懂的失败。
+ * Node 不够版本时不能：官方安装器在无终端下会直接报错退出，代跑只会得到一条看不懂的失败。
+ *
+ * 「Node 不够」这件事本身在 Windows 上已经由 tools/launch.ps1 的 Ensure-Node 解决了
+ * （启动时就自动装一份到 runtime\node），所以这里给的是一条真能照做的路子，
+ * 不是笼统的「请自己去装」。
  */
 export function installPreflight(status: SetupStatus): InstallPreflight {
   if (!status.node.ok) {
     return {
       allowed: false,
-      reason: `Node.js 版本不够（pi 需要 ${MINIMUM_NODE_TEXT} 或更新）。官方安装器在没有终端时不会自己装 Node，请按下面的命令在你自己的终端里跑一次。`,
+      reason:
+        status.platform === 'win32'
+          ? `Node.js 版本不够（pi 需要 ${MINIMUM_NODE_TEXT} 或更新）。关掉再重新打开 Pi Web，启动时会自动装一份达标的 Node 到项目目录，不需要你手动做任何事。`
+          : `Node.js 版本不够（pi 需要 ${MINIMUM_NODE_TEXT} 或更新）。官方安装器在没有终端时不会自己装 Node，请按下面的命令在你自己的终端里跑一次。`,
     };
   }
 

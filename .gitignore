@@ -26,3 +26,6 @@ bridge.log
 
 # 附件落盘目录：里面是用户拖进来的文件，绝不该提交
 .pi-web-uploads/
+
+# 自动装的项目本地 Node（launch.ps1 下的，约 87 MB）
+runtime/
