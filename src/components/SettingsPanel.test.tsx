@@ -60,6 +60,11 @@ const text = () => host.textContent ?? '';
 const recheckButton = () =>
   [...host.querySelectorAll('button')].find(button => button.textContent?.includes('重新检测'));
 
+const click = (el: Element | null | undefined) =>
+  act(() => {
+    el?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  });
+
 describe('SettingsPanel 环境自检', () => {
   it('把本机配置摊开：Node、pi、Git Bash', () => {
     render(setup());
@@ -121,5 +126,43 @@ describe('SettingsPanel 环境自检', () => {
     });
 
     expect(onRecheckSetup).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('SettingsPanel 重新检测的点击反馈', () => {
+  it('点下去立刻变成「检测中…」并转圈', () => {
+    // 这一下要跑 node / npm / pi 几条命令，得等一两秒；不报状态的话，
+    // 用户点完只看到同一幅画面，会以为没点上
+    const onRecheckSetup = render(setup());
+    const button = recheckButton();
+
+    click(button);
+
+    expect(onRecheckSetup).toHaveBeenCalledTimes(1);
+    expect(text()).toContain('检测中…');
+    expect((button as HTMLButtonElement).disabled).toBe(true);
+    expect(host.querySelector('.animate-spin')).toBeTruthy();
+  });
+
+  it('探测结果换了新对象后，短暂显示「已刷新」', () => {
+    render(setup());
+    const button = recheckButton();
+    click(button);
+
+    // 桥接每次都用新建的 setup 对象广播回来
+    act(() => {
+      root.render(
+        <SettingsPanel
+          status={{ connected: true, cwd: '/demo', isStreaming: false, setup: setup() }}
+          onClose={vi.fn()}
+          onSelectModel={vi.fn()}
+          onSelectThinkingLevel={vi.fn()}
+          onRecheckSetup={vi.fn()}
+        />
+      );
+    });
+
+    expect(host.querySelector('.animate-spin')).toBeNull();
+    expect(text()).toContain('已刷新');
   });
 });

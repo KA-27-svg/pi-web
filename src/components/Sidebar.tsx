@@ -1,9 +1,11 @@
 import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { BridgeStatus } from '../types/pi';
 import { useRubberBandScroll } from '../hooks/useRubberBandScroll';
+import { useRefreshFeedback } from '../hooks/useRefreshFeedback';
 import { SessionRow } from './SessionRow';
 import { TrashList } from './TrashList';
 import {
+  Check,
   FolderGit2,
   KeyRound,
   PanelLeftClose,
@@ -101,6 +103,15 @@ export function Sidebar({
   const [query, setQuery] = useState('');
   const [toast, setToast] = useState<Toast | null>(null);
   const [dismissedNotice, setDismissedNotice] = useState<string | undefined>();
+
+  /**
+   * 刷新按钮的点击反馈。看的是「这一次刷新要等的那个值」：历史视图等 sessions，
+   * 回收箱等 trashed。
+   */
+  const refresh = useRefreshFeedback(
+    view === 'history' ? sessions : trashed,
+    view === 'history' ? onRefreshSessions : onRequestTrash
+  );
 
   const scrollRef = useRef<HTMLElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
@@ -256,12 +267,20 @@ export function Sidebar({
             {view === 'history' ? '历史对话' : '回收箱'}
           </span>
           <button
-            onClick={view === 'history' ? onRefreshSessions : onRequestTrash}
-            className="-mr-1 rounded-md p-1 text-muted transition-colors hover:text-foreground"
+            onClick={refresh.trigger}
+            disabled={refresh.phase === 'pending'}
+            className="-mr-1 rounded-md p-1 text-muted transition-colors hover:text-foreground disabled:cursor-default"
             aria-label={view === 'history' ? '刷新历史对话' : '刷新回收箱'}
-            title="刷新"
+            title={refresh.phase === 'done' ? '已刷新' : '刷新'}
           >
-            <RefreshCw className="w-3.5 h-3.5" />
+            {/* 点下去就转，数据回来换成对勾停一下——否则列表没变的话，点了跟没点一个样 */}
+            {refresh.phase === 'pending' ? (
+              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+            ) : refresh.phase === 'done' ? (
+              <Check className="w-3.5 h-3.5 text-emerald-600" />
+            ) : (
+              <RefreshCw className="w-3.5 h-3.5" />
+            )}
           </button>
         </div>
 

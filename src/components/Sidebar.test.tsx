@@ -388,3 +388,72 @@ describe('侧栏顶部动作', () => {
     expect(onNewSession).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('侧栏刷新按钮的点击反馈', () => {
+  const refreshButton = () =>
+    host.querySelector('button[aria-label="刷新历史对话"]') as HTMLButtonElement;
+
+  const clickRefresh = () =>
+    act(() => {
+      refreshButton().dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+
+  it('点下去立刻转圈、按钮禁用，不让用户猜点上没有', () => {
+    // 以前点了什么都不变：列表没变就重渲染成同一幅画面
+    const onRefreshSessions = vi.fn();
+    mount(3, { onRefreshSessions });
+
+    clickRefresh();
+
+    expect(onRefreshSessions).toHaveBeenCalledTimes(1);
+    expect(refreshButton().disabled).toBe(true);
+    expect(host.querySelector('.animate-spin')).toBeTruthy();
+  });
+
+  it('数据回来（换了新数组）后换成对勾', () => {
+    mount(3);
+    clickRefresh();
+
+    // 桥接那边每次都是 `sessions: data.sessions ?? []`，必然是新数组
+    mount(3);
+
+    expect(host.querySelector('.animate-spin')).toBeNull();
+    expect(refreshButton().title).toBe('已刷新');
+  });
+
+  it('对勾停一下就回到原样，不会一直留着', () => {
+    vi.useFakeTimers();
+    try {
+      mount(3);
+      clickRefresh();
+      mount(3);
+      expect(refreshButton().title).toBe('已刷新');
+
+      act(() => {
+        vi.advanceTimersByTime(1300);
+      });
+
+      expect(refreshButton().title).toBe('刷新');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('请求一直没回来也会把转圈停掉，而不是永远转下去', () => {
+    vi.useFakeTimers();
+    try {
+      mount(3);
+      clickRefresh();
+      expect(host.querySelector('.animate-spin')).toBeTruthy();
+
+      // 不换数组，相当于一个包都没回
+      act(() => {
+        vi.advanceTimersByTime(8100);
+      });
+
+      expect(host.querySelector('.animate-spin')).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
