@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import type { BridgeStatus } from '../types/pi';
+import { deriveProviderId } from '../utils/customProvider';
+import { ChevronDown } from 'lucide-react';
 
 /** 与桥接的 SUPPORTED_APIS 保持一致；这几项是 pi 真正支持的 API 类型 */
 const API_TYPES = [
@@ -30,9 +32,15 @@ interface CustomProviderSetupProps {
 /**
  * 自定义端点（中转站 / 自建服务）。
  *
- * pi 的内置目录只覆盖官方供应商，其余靠 models.json 声明：一个 baseUrl、一种
- * API 类型、一组模型 id。模型 id 可以手填，也可以从 `<baseUrl>/models` 拉——
- * 但很多自建服务没实现那个接口，所以拉取失败只是提示，不阻断保存。
+ * 只让用户填三样：显示名、API 地址、API 密钥。其余都收进「高级」：
+ *
+ * - **标识**从地址的域名推，不用填。
+ * - **API 类型**默认 openai-completions——中转站基本都是这个。
+ * - **模型列表**保存时自动从 `<baseUrl>/models` 拉。
+ *
+ * 模型那一项没法彻底去掉：pi 的 models.json 靠 `models` 声明这个供应商有哪些模型，
+ * 它自己不会去 `/models` 发现（那是我们 UI 用来省事的）。所以拉不到的少数自建服务，
+ * 得让用户展开「高级」手填——拉取失败时会自动展开并说明原因。
  */
 export function CustomProviderSetup({
   status,
@@ -40,44 +48,29 @@ export function CustomProviderSetup({
   onSave,
   submitLabel = '保存并开始',
 }: CustomProviderSetupProps) {
-  const [id, setId] = useState('');
   const [label, setLabel] = useState('');
   const [baseUrl, setBaseUrl] = useState('');
-  const [api, setApi] = useState(API_TYPES[0].value);
-  const [models, setModels] = useState('');
   const [key, setKey] = useState('');
-  const [fetchError, setFetchError] = useState<string>();
-  const [fetching, setFetching] = useState(false);
 
-  const modelIds = models
+  const [api, setApi] = useState(API_TYPES[0].value);
+  const [idDraft, setIdDraft] = useState('');
+  const [models, setModels] = useState('');
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string>();
+
+  /** 用户没改过就用推出来的那个 */
+  const providerId = idDraft.trim() || deriveProviderId(baseUrl);
+  const manualModels = models
     .split('\n')
     .map(line => line.trim())
     .filter(Boolean);
+  const canSubmit = Boolean(label.trim()) && Boolean(baseUrl.trim()) && !busy;
 
-  const canSave = id.trim().length > 0 && baseUrl.trim().length > 0 && modelIds.length > 0;
-
-  const pullModels = async () => {
-    if (!baseUrl.trim() || fetching) return;
-
-    setFetching(true);
-    setFetchError(undefined);
-    try {
-      const found = await onListModels(baseUrl.trim(), key.trim());
-      // 拉回来就覆盖输入框；拉回来是空的也照实反映，免得用户以为已经拉过了
-      setModels(found.join('\n'));
-    } catch (err) {
-      setFetchError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setFetching(false);
-    }
-  };
-
-  const submit = (event: React.FormEvent) => {
-    event.preventDefault();
-    if (!canSave) return;
-
+  const commit = (modelIds: string[]) => {
     onSave({
-      id: id.trim(),
+      id: providerId,
       label: label.trim(),
       baseUrl: baseUrl.trim(),
       api,
@@ -86,35 +79,71 @@ export function CustomProviderSetup({
     });
   };
 
+  const pullModels = async (): Promise<string[]> => {
+    const found = await onListModels(baseUrl.trim(), key.trim());
+    setModels(found.join('\n'));
+    return found;
+  };
+
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!canSubmit) return;
+
+    // 手填过就用手的，不再去打扰网络
+    if (manualModels.length > 0) {
+      commit(manualModels);
+      return;
+    }
+
+    setBusy(true);
+    setError(undefined);
+    try {
+      const found = await pullModels();
+      if (found.length === 0) {
+        // 拉到了但是空的，不能当成功：pi 那边一个模型都没有，选了也是空的
+        setAdvancedOpen(true);
+        setError('这个地址没返回任何模型，请在「高级」里手填模型 id');
+        return;
+      }
+      commit(found);
+    } catch (err) {
+      // 很多自建服务根本没实现 /models，所以不阻断，退化成手填
+      setAdvancedOpen(true);
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const pullButton = async () => {
+    if (!baseUrl.trim() || busy) return;
+    setBusy(true);
+    setError(undefined);
+    try {
+      await pullModels();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const inputClass =
     'w-full rounded-lg border border-border bg-surface px-3 py-2 text-[12.5px] text-foreground placeholder:text-muted';
 
   return (
     <form onSubmit={submit} className="mt-3 space-y-2.5">
-      <div className="grid grid-cols-2 gap-2.5">
-        <label className="block">
-          <span className="text-[11px] text-muted">标识</span>
-          <input
-            data-field="id"
-            value={id}
-            onChange={event => setId(event.target.value)}
-            placeholder="my-relay"
-            autoComplete="off"
-            className={`mt-1 font-mono ${inputClass}`}
-          />
-        </label>
-        <label className="block">
-          <span className="text-[11px] text-muted">显示名（可选）</span>
-          <input
-            data-field="label"
-            value={label}
-            onChange={event => setLabel(event.target.value)}
-            placeholder="我的中转站"
-            autoComplete="off"
-            className={`mt-1 ${inputClass}`}
-          />
-        </label>
-      </div>
+      <label className="block">
+        <span className="text-[11px] text-muted">显示名</span>
+        <input
+          data-field="label"
+          value={label}
+          onChange={event => setLabel(event.target.value)}
+          placeholder="我的中转站"
+          autoComplete="off"
+          className={`mt-1 ${inputClass}`}
+        />
+      </label>
 
       <label className="block">
         <span className="text-[11px] text-muted">API 地址</span>
@@ -129,23 +158,7 @@ export function CustomProviderSetup({
       </label>
 
       <label className="block">
-        <span className="text-[11px] text-muted">API 类型</span>
-        <select
-          data-field="api"
-          value={api}
-          onChange={event => setApi(event.target.value)}
-          className={`mt-1 ${inputClass}`}
-        >
-          {API_TYPES.map(type => (
-            <option key={type.value} value={type.value}>
-              {type.label}
-            </option>
-          ))}
-        </select>
-      </label>
-
-      <label className="block">
-        <span className="text-[11px] text-muted">API key（可选）</span>
+        <span className="text-[11px] text-muted">API 密钥</span>
         <input
           data-field="key"
           type="password"
@@ -157,44 +170,97 @@ export function CustomProviderSetup({
         />
       </label>
 
-      <div>
-        <div className="flex items-baseline justify-between gap-3">
-          <span className="text-[11px] text-muted">模型 id（每行一个）</span>
-          <button
-            type="button"
-            onClick={() => void pullModels()}
-            disabled={!baseUrl.trim() || fetching}
-            className="text-[11.5px] text-muted transition-colors hover:text-foreground disabled:opacity-40"
-          >
-            {fetching ? '正在拉取…' : '拉取模型列表'}
-          </button>
-        </div>
-        <textarea
-          data-field="models"
-          value={models}
-          onChange={event => setModels(event.target.value)}
-          rows={3}
-          placeholder={'gpt-x\nclaude-y'}
-          className={`mt-1 resize-y font-mono ${inputClass}`}
+      <button
+        type="button"
+        onClick={() => setAdvancedOpen(open => !open)}
+        aria-expanded={advancedOpen}
+        className="flex items-center gap-1 text-[11px] text-muted transition-colors hover:text-foreground"
+      >
+        <ChevronDown
+          className={`w-3 h-3 transition-transform duration-200 ${advancedOpen ? 'rotate-180' : ''}`}
         />
-        {fetchError && (
-          <p className="mt-1.5 text-[12px] leading-[1.7] text-amber-600">
-            {fetchError}（可以直接手填模型 id）
-          </p>
-        )}
-      </div>
+        高级（标识 / API 类型 / 模型列表）
+      </button>
+
+      {advancedOpen && (
+        <div className="space-y-2.5 rounded-lg border border-border/70 px-3 py-2.5">
+          <label className="block">
+            <span className="text-[11px] text-muted">
+              标识<Hint>pi 的配置文件和报错里用它，只能字母数字和 . - _</Hint>
+            </span>
+            <input
+              data-field="id"
+              value={providerId}
+              onChange={event => setIdDraft(event.target.value)}
+              placeholder="my-relay"
+              autoComplete="off"
+              className={`mt-1 font-mono ${inputClass}`}
+            />
+          </label>
+
+          <label className="block">
+            <span className="text-[11px] text-muted">API 类型</span>
+            <select
+              data-field="api"
+              value={api}
+              onChange={event => setApi(event.target.value)}
+              className={`mt-1 ${inputClass}`}
+            >
+              {API_TYPES.map(type => (
+                <option key={type.value} value={type.value}>
+                  {type.label}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <div>
+            <div className="flex items-baseline justify-between gap-3">
+              <span className="text-[11px] text-muted">
+                模型 id
+                <Hint>留空则保存时自动拉；拉不到才需要手填</Hint>
+              </span>
+              <button
+                type="button"
+                onClick={() => void pullButton()}
+                disabled={!baseUrl.trim() || busy}
+                className="shrink-0 text-[11.5px] text-muted transition-colors hover:text-foreground disabled:opacity-40"
+              >
+                {busy ? '正在拉取…' : '拉取'}
+              </button>
+            </div>
+            <textarea
+              data-field="models"
+              value={models}
+              onChange={event => setModels(event.target.value)}
+              rows={3}
+              placeholder={'每行一个，例如\ngpt-x\nclaude-y'}
+              className={`mt-1 resize-y font-mono ${inputClass}`}
+            />
+          </div>
+        </div>
+      )}
 
       <button
         type="submit"
-        disabled={!canSave}
+        disabled={!canSubmit}
         className="rounded-full bg-accent px-3.5 py-1.5 text-[12px] text-accent-foreground transition-colors hover:bg-accent-hover disabled:cursor-default disabled:opacity-40"
       >
-        {submitLabel}
+        {busy ? '正在拉取模型…' : submitLabel}
       </button>
+
+      {error && (
+        <p className="text-[12px] leading-[1.7] text-amber-600">{error}</p>
+      )}
 
       {status.setupNotice && (
         <p className="text-[12.5px] leading-[1.7] text-rose-500">{status.setupNotice}</p>
       )}
     </form>
   );
+}
+
+/** 字段说明：小字跟在标签后面，不占一整行 */
+function Hint({ children }: { children: React.ReactNode }) {
+  return <span className="ml-1.5 text-muted/70">{children}</span>;
 }
