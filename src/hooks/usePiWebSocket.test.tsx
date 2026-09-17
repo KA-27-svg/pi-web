@@ -309,3 +309,19 @@ describe('生成中排队与中断', () => {
     expect(api.status.restoredDraft).toBeUndefined();
   });
 });
+
+describe('连接断开', () => {
+  it('收尾正在生成的回答，不把它永远留在「生成中」', async () => {
+    act(() => {
+      api.sendPrompt({ text: '问', images: [], files: [] });
+    });
+    expect(api.messages.find(m => m.role === 'assistant')?.status).toBe('streaming');
+
+    await act(async () => {
+      socket().onclose?.();
+    });
+
+    expect(api.messages.find(m => m.role === 'assistant')?.status).toBe('done');
+    expect(api.status.isStreaming).toBe(false);
+  });
+});

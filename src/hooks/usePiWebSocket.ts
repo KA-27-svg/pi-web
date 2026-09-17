@@ -148,6 +148,9 @@ export function usePiWebSocket() {
       if (!isMountedRef.current) return;
 
       setStatus(prev => ({ ...prev, connected: false, isStreaming: false }));
+      // 本地收尾正在生成的回答：不处理的话那条消息会永远停在「生成中」，
+      // 重连后的 get_messages 又不会覆盖本地已有的消息
+      handler.abortTurn();
       clearTimeout(reconnectTimeoutRef.current);
       reconnectTimeoutRef.current = setTimeout(() => {
         if (isMountedRef.current) connect();
