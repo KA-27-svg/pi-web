@@ -15,9 +15,31 @@ export class MessageParser {
   public static parseHistory(rawMessages: any[]): PiMessage[] {
     const restored: PiMessage[] = [];
     const loadId = Math.random().toString(36).slice(2, 8);
+    // 工具输出在 pi 的历史里是独立的 toolResult 消息，按 toolCallId 挂回对应的工具；
+    // 不接住的话，刷新 / 切会话后工具卡片展开就是空的
+    const toolsById = new Map<string, ToolCallState>();
+
+    const toolResultText = (content: unknown): string =>
+      Array.isArray(content)
+        ? content
+            .map((block: any) => (typeof block?.text === 'string' ? block.text : ''))
+            .join('\n')
+        : typeof content === 'string'
+          ? content
+          : '';
 
     rawMessages.forEach((rm, index) => {
       const id = (kind: string) => `hist-${loadId}-${kind}-${index}`;
+
+      if (rm.role === 'toolResult') {
+        const tool =
+          typeof rm.toolCallId === 'string' ? toolsById.get(rm.toolCallId) : undefined;
+        if (tool) {
+          tool.result = toolResultText(rm.content);
+          if (rm.isError) tool.status = 'error';
+        }
+        return;
+      }
 
       if (rm.role === 'user') {
         const blocks = Array.isArray(rm.content) ? rm.content : null;
@@ -76,13 +98,15 @@ export class MessageParser {
             if (block.type === 'text') content += block.text || '';
             if (block.type === 'thinking') reasoning += block.thinking || '';
             if (block.type === 'tool_use' || block.type === 'toolCall') {
-              tools.push({
+              const tool: ToolCallState = {
                 id: block.id || `hist-tool-${index}-${tools.length}`,
                 name: block.name || block.toolName || 'tool',
                 // pi 存储的是 arguments；input/args 是兼容其他消息格式的兜底
                 args: block.arguments ?? block.input ?? block.args ?? {},
                 status: 'done',
-              });
+              };
+              tools.push(tool);
+              toolsById.set(tool.id, tool);
             }
           }
         } else if (typeof rm.content === 'string') {

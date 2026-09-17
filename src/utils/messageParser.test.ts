@@ -94,6 +94,49 @@ describe('MessageParser.parseHistory', () => {
     expect(parsed[0].role).toBe('user');
   });
 
+  it('把 toolResult 挂回对应的工具调用（刷新 / 切会话后结果不能丢）', () => {
+    const parsed = MessageParser.parseHistory([
+      {
+        role: 'assistant',
+        timestamp: 1,
+        content: [{ type: 'toolCall', id: 'c1', name: 'bash', arguments: { command: 'ls' } }],
+      },
+      {
+        role: 'toolResult',
+        toolCallId: 'c1',
+        toolName: 'bash',
+        content: [{ type: 'text', text: 'a.ts\nb.ts' }],
+        isError: false,
+        timestamp: 2,
+      },
+    ]);
+
+    expect(parsed).toHaveLength(1);
+    expect(parsed[0].tools).toEqual([
+      { id: 'c1', name: 'bash', args: { command: 'ls' }, status: 'done', result: 'a.ts\nb.ts' },
+    ]);
+  });
+
+  it('出错的 toolResult 标成 error', () => {
+    const parsed = MessageParser.parseHistory([
+      {
+        role: 'assistant',
+        timestamp: 1,
+        content: [{ type: 'toolCall', id: 'c1', name: 'bash', arguments: {} }],
+      },
+      {
+        role: 'toolResult',
+        toolCallId: 'c1',
+        content: [{ type: 'text', text: '命令失败' }],
+        isError: true,
+        timestamp: 2,
+      },
+    ]);
+
+    expect(parsed[0].tools?.[0].status).toBe('error');
+    expect(parsed[0].tools?.[0].result).toBe('命令失败');
+  });
+
   it('助手有工具调用但无文本时仍保留 tools', () => {
     const parsed = MessageParser.parseHistory([
       { role: 'assistant', timestamp: 1, content: [{ type: 'toolCall', id: 'c1', name: 'write', arguments: { path: 'a.ts' } }] },
