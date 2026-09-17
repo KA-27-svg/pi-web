@@ -91,3 +91,47 @@ export async function resolvePiCommand(
   }
   return null;
 }
+
+export interface PiLocator {
+  /**
+   * 探测 pi 时该用的命令：解析成功就是绝对路径，否则退回 PATH 里的 `pi`。
+   * 已装 pi 且 PATH 正常的机器因此行为完全不变。
+   */
+  readonly command: string;
+  /** 解析一次并记住；已解析成功过就直接返回 */
+  locate(): Promise<string | null>;
+  /** 作废缓存后重新解析。安装完成后必须这样调一次 */
+  refresh(): Promise<string | null>;
+}
+
+/**
+ * 解析结果的缓存。
+ *
+ * 之所以不直接用 resolvePiCommand：它每次都要起一个 `npm prefix -g` 子进程，
+ * 而向导每 5 秒轮询一次 get_setup_status，不能每次都重跑。
+ *
+ * 两条规则决定了这里只能这样写：
+ *  - **失败不缓存**。「用户刚在自己的终端里装好了 pi」这种情况，桥接无从得知，
+ *    只能靠下次重试发现；把 null 记下来就永远发现不了了。
+ *  - **成功才缓存**。装好的 pi 不会自己搬家，反复去问只是白花钱。
+ */
+export function createPiLocator(run: RunCommand, options: LocateOptions = {}): PiLocator {
+  let cached: string | null = null;
+
+  const locate = async (): Promise<string | null> => {
+    if (cached) return cached;
+    cached = await resolvePiCommand(run, options);
+    return cached;
+  };
+
+  return {
+    get command(): string {
+      return cached ?? 'pi';
+    },
+    locate,
+    refresh(): Promise<string | null> {
+      cached = null;
+      return locate();
+    },
+  };
+}

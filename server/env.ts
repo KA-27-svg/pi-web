@@ -57,16 +57,28 @@ export function meetsMinimumNode(version: NodeVersion | null): boolean {
 export type RunCommand = (command: string, args: string[]) => Promise<string | null>;
 
 /**
+ * 命令名带空格时加引号。
+ *
+ * `shell: true` 是把命令名与参数拼成一行交给 shell 的，路径里有空格（用户目录叫
+ * `John Doe` 这类）会被 shell 从空格处断开。resolvePiCommand 解析出的绝对路径
+ * 正是这种候选，不加引号就会表现成「文件明明在、却跑不起来」。
+ */
+export function quoteIfNeeded(command: string): string {
+  return /\s/.test(command) ? `"${command}"` : command;
+}
+
+/**
  * 默认执行器：用 execFile 而不是 shell 拼接。
  *
  * Windows 上 pi / npm 是 .cmd，CreateProcess 不能直接执行批处理文件，必须过 shell
- * （与 PiSupervisor 里同样的理由）。命令名与参数都是静态字面量，没有任何用户输入
- * 参与拼接，所以这条路上没有注入面。
+ * （与 PiSupervisor 里同样的理由）。参数都是静态字面量；命令名只可能是固定的
+ * 可执行文件名，或 resolvePiCommand 解析出的绝对路径（因此要过 quoteIfNeeded）。
+ * 没有任何用户输入参与拼接，所以这条路上没有注入面。
  */
 export const defaultRunCommand: RunCommand = (command, args) =>
   new Promise(resolve => {
     execFile(
-      command,
+      quoteIfNeeded(command),
       args,
       { timeout: 10_000, windowsHide: true, shell: true },
       (error, stdout) => resolve(error ? null : String(stdout))
@@ -109,6 +121,14 @@ export interface ProbeOptions {
   platform?: NodeJS.Platform;
   /** 查已配凭证的供应商。必须可注入，否则测试结果会随宿主机上真实配置漂移 */
   listCredentials?: () => Promise<string[]>;
+  /**
+   * 要探测的 pi 可执行文件，默认 PATH 里的 `pi`。
+   *
+   * 桥接解析出绝对路径后必须传进来。官方安装器只把安装目录写进用户 PATH，
+   * 而已经跑着的桥接进程读不到——只认 PATH 的话，装成功也会一直报
+   * 「还没安装 pi」，用户点一次按钮就重装一次。
+   */
+  piCommand?: string;
 }
 
 export async function probeEnvironment(
@@ -117,12 +137,14 @@ export async function probeEnvironment(
 ): Promise<SetupStatus> {
   const platform = options.platform ?? process.platform;
   const gitBashRequired = platform === 'win32';
+  // 解析出了绝对路径就用它，否则退回 PATH 里的 `pi`
+  const piCommand = options.piCommand || 'pi';
 
   // 互相独立，并行探测；Git Bash 只在 Windows 上问
   const [nodeRaw, npmRaw, piRaw, bashRaw, providers] = await Promise.all([
     run('node', ['--version']),
     run('npm', ['--version']),
-    run('pi', ['--version']),
+    run(piCommand, ['--version']),
     gitBashRequired ? run('bash', ['--version']) : Promise.resolve(null),
     (options.listCredentials ?? listConfiguredProviders)(),
   ]);

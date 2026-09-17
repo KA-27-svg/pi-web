@@ -15,7 +15,7 @@ import { reply } from './reply.js';
 import { attachOriginGuard, parseAllowedOrigins } from './origin.js';
 import { createStaticHandler } from './static.js';
 import { defaultRunCommand, probeEnvironment } from './env.js';
-import { resolvePiCommand } from './piLocate.js';
+import { createPiLocator } from './piLocate.js';
 import { buildInstallCommand, installPreflight, runInstall } from './piInstall.js';
 import { PROVIDER_PRESETS, SUBSCRIPTION_LOGINS } from './providers.js';
 import {
@@ -204,17 +204,29 @@ const pi = new PiSupervisor(
 );
 
 /**
- * 解析 pi 可执行文件并交给 supervisor。
+ * pi 路径的解析结果。
  *
- * 安装完 pi 后必须再跑一次：官方安装器只把新目录写进用户 PATH，已经跑着的
- * 桥接进程读不到，不重新解析就会一直说找不到 pi。
+ * 探测与拉起必须用同一个路径。以前这里解析出的绝对路径只给了 supervisor，
+ * 探测（probeEnvironment）却仍然用 PATH 里的 `pi`，两套互不相通，于是：
+ * 官方安装器把 pi 装到别处 → 装成功 → 日志里也有 Resolved pi at，但向导
+ * 永远停在「还没安装 pi」，用户点一次按钮就重装一次。
  */
-async function refreshPiCommand(): Promise<string | null> {
-  const resolved = await resolvePiCommand(defaultRunCommand);
-  if (resolved) {
+const piLocator = createPiLocator(defaultRunCommand);
+
+/**
+ * 解析 pi 路径并同步给 supervisor，返回解析结果。
+ *
+ * force 为真时作废缓存重解析：安装完成后必须这样调一次，新装的 pi 可能落在
+ * 与上次不同的位置。
+ */
+async function locatePi(force = false): Promise<string | null> {
+  const resolved = force ? await piLocator.refresh() : await piLocator.locate();
+
+  if (resolved && pi.currentCommand !== resolved) {
     pi.setCommand(resolved);
     console.log(`[Pi Bridge] Resolved pi at: ${resolved}`);
   }
+
   return resolved;
 }
 
@@ -226,7 +238,10 @@ let installInFlight = false;
  * 供应商目录也一并给前端，免得两边各维护一份、迟早走样。
  */
 async function setupPayload() {
-  const setup = await probeEnvironment(defaultRunCommand);
+  // 先解析一次再探测：探测要用已解析的绝对路径，
+  // 否则装到 PATH 之外时会把「装好了」误报成「还没安装 pi」
+  await locatePi();
+  const setup = await probeEnvironment(defaultRunCommand, { piCommand: pi.currentCommand });
   return {
     setup,
     installCommand: buildInstallCommand().display,
@@ -440,7 +455,9 @@ wss.on('connection', (ws: WebSocket) => {
 
         void (async () => {
           // 重新探一次：用户可能在向导打开期间自己装好了 Node
-          const before = await probeEnvironment(defaultRunCommand);
+          const before = await probeEnvironment(defaultRunCommand, {
+            piCommand: pi.currentCommand,
+          });
           const preflight = installPreflight(before);
           if (!preflight.allowed) {
             ws.send(JSON.stringify({ type: 'install_refused', error: preflight.reason }));
@@ -456,7 +473,7 @@ wss.on('connection', (ws: WebSocket) => {
             });
 
             // 解析新路径必须在探测之前：装完后当前进程的 PATH 还是旧的
-            await refreshPiCommand();
+            await locatePi(true);
 
             broadcast(JSON.stringify({ type: 'install_done', ...result }));
             await broadcastSetupStatus();
@@ -647,7 +664,7 @@ server.listen(PORT, HOST, () => {
 
   // 解析 pi 的绝对路径。不阻塞启动：解析不出来就继续用 PATH 里的 `pi`，
   // 与改造前的行为一致。
-  void refreshPiCommand().catch(err =>
+  void locatePi().catch(err =>
     console.error('[Pi Bridge] Failed to resolve pi path:', err)
   );
 

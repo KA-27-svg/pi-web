@@ -4,6 +4,7 @@ import {
   meetsMinimumNode,
   parseNodeVersion,
   probeEnvironment,
+  quoteIfNeeded,
   type RunCommand,
 } from './env';
 
@@ -171,5 +172,60 @@ describe('probeEnvironment', () => {
     });
 
     expect(status.issues.map(i => i.code)).toEqual(['pi-missing']);
+  });
+
+  it('用传入的 piCommand 探测，而不是固定走 PATH 里的 pi', async () => {
+    // 「装到 PATH 之外」的核心场景：官方安装器只把新目录写进用户 PATH，
+    // 已经在跑的桥接进程读不到。探测必须真的执行那个绝对路径，
+    // 否则装成功也会一直报 pi-missing，用户点一次按钮就重装一次。
+    const absolute = 'C:\\Users\\u\\AppData\\Local\\pi-node\\current\\pi.cmd';
+    const seen: string[] = [];
+    const run: RunCommand = async (command, args) => {
+      seen.push(command);
+      if (command === absolute && args.join(' ') === '--version') return '0.85.1\n';
+      if (command === 'node') return healthy.node;
+      if (command === 'npm') return healthy.npm;
+      return null; // PATH 里的裸 `pi` 找不到
+    };
+
+    const status = await probeEnvironment(run, {
+      platform: 'linux',
+      listCredentials: withAnthropic,
+      piCommand: absolute,
+    });
+
+    expect(seen).toContain(absolute);
+    expect(seen).not.toContain('pi');
+    expect(status.pi).toEqual({ installed: true, version: '0.85.1' });
+    expect(status.ready).toBe(true);
+  });
+
+  it('没传 piCommand 时退回 PATH 里的 pi（已装机器的行为不变）', async () => {
+    const seen: string[] = [];
+    const run: RunCommand = async command => {
+      seen.push(command);
+      return healthy[command] ?? null;
+    };
+
+    const status = await probeEnvironment(run, {
+      platform: 'linux',
+      listCredentials: withAnthropic,
+    });
+
+    expect(seen).toContain('pi');
+    expect(status.pi.installed).toBe(true);
+  });
+});
+
+describe('quoteIfNeeded', () => {
+  it('路径带空格时加引号，否则 shell 会从空格处断开', () => {
+    // 不加引号的实测后果：`C:\Users\John Doe\...\pi.cmd --version`
+    // 会被 cmd 当成执行 `C:\Users\John`
+    expect(quoteIfNeeded('C:\\Users\\John Doe\\pi.cmd')).toBe('"C:\\Users\\John Doe\\pi.cmd"');
+  });
+
+  it('没有空格时原样返回', () => {
+    expect(quoteIfNeeded('pi')).toBe('pi');
+    expect(quoteIfNeeded('/usr/local/bin/pi')).toBe('/usr/local/bin/pi');
   });
 });
