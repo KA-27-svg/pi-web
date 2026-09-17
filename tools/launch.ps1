@@ -74,7 +74,11 @@ if ($portBusy) {
 
 # ── 准备清单 ────────────────────────────────────────────────────────────────
 # 首次运行要等几分钟，中间没有任何反馈的话，用户很容易以为卡死了。所以把要做的
-# 事按顺序列出来，每步报一次用时——下次他就知道总共要等多久。
+# 事按顺序列出来，每步报一次用时。
+#
+# **只在真的有东西要装时才摆**（$ShowChecklist，在下面探测之后算出来）。什么都
+# 不缺时还列四行「已经有了」「已经装好」，用户会以为它在重复劳动，而且和清单开头
+# 那句「之后就不用再等了」自相矛盾。
 #
 # 顺序打印而不是原地重画：重画要控制光标，而输出被重定向时（管道、日志）
 # [Console]::SetCursorPosition 会直接抛错。
@@ -82,16 +86,23 @@ $TotalSteps = 4
 $StepIndex = 0
 $StepWatch = [System.Diagnostics.Stopwatch]::StartNew()
 
+# 依赖装完整了没有的凭据。探测和依赖那一步都要用，所以放这里
+$nodeModules = Join-Path $ProjectDir 'node_modules'
+$installMarker = Join-Path $nodeModules '.package-lock.json'
+
 function Start-Step {
   param([string]$Name)
   $script:StepIndex += 1
   $script:StepWatch.Restart()
+  if (-not $script:ShowChecklist) { return }
   Write-Host ("  [{0}/{1}] {2}" -f $script:StepIndex, $TotalSteps, $Name)
 }
 
 function Complete-Step {
   # 标记用 ASCII：控制台默认是 GBK，`✓`（U+2713）不在里面，会渲染成 `?`
   param([string]$Result, [string]$Mark = 'OK')
+
+  if (-not $script:ShowChecklist) { return }
 
   $seconds = [int][math]::Round($script:StepWatch.Elapsed.TotalSeconds)
   # 不到一秒的不报用时（否则一排「0 秒」只是噪声），分钟级才写成「x 分 y 秒」
@@ -102,9 +113,6 @@ function Complete-Step {
   Write-Host ("        {0}  {1}{2}" -f $Mark, $Result, $elapsed)
   Write-Host ''
 }
-
-Write-Host '  第一次运行要几分钟，之后就不用再等了。'
-Write-Host ''
 
 # ── Node ────────────────────────────────────────────────────────────────────
 # pi 需要 Node ≥ 22.19.0，而本项目自己只要 22.12 就能跑——所以「网页能开」不等于
@@ -131,6 +139,13 @@ function Get-NodeVersion {
   } catch {
     return $null
   }
+}
+
+# 这个探针放在这里而不是 pi 那一段：清单要不要摆，得先知道 pi 装没装，
+# 而那次判断比 pi 段更早发生
+function Get-PiVersion {
+  if (-not (Get-Command pi -ErrorAction SilentlyContinue)) { return $null }
+  try { return (& pi '--version').Trim() } catch { return $null }
 }
 
 function Get-Sha256 {
@@ -212,20 +227,37 @@ function Install-LocalNode {
   $env:PATH = "$LocalNodeDir;$env:PATH"
 }
 
+# 先探一遍，决定这次要不要摆准备清单。三个都齐了就不摆（见清单那段注释）。
+#
+# 本地那份 Node 也验版本再用：只看「文件在不在」的话，之前中断过的安装或以后
+# 提高门槛时都会静默用一个不达标的 Node。
+$systemNode = Get-NodeVersion 'node'
+$localNode = Get-NodeVersion $LocalNodeExe
+$piVersion = Get-PiVersion
+$depsInstalled = Test-Path $installMarker
+
+$nodeReady = ($localNode -and $localNode -ge $NodeMinimum) -or
+             ($systemNode -and $systemNode -ge $NodeMinimum)
+$ShowChecklist = (-not $nodeReady) -or (-not $piVersion) -or (-not $depsInstalled)
+
+if ($ShowChecklist) {
+  Write-Host '  第一次运行要几分钟，之后就不用再等了。'
+} else {
+  Write-Host '  环境已就绪，正在启动…'
+}
+Write-Host ''
+
 Start-Step 'Node.js'
 
-$systemNode = Get-NodeVersion 'node'
-# 本地那份也验版本再用：只看「文件在不在」的话，之前中断过的安装或以后提高门槛时
-# 都会静默用一个不达标的 Node
-$localNode = Get-NodeVersion $LocalNodeExe
-
-if ($localNode -and $localNode -ge $NodeMinimum) {
-  # 本地优先：这个项目的 Node 从哪来就是确定的，不受用户系统环境影响
-  $env:PATH = "$LocalNodeDir;$env:PATH"
-  $nodeSummary = "v$localNode（项目自带）"
-} elseif ($systemNode -and $systemNode -ge $NodeMinimum) {
-  # 系统那份够用，不白白再装 100 MB
-  $nodeSummary = "v$systemNode（用系统已装的）"
+if ($nodeReady) {
+  if ($localNode -and $localNode -ge $NodeMinimum) {
+    # 本地优先：这个项目的 Node 从哪来就是确定的，不受用户系统环境影响
+    $env:PATH = "$LocalNodeDir;$env:PATH"
+    $nodeSummary = "v$localNode（项目自带）"
+  } else {
+    # 系统那份够用，不白白再装 100 MB
+    $nodeSummary = "v$systemNode（用系统已装的）"
+  }
 } else {
   if ($localNode) {
     Write-Host "        项目自带的 Node 是 v$localNode，pi 需要 $NodeMinimum 或更新"
@@ -262,14 +294,9 @@ Complete-Step $nodeSummary
 #   1. 它有交互提问（要不要装 Git Bash、要不要改 PATH），自动化流程里会卡住；
 #   2. 它开头那些判断在无终端环境下本来就会跳过 Node / Git Bash，拿不到好处。
 # 装失败不阻断：页面上的「帮我安装 pi」还在，用户有别的路可走。
-function Get-PiVersion {
-  if (-not (Get-Command pi -ErrorAction SilentlyContinue)) { return $null }
-  try { return (& pi '--version').Trim() } catch { return $null }
-}
 
 Start-Step 'pi'
 
-$piVersion = Get-PiVersion
 if ($piVersion) {
   Complete-Step "$piVersion（已经装好）"
 } else {
@@ -293,14 +320,11 @@ if ($piVersion) {
 # 这里起 npm 就是前面刚接进 PATH 的那份 Node，所以它必然是达标的
 Start-Step '项目依赖'
 
-# 判据不能只看目录在不在：npm install 装到一半断掉，同样会留下 node_modules。
-# 那样下次启动就会一直说「已经有了」，然后构建失败成一句看不懂的
-# 「'tsc' 不是内部或外部命令」——而且双击多少次都一样，用户出不来。
+# $depsInstalled 是上面探测时算好的。判据不能只看 node_modules 目录在不在：
+# npm install 装到一半断掉同样会留下它，那样下次启动就会一直说「已经有了」，
+# 然后构建失败成一句看不懂的「'tsc' 不是内部或外部命令」，而且双击多少次都一样。
 # npm 成功装完会写 node_modules\.package-lock.json，拿它当「装完整了」的凭据。
-$nodeModules = Join-Path $ProjectDir 'node_modules'
-$installMarker = Join-Path $nodeModules '.package-lock.json'
-
-if (Test-Path $installMarker) {
+if ($depsInstalled) {
   Complete-Step '已经有了'
 } else {
   # 有残留先清掉：半成品留着只会让 npm 更难判断该补什么
@@ -324,7 +348,7 @@ if (Test-Path $installMarker) {
 }
 
 Start-Step '构建'
-Write-Host '        首次会慢一些...'
+if ($ShowChecklist) { Write-Host '        首次会慢一些...' }
 Write-Host ''
 
 & npm run build
