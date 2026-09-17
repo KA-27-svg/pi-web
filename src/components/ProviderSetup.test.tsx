@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import type { BridgeStatus, ProviderPreset } from '../types/pi';
+import type { BridgeStatus, ProviderPreset, SetupStatus } from '../types/pi';
 import { ProviderSetup } from './ProviderSetup';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -127,8 +127,7 @@ describe('ProviderSetup', () => {
   });
 });
 
-describe('ProviderSetup 订阅登录引导', () => {
-  it('列出可以用订阅登录的提供商', () => {
+describe('ProviderSetup 订阅登录引导', () => {  it('列出可以用订阅登录的提供商', () => {
     render();
 
     expect(text()).toContain('Claude Pro/Max');
@@ -146,5 +145,66 @@ describe('ProviderSetup 订阅登录引导', () => {
     render();
 
     expect(text()).toContain('自动');
+  });
+});
+
+describe('ProviderSetup 保存反馈', () => {
+  /** 桥接每次广播的都是新建的 setup 对象，这里就靠它换引用来判「存上了」 */
+  const setup = (): SetupStatus =>
+    ({
+      platform: 'win32',
+      node: { version: 'v22.23.2', ok: true, minimum: '22.19.0' },
+      npm: { available: true },
+      pi: { installed: true, version: '0.85.1' },
+      gitBash: { required: true, available: true, path: null, mode: 'bash' },
+      credentials: { providers: [] },
+      ready: false,
+      issues: [],
+    }) as SetupStatus;
+
+  it('存上之后按钮说「已保存」，不然点一下什么都不变', () => {
+    vi.useFakeTimers();
+    try {
+      render({ setup: setup() });
+      setValue(keyInput(), 'sk-1');
+      submit();
+
+      // 回包还没到
+      expect(submitButton().textContent).toContain('保存并开始');
+
+      render({ setup: setup() });
+      act(() => {
+        vi.advanceTimersByTime(500);
+      });
+
+      expect(submitButton().textContent).toContain('已保存');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('过一会儿回到原来的文案，不会一直挂着「已保存」', () => {
+    vi.useFakeTimers();
+    try {
+      render({ setup: setup() });
+      setValue(keyInput(), 'sk-1');
+      submit();
+      render({ setup: setup() });
+
+      // 分两步推进：effect 是在 act 退出时才 flush 的，那个 1200ms 的定时器
+      // 要到那时才被建出来，一次推到底会推不到它
+      act(() => {
+        vi.advanceTimersByTime(500);
+      });
+      expect(submitButton().textContent).toContain('已保存');
+
+      act(() => {
+        vi.advanceTimersByTime(1300);
+      });
+
+      expect(submitButton().textContent).toContain('保存并开始');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

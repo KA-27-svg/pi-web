@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import type { BridgeStatus, CustomProviderDraft } from '../types/pi';
+import type { BridgeStatus, CustomProviderDraft, SetupStatus } from '../types/pi';
 import { CustomProviderSetup } from './CustomProviderSetup';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -27,6 +27,20 @@ const status = (extra: Partial<BridgeStatus> = {}): BridgeStatus => ({
   isStreaming: false,
   ...extra,
 });
+
+/** 桥接每次广播的都是新建的 setup 对象，
+ *  这里就靠它换引用来判「存上了」 */
+const setup = (): SetupStatus =>
+  ({
+    platform: 'win32',
+    node: { version: 'v22.23.2', ok: true, minimum: '22.19.0' },
+    npm: { available: true },
+    pi: { installed: true, version: '0.85.1' },
+    gitBash: { required: true, available: true, path: null, mode: 'bash' },
+    credentials: { providers: [] },
+    ready: false,
+    issues: [],
+  }) as SetupStatus;
 
 const render = (
   extra: Partial<BridgeStatus> = {},
@@ -260,8 +274,7 @@ describe('CustomProviderSetup 保存时自动拉模型', () => {
   });
 });
 
-describe('CustomProviderSetup API 类型', () => {
-  it('默认 openai-completions，摊出来时列出 pi 支持的四种', async () => {
+describe('CustomProviderSetup API 类型', () => {  it('默认 openai-completions，摊出来时列出 pi 支持的四种', async () => {
     render({}, {
       onListModels: vi.fn(async () => {
         throw new Error('拉取模型列表失败（HTTP 404）');
@@ -301,5 +314,66 @@ describe('CustomProviderSetup API 类型', () => {
     await submit();
 
     expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ api: 'anthropic-messages' }));
+  });
+});
+
+describe('CustomProviderSetup 保存反馈', () => {
+  it('存上之后按钮说「已保存」', async () => {
+    vi.useFakeTimers();
+    try {
+      render({ setup: setup() }, { onListModels: vi.fn(async () => ['m1']) });
+      fill();
+      await act(async () => {
+        click(saveButton());
+      });
+
+      // 提交了，但回包还没到
+      expect(saveButton().textContent).not.toContain('已保存');
+
+      render({ setup: setup() }, { onListModels: vi.fn(async () => ['m1']) });
+      act(() => {
+        vi.advanceTimersByTime(500);
+      });
+
+      expect(saveButton().textContent).toContain('已保存');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('拉取失败时不能报「已保存」——那是在报假成功', async () => {
+    vi.useFakeTimers();
+    try {
+      render(
+        { setup: setup() },
+        {
+          onListModels: vi.fn(async () => {
+            throw new Error('拉取模型列表失败（HTTP 404）');
+          }),
+        }
+      );
+      fill();
+      await act(async () => {
+        click(saveButton());
+      });
+
+      // 就算 setup 换了新对象（自愈、重探等都可能是），也不能说已保存：
+      // 这次保存根本没提交出去
+      render(
+        { setup: setup() },
+        {
+          onListModels: vi.fn(async () => {
+            throw new Error('拉取模型列表失败（HTTP 404）');
+          }),
+        }
+      );
+      act(() => {
+        vi.advanceTimersByTime(2000);
+      });
+
+      expect(saveButton().textContent).not.toContain('已保存');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

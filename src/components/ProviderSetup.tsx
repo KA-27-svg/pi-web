@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { BridgeStatus, CustomProviderDraft } from '../types/pi';
+import { useRefreshFeedback } from '../hooks/useRefreshFeedback';
 import { CustomProviderSetup } from './CustomProviderSetup';
 
 interface ProviderSetupProps {
@@ -43,10 +44,14 @@ export function ProviderSetup({
   const provider = selected || providers[0]?.id || '';
   const canSubmit = Boolean(provider) && key.trim().length > 0;
 
+  // 保存结果由桥接广播回来（provider_saved → setup_status），拿 setup 的引用变化
+  // 当完成信号；不然点一下「保存」什么都不变，用户不知道到底存上没
+  const save = useRefreshFeedback(status.setup);
+
   const submit = (event: React.FormEvent) => {
     event.preventDefault();
     if (!canSubmit) return;
-    onSave(provider, key.trim());
+    save.trigger(() => onSave(provider, key.trim()));
   };
 
   return (
@@ -86,7 +91,7 @@ export function ProviderSetup({
           disabled={!canSubmit}
           className="rounded-full bg-accent px-3.5 py-1.5 text-[12px] text-accent-foreground transition-colors hover:bg-accent-hover disabled:cursor-default disabled:opacity-40"
         >
-          {submitLabel}
+          {save.phase === 'done' ? '已保存' : submitLabel}
         </button>
 
         {status.setupNotice && (

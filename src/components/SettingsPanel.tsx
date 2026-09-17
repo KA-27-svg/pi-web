@@ -161,7 +161,7 @@ export function SettingsPanel({
   const setup = status.setup;
   // 重新检测是跑 node / npm / pi 几条命令再回来，得等一两秒——不报状态的话
   // 用户点完只看到同一幅画面，会以为没点上
-  const recheck = useRefreshFeedback(setup, onRecheckSetup);
+  const recheck = useRefreshFeedback(setup);
   const context = stats?.contextUsage;
   const contextText = context
     ? `${formatTokens(context.tokens)} / ${formatTokens(context.contextWindow)} · ${Math.round(context.percent)}%`
@@ -232,7 +232,7 @@ export function SettingsPanel({
             <div className="mb-2 flex items-center justify-between gap-2">
               <span className="text-[11px] text-muted">环境自检</span>
               <button
-                onClick={recheck.trigger}
+                onClick={() => recheck.trigger(onRecheckSetup)}
                 disabled={recheck.phase === 'pending'}
                 className="flex items-center gap-1 text-[11px] text-muted transition-colors hover:text-foreground disabled:cursor-default"
               >

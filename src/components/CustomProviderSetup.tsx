@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { BridgeStatus } from '../types/pi';
+import { useRefreshFeedback } from '../hooks/useRefreshFeedback';
 import { deriveProviderId } from '../utils/customProvider';
 
 /** 与桥接的 SUPPORTED_APIS 保持一致；这几项是 pi 真正支持的 API 类型 */
@@ -69,7 +70,6 @@ export function CustomProviderSetup({
   const [manual, setManual] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
-
   const manualModels = models
     .split('\n')
     .map(line => line.trim())
@@ -94,34 +94,49 @@ export function CustomProviderSetup({
     return found;
   };
 
-  const submit = async (event: React.FormEvent) => {
+  /** 保存的成功信号同样看 setup 的引用变化（custom_provider_saved → setup_status） */
+  const save = useRefreshFeedback(status.setup);
+
+  const submit = (event: React.FormEvent) => {
     event.preventDefault();
     if (!canSubmit) return;
+    save.trigger(runSave);
+  };
 
-    // 手填过就用手的，不再去打扰网络
-    if (manualModels.length > 0) {
-      commit(manualModels);
-      return;
-    }
-
+  /**
+   * 真正的保存：必要时先拉模型，然后提交。
+   * 提交之后等桥接广播新 setup（setup 引用一变就是存上了），按钮会说「已保存」。
+   *
+   * 失败时先把原因摆到界面上，然后**抛出去**——hook 会接住并复位，不会去等一个永远
+   * 不会来的 signal 变化（那会报一个假的「已保存」）。
+   */
+  async function runSave() {
     setBusy(true);
     setError(undefined);
     try {
-      const found = await pullModels();
-      if (found.length === 0) {
-        // 拉到了但是空的，不能当成功：pi 那边一个模型都没有，选了也是空的
-        setManual(true);
-        setError('这个地址没返回任何模型，下面手填一下模型 id');
-        return;
+      let modelIds = manualModels;
+
+      // 手填过就用手的，不再去打扰网络
+      if (modelIds.length === 0) {
+        const found = await pullModels();
+        if (found.length === 0) {
+          // 拉到了但是空的，不能当成功：pi 那边一个模型都没有，选了也是空的
+          setManual(true);
+          throw new Error('这个地址没返回任何模型，下面手填一下模型 id');
+        }
+        modelIds = found;
       }
-      commit(found);
+
+      commit(modelIds);
     } catch (err) {
+      // 很多自建服务根本没实现 /models，所以不阻断，退化成手填
       setManual(true);
       setError(err instanceof Error ? err.message : String(err));
+      throw err;
     } finally {
       setBusy(false);
     }
-  };
+  }
 
   const pullButton = async () => {
     if (!baseUrl.trim() || busy) return;
@@ -229,7 +244,7 @@ export function CustomProviderSetup({
         disabled={!canSubmit}
         className="rounded-full bg-accent px-3.5 py-1.5 text-[12px] text-accent-foreground transition-colors hover:bg-accent-hover disabled:cursor-default disabled:opacity-40"
       >
-        {busy ? '正在拉取模型…' : submitLabel}
+        {busy ? '正在拉取模型…' : save.phase === 'done' ? '已保存' : submitLabel}
       </button>
 
       {error && <p className="text-[12px] leading-[1.7] text-amber-600">{error}</p>}

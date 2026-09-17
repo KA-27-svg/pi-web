@@ -108,10 +108,13 @@ export function Sidebar({
    * 刷新按钮的点击反馈。看的是「这一次刷新要等的那个值」：历史视图等 sessions，
    * 回收箱等 trashed。
    */
-  const refresh = useRefreshFeedback(
-    view === 'history' ? sessions : trashed,
-    view === 'history' ? onRefreshSessions : onRequestTrash
-  );
+  const refresh = useRefreshFeedback(view === 'history' ? sessions : trashed);
+
+  /** 当前视图该刷哪个：历史列表和回收箱是两个不同的请求 */
+  const refreshCurrentView = () => {
+    if (view === 'history') onRefreshSessions();
+    else onRequestTrash();
+  };
 
   const scrollRef = useRef<HTMLElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
@@ -267,7 +270,7 @@ export function Sidebar({
             {view === 'history' ? '历史对话' : '回收箱'}
           </span>
           <button
-            onClick={refresh.trigger}
+            onClick={() => refresh.trigger(refreshCurrentView)}
             disabled={refresh.phase === 'pending'}
             className="-mr-1 rounded-md p-1 text-muted transition-colors hover:text-foreground disabled:cursor-default"
             aria-label={view === 'history' ? '刷新历史对话' : '刷新回收箱'}
