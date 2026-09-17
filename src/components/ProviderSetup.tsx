@@ -1,16 +1,11 @@
 import { useState } from 'react';
-import type { BridgeStatus, CustomProviderDraft } from '../types/pi';
+import type { BridgeStatus } from '../types/pi';
 import { useRefreshFeedback } from '../hooks/useRefreshFeedback';
-import { CustomProviderSetup } from './CustomProviderSetup';
 
 interface ProviderSetupProps {
   status: BridgeStatus;
-  /** 保存供应商凭证；具体落盘由桥接完成 */
-  onSave: (provider: string, key: string) => void;
-  /** 拉自定义端点的模型列表 */
-  onListModels: (baseUrl: string, key: string) => Promise<string[]>;
-  /** 保存自定义端点 */
-  onSaveCustom: (draft: CustomProviderDraft) => void;
+  /** 保存供应商凭证；baseUrl 只在走中转站时才填 */
+  onSave: (provider: string, key: string, baseUrl?: string) => void;
   /**
    * wizard：首次运行向导里用，自带「配置模型」标题，按钮说「保存并开始」
    * settings：设置面板里用，外面已经有分区标题了（而且不是「开始」什么），
@@ -20,25 +15,31 @@ interface ProviderSetupProps {
 }
 
 /**
- * 配置模型凭证。
+ * 配置模型凭证。就三样：供应商、密钥、地址（走中转站才改）。
  *
- * 这一步桥接能做（直接写 auth.json），但**订阅登录做不了**——`/login` 是纯 TUI
- * 交互流程。所以两种方式都摆出来：贴 API key 是本页的事，订阅登录只做引导，
- * 并说明授权完成后页面会自己继续（外层每 5 秒重探一次）。
+ * 这是照着 pi 自己的做法来的：
+ *
+ * - **供应商**取内置目录（20 个），密钥写进 `auth.json` 的 `{ type: 'api_key', key }`。
+ * - **地址**是可选的 `baseUrl`。填了它，pi 就仍然用**内置的那套模型清单**，只是把请求
+ *   发到你指定的地址——即中转站 / 自建网关。pi 的文档叫它
+ *   「Route a built-in provider through a proxy without redefining models」，
+ *   我们桥接的 `save_provider_key` 本来就收 baseUrl，凭证解析也认这个字段。
+ *
+ * 所以不需要声明「有哪些模型」、也不需要选 API 类型：模型清单一律来自 pi 内置目录，
+ * 中转站的分组只决定其中哪些真的能用。
+ *
+ * 订阅登录（Claude Pro / ChatGPT / Copilot）桥接做不了——`/login` 是纯 TUI 流程，
+ * 所以只做引导，并说明授权完成后页面会自己继续。
  */
-export function ProviderSetup({
-  status,
-  onSave,
-  onListModels,
-  onSaveCustom,
-  variant = 'wizard',
-}: ProviderSetupProps) {
+export function ProviderSetup({ status, onSave, variant = 'wizard' }: ProviderSetupProps) {
   const wizard = variant === 'wizard';
   const submitLabel = wizard ? '保存并开始' : '保存';
   const providers = status.providers ?? [];
   const subscriptions = status.subscriptions ?? [];
+
   const [selected, setSelected] = useState('');
   const [key, setKey] = useState('');
+  const [baseUrl, setBaseUrl] = useState('');
 
   // providers 是异步到达的，所以这里兜底到第一项，而不是在 useState 初始值里定
   const provider = selected || providers[0]?.id || '';
@@ -51,8 +52,11 @@ export function ProviderSetup({
   const submit = (event: React.FormEvent) => {
     event.preventDefault();
     if (!canSubmit) return;
-    save.trigger(() => onSave(provider, key.trim()));
+    save.trigger(() => onSave(provider, key.trim(), baseUrl.trim() || undefined));
   };
+
+  const inputClass =
+    'w-full rounded-lg border border-border bg-surface px-3 py-2 text-[12.5px] text-foreground placeholder:text-muted';
 
   return (
     <section className={wizard ? 'mt-6' : ''}>
@@ -60,11 +64,11 @@ export function ProviderSetup({
 
       <form onSubmit={submit} className="mt-2 space-y-2.5">
         <label className="block">
-          <span className="sr-only">供应商</span>
+          <span className="text-[11px] text-muted">供应商</span>
           <select
             value={provider}
             onChange={event => setSelected(event.target.value)}
-            className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-[12.5px] text-foreground"
+            className={`mt-1 ${inputClass}`}
           >
             {providers.map(preset => (
               <option key={preset.id} value={preset.id}>
@@ -75,14 +79,29 @@ export function ProviderSetup({
         </label>
 
         <label className="block">
-          <span className="sr-only">API key</span>
+          <span className="text-[11px] text-muted">API 密钥</span>
           <input
             type="password"
             value={key}
             onChange={event => setKey(event.target.value)}
-            placeholder="粘贴 API key"
+            placeholder="sk-..."
             autoComplete="off"
-            className="w-full rounded-lg border border-border bg-surface px-3 py-2 font-mono text-[12.5px] text-foreground placeholder:text-muted"
+            className={`mt-1 font-mono ${inputClass}`}
+          />
+        </label>
+
+        <label className="block">
+          <span className="text-[11px] text-muted">
+            地址
+            <span className="ml-1.5 text-muted/70">走中转站才需要改</span>
+          </span>
+          <input
+            data-field="baseUrl"
+            value={baseUrl}
+            onChange={event => setBaseUrl(event.target.value)}
+            placeholder="留空就用官方的"
+            autoComplete="off"
+            className={`mt-1 font-mono ${inputClass}`}
           />
         </label>
 
@@ -118,18 +137,6 @@ export function ProviderSetup({
           </p>
         </details>
       )}
-
-      <details className="mt-2.5 rounded-lg border border-border bg-surface px-3.5 py-3">
-        <summary className="cursor-pointer text-[12px] text-foreground/90">
-          或者用自定义端点（中转站 / 自建服务）
-        </summary>
-        <CustomProviderSetup
-          status={status}
-          onListModels={onListModels}
-          onSave={onSaveCustom}
-          submitLabel={submitLabel}
-        />
-      </details>
     </section>
   );
 }

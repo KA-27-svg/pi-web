@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { BridgeStatus, CustomProviderDraft } from '../types/pi';
+import type { BridgeStatus } from '../types/pi';
 import { ProviderSetup } from './ProviderSetup';
 import { AlertCircle, Check, Copy, Download, RefreshCw } from 'lucide-react';
 
@@ -16,11 +16,7 @@ interface SetupWizardProps {
   /** 让桥接代跑官方安装器 */
   onInstall: () => void;
   /** 保存供应商凭证 */
-  onSaveProvider?: (provider: string, key: string) => void;
-  /** 拉自定义端点的模型列表 */
-  onListModels?: (baseUrl: string, key: string) => Promise<string[]>;
-  /** 保存自定义端点 */
-  onSaveCustomProvider?: (draft: CustomProviderDraft) => void;
+  onSaveProvider?: (provider: string, key: string, baseUrl?: string) => void;
 }
 
 /**
@@ -38,8 +34,6 @@ export function SetupWizard({
   onRecheck,
   onInstall,
   onSaveProvider,
-  onListModels,
-  onSaveCustomProvider,
 }: SetupWizardProps) {
   const setup = status.setup;
   const ready = setup?.ready ?? false;
@@ -180,13 +174,8 @@ export function SetupWizard({
           </section>
         )}
 
-        {needsCredentials && onSaveProvider && onListModels && onSaveCustomProvider && (
-          <ProviderSetup
-            status={status}
-            onSave={onSaveProvider}
-            onListModels={onListModels}
-            onSaveCustom={onSaveCustomProvider}
-          />
+        {needsCredentials && onSaveProvider && (
+          <ProviderSetup status={status} onSave={onSaveProvider} />
         )}
 
         <button

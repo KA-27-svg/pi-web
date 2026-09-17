@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import type { BridgeStatus, CustomProviderDraft, SetupStatus } from '../types/pi';
+import type { BridgeStatus, SetupStatus } from '../types/pi';
 import { SetupWizard } from './SetupWizard';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -60,15 +60,13 @@ const render = (
     onRecheck?: () => void;
     onInstall?: () => void;
     onSaveProvider?: (p: string, k: string) => void;
-    onListModels?: (b: string, k: string) => Promise<string[]>;
-    onSaveCustomProvider?: (draft: CustomProviderDraft) => void;
+
   } = {}
 ) => {
   const onRecheck = handlers.onRecheck ?? vi.fn();
   const onInstall = handlers.onInstall ?? vi.fn();
   const onSaveProvider = handlers.onSaveProvider ?? vi.fn();
-  const onListModels = handlers.onListModels ?? (async () => []);
-  const onSaveCustomProvider = handlers.onSaveCustomProvider ?? vi.fn();
+
 
   act(() => {
     root.render(
@@ -77,13 +75,11 @@ const render = (
         onRecheck={onRecheck}
         onInstall={onInstall}
         onSaveProvider={onSaveProvider}
-        onListModels={onListModels}
-        onSaveCustomProvider={onSaveCustomProvider}
       />
     );
   });
 
-  return { onRecheck, onInstall, onSaveProvider, onListModels, onSaveCustomProvider };
+  return { onRecheck, onInstall, onSaveProvider };
 };
 
 const text = () => host.textContent ?? '';

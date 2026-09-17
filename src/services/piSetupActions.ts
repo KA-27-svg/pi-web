@@ -17,12 +17,11 @@ export function createSetupActions({ request, sendCommand }: PiBridge) {
   const installPi = () => sendCommand({ type: 'install_pi' });
 
   /**
-   * 保存供应商凭证。
-   * 走 sendCommand 而不是 request：结果由桥接以 provider_saved 事件广播，
-   * 成功与失败都经过同一条路径，界面不必多一套状态。
+   * `baseUrl` 只在走中转站时给——给了它就仍然用 pi 内置的模型清单，
+   * 只是把请求发到那个地址（pi 的凭证解析认这个字段）。
    */
-  const saveProviderKey = (provider: string, key: string) =>
-    sendCommand({ type: 'save_provider_key', provider, key });
+  const saveProviderKey = (provider: string, key: string, baseUrl?: string) =>
+    sendCommand({ type: 'save_provider_key', provider, key, ...(baseUrl ? { baseUrl } : {}) });
 
   /**
    * 拉自定义端点的模型列表。

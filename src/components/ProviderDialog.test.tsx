@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import type { BridgeStatus, CustomProviderDraft, ProviderPreset } from '../types/pi';
+import type { BridgeStatus, ProviderPreset } from '../types/pi';
 import { ProviderDialog } from './ProviderDialog';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -15,8 +15,6 @@ beforeEach(() => {
   document.body.appendChild(host);
   root = createRoot(host);
   onSaveProvider = vi.fn();
-  onListModels = vi.fn(async () => [] as string[]);
-  onSaveCustom = vi.fn();
 });
 
 afterEach(() => {
@@ -31,9 +29,7 @@ const PROVIDERS: ProviderPreset[] = [
 
 // 显式写成目标签名，别用 ReturnType<typeof vi.fn>：那个类型太宽（带构造签名），
 // 传给组件 props 时 tsc 不认
-let onSaveProvider: (provider: string, key: string) => void;
-let onListModels: (baseUrl: string, key: string) => Promise<string[]>;
-let onSaveCustom: (draft: CustomProviderDraft) => void;
+let onSaveProvider: (provider: string, key: string, baseUrl?: string) => void;
 
 const render = (
   configured: string[] = ['anthropic', 'deepseek'],
@@ -62,8 +58,6 @@ const render = (
         status={status}
         onClose={onClose}
         onSaveProvider={onSaveProvider}
-        onListModels={onListModels}
-        onSaveCustom={onSaveCustom}
       />
     );
   });
@@ -117,14 +111,33 @@ describe('ProviderDialog', () => {
     expect(passwordInput()).toBeTruthy();
   });
 
-  it('能选供应商、贴 key 并保存', () => {
+  it('能选供应商、贴 key 并保存（不填地址就用官方的）', () => {
     render();
 
     setValue(document.body.querySelector('select') as HTMLSelectElement, 'deepseek');
     setValue(passwordInput() as HTMLInputElement, 'sk-ds-1');
     click(document.body.querySelector('button[type="submit"]'));
 
-    expect(onSaveProvider).toHaveBeenCalledWith('deepseek', 'sk-ds-1');
+    // 地址留空 → 不传 baseUrl，pi 就用该供应商的官方地址
+    expect(onSaveProvider).toHaveBeenCalledWith('deepseek', 'sk-ds-1', undefined);
+  });
+
+  it('填了地址就走中转站：地址跟着一块提交', () => {
+    // 这是 pi 官方对中转站的做法：仍然用内置的模型清单，只把请求发到指定地址
+    render();
+
+    setValue(passwordInput() as HTMLInputElement, 'sk-1');
+    setValue(
+      document.body.querySelector('[data-field="baseUrl"]') as HTMLInputElement,
+      'https://relay.example/v1'
+    );
+    click(document.body.querySelector('button[type="submit"]'));
+
+    expect(onSaveProvider).toHaveBeenCalledWith(
+      'anthropic',
+      'sk-1',
+      'https://relay.example/v1'
+    );
   });
 
   it('按钮说「保存」，不是向导里的「保存并开始」', () => {
@@ -135,10 +148,12 @@ describe('ProviderDialog', () => {
     expect(document.body.querySelector('button[type="submit"]')?.textContent).toContain('保存');
   });
 
-  it('也能加自定义端点（中转站 / 自建服务）', () => {
+  it('有三个输入：供应商、密钥、地址', () => {
     render();
 
-    expect(text()).toContain('自定义端点');
+    expect(document.body.querySelector('select')).toBeTruthy();
+    expect(passwordInput()).toBeTruthy();
+    expect(document.body.querySelector('[data-field="baseUrl"]')).toBeTruthy();
   });
 
   it('点遮罩或按 Esc 会通知上层关闭', () => {

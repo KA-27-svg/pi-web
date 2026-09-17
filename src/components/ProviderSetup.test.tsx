@@ -44,8 +44,6 @@ const render = (extra: Partial<BridgeStatus> = {}, onSave = vi.fn()) => {
       <ProviderSetup
         status={status(extra)}
         onSave={onSave}
-        onListModels={async () => []}
-        onSaveCustom={vi.fn()}
       />
     );
   });
@@ -54,6 +52,8 @@ const render = (extra: Partial<BridgeStatus> = {}, onSave = vi.fn()) => {
 
 const select = () => host.querySelector('select') as HTMLSelectElement;
 const keyInput = () => host.querySelector('input[type="password"]') as HTMLInputElement;
+const baseUrlInput = () =>
+  host.querySelector('[data-field="baseUrl"]') as HTMLInputElement;
 const submitButton = () => host.querySelector('button[type="submit"]') as HTMLButtonElement;
 const text = () => host.textContent ?? '';
 
@@ -91,7 +91,7 @@ describe('ProviderSetup', () => {
     expect(submitButton().disabled).toBe(false);
 
     submit();
-    expect(onSave).toHaveBeenCalledWith('anthropic', 'sk-ant-1');
+    expect(onSave).toHaveBeenCalledWith('anthropic', 'sk-ant-1', undefined);
   });
 
   it('换成另一个供应商后，提交用它', () => {
@@ -101,7 +101,7 @@ describe('ProviderSetup', () => {
     setValue(keyInput(), 'sk-ds-1');
     submit();
 
-    expect(onSave).toHaveBeenCalledWith('deepseek', 'sk-ds-1');
+    expect(onSave).toHaveBeenCalledWith('deepseek', 'sk-ds-1', undefined);
   });
 
   it('只有空白字符不算填了 key', () => {
@@ -124,6 +124,38 @@ describe('ProviderSetup', () => {
     render();
 
     expect(keyInput().type).toBe('password');
+  });
+
+  it('地址是可填可不填的：留空时提交不带第三个参数', () => {
+    // 不填 = 用该供应商的官方地址。这是常态，所以不能强制填
+    const onSave = render();
+
+    setValue(keyInput(), 'sk-ant-1');
+    submit();
+
+    expect(onSave).toHaveBeenCalledWith('anthropic', 'sk-ant-1', undefined);
+  });
+
+  it('填了地址就把它一起带上（走中转站）', () => {
+    // pi 官方对中转站的做法：不重定义模型，只把请求发到那个地址，
+    // 所以这里不需要模型列表、也不需要 API 类型
+    const onSave = render();
+
+    setValue(keyInput(), 'sk-ant-1');
+    setValue(baseUrlInput(), 'https://relay.example/v1');
+    submit();
+
+    expect(onSave).toHaveBeenCalledWith('anthropic', 'sk-ant-1', 'https://relay.example/v1');
+  });
+
+  it('地址两端空白不会被当成填了', () => {
+    const onSave = render();
+
+    setValue(keyInput(), 'sk-ant-1');
+    setValue(baseUrlInput(), '   ');
+    submit();
+
+    expect(onSave).toHaveBeenCalledWith('anthropic', 'sk-ant-1', undefined);
   });
 });
 

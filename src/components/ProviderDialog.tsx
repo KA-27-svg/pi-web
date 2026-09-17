@@ -1,13 +1,11 @@
-import type { BridgeStatus, CustomProviderDraft } from '../types/pi';
+import type { BridgeStatus } from '../types/pi';
 import { Modal } from './Modal';
 import { ProviderSetup } from './ProviderSetup';
 
 interface ProviderDialogProps {
   status: BridgeStatus;
   onClose: () => void;
-  onSaveProvider: (provider: string, key: string) => void;
-  onListModels: (baseUrl: string, key: string) => Promise<string[]>;
-  onSaveCustom: (draft: CustomProviderDraft) => void;
+  onSaveProvider: (provider: string, key: string, baseUrl?: string) => void;
 }
 
 /**
@@ -20,13 +18,7 @@ interface ProviderDialogProps {
  * （SetupWizard 里的 needsCredentials），配完第一个它就永远消失了——想再加一个
  * 供应商只能去终端改 pi 的 auth.json。
  */
-export function ProviderDialog({
-  status,
-  onClose,
-  onSaveProvider,
-  onListModels,
-  onSaveCustom,
-}: ProviderDialogProps) {
+export function ProviderDialog({ status, onClose, onSaveProvider }: ProviderDialogProps) {
   const configured = status.setup?.credentials.providers ?? [];
   /** 供应商 id → 显示名。预设目录由桥接下发，取不到就退回 id */
   const label = (id: string) => status.providers?.find(preset => preset.id === id)?.label ?? id;
@@ -55,17 +47,11 @@ export function ProviderDialog({
 
       <div className="border-t border-border pt-3">
         <div className="mb-2 text-[11px] text-muted">添加 / 更换</div>
-        <ProviderSetup
-          status={status}
-          variant="settings"
-          onSave={onSaveProvider}
-          onListModels={onListModels}
-          onSaveCustom={onSaveCustom}
-        />
+        <ProviderSetup status={status} variant="settings" onSave={onSaveProvider} />
       </div>
 
       <p className="mt-3 text-[10.5px] leading-[1.6] text-muted/80">
-        写进 pi 自己的 auth.json / models.json。加完在设置里选模型。
+        写进 pi 自己的 auth.json。加完在设置里选模型。
       </p>
     </Modal>
   );
