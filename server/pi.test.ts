@@ -1,8 +1,20 @@
 import { EventEmitter } from 'events';
 import { PassThrough } from 'stream';
-import type { ChildProcessWithoutNullStreams } from 'child_process';
+import { spawn, type ChildProcessWithoutNullStreams } from 'child_process';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { PiSupervisor, describeSpawnError, type PiSupervisorCallbacks } from './pi';
+import {
+  PiSupervisor,
+  defaultSpawnPi,
+  describeSpawnError,
+  type PiSupervisorCallbacks,
+} from './pi';
+
+// defaultSpawnPi 会真的起一个进程，没法在测试里观察它到底传了什么，所以把 spawn
+// 换成假的。其余用例都自己注入 spawnPi，不会走到这里。
+vi.mock('child_process', async importOriginal => ({
+  ...(await importOriginal<typeof import('child_process')>()),
+  spawn: vi.fn(() => null),
+}));
 
 type FakeChild = ChildProcessWithoutNullStreams & {
   written: string[];
@@ -190,6 +202,30 @@ describe('PiSupervisor 可执行文件路径', () => {
     // 换新命令后重启才生效
     h.supervisor.restart();
     expect(h.spawnPi).toHaveBeenLastCalledWith('C:/demo', '/usr/local/bin/pi');
+  });
+});
+
+describe('defaultSpawnPi', () => {
+  const withSpace = 'C:/Users/John Doe/AppData/Local/pi-node/current/pi.cmd';
+
+  it('命令名带空格时加引号，否则 cmd 会从空格处断开', () => {
+    // 实测：不加引号时 spawn 出来的进程直接以退出码 1 结束，
+    // 报错信息只说「Command failed」，看不出真正原因是路径被拆开了
+    vi.mocked(spawn).mockClear();
+    defaultSpawnPi('C:/demo', withSpace);
+
+    expect(spawn).toHaveBeenCalledWith(
+      `"${withSpace}"`,
+      ['--mode', 'rpc'],
+      expect.objectContaining({ cwd: 'C:/demo', shell: true })
+    );
+  });
+
+  it('没有空格时原样传，不凭空多一层引号', () => {
+    vi.mocked(spawn).mockClear();
+    defaultSpawnPi('C:/demo', 'pi');
+
+    expect(spawn).toHaveBeenCalledWith('pi', ['--mode', 'rpc'], expect.anything());
   });
 });
 

@@ -1,5 +1,6 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'child_process';
 import { StringDecoder } from 'string_decoder';
+import { quoteIfNeeded } from './env.js';
 import { LineDecoder } from './lines.js';
 
 export interface PiSupervisorCallbacks {
@@ -26,11 +27,15 @@ export function describeSpawnError(error: Error, command: string): string {
 }
 
 export const defaultSpawnPi: SpawnPi = (cwd, command) => {
-  console.log(`[Pi Bridge] Spawning ${command} --mode rpc in: ${cwd}`);
-  return spawn(command, ['--mode', 'rpc'], {
+  // 必须加引号：command 可能是 resolvePiCommand 解析出的绝对路径，而 shell: true
+  // 是把它拼进命令行交给 cmd 的，路径带空格（用户目录叫 `John Doe` 这类）会被
+  // 从空格处断开，表现成「pi 明明在、就是起不来」。
+  const file = quoteIfNeeded(command);
+  console.log(`[Pi Bridge] Spawning ${file} --mode rpc in: ${cwd}`);
+  return spawn(file, ['--mode', 'rpc'], {
     cwd,
     // shell: true 是 Windows 上运行 npm 全局 CLI（pi.cmd）所必需的；
-    // 命令行参数是静态字面量，cwd 也只通过 spawn 的 cwd 选项传递，不经过 shell 拼接。
+    // 参数是静态字面量，cwd 也只通过 spawn 的 cwd 选项传递，不经过 shell 拼接。
     shell: true,
     env: { ...process.env, FORCE_COLOR: '0' },
   });
