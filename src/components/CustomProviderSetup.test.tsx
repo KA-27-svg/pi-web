@@ -54,10 +54,10 @@ const field = (name: string) =>
     | HTMLSelectElement
     | null;
 const saveButton = () => host.querySelector('button[type="submit"]') as HTMLButtonElement;
-const advancedToggle = () =>
-  [...host.querySelectorAll('button')].find(b => b.textContent?.includes('高级')) as HTMLButtonElement;
-const pullButton = () =>
-  [...host.querySelectorAll('button')].find(b => b.textContent?.trim() === '拉取') as HTMLButtonElement;
+const retryButton = () =>
+  [...host.querySelectorAll('button')].find(b => b.textContent?.trim() === '再试一次') as
+    | HTMLButtonElement
+    | undefined;
 const text = () => host.textContent ?? '';
 
 function setValue(el: Element, value: string) {
@@ -81,16 +81,11 @@ const click = (el: Element | null | undefined) => {
   });
 };
 
-/** 填好那三样，需要时展开高级 */
-const fill = (over: Record<string, string> = {}, advanced = false) => {
+/** 填好那三样 */
+const fill = (over: Record<string, string> = {}) => {
   setValue(field('label')!, over.label ?? '我的中转站');
   setValue(field('baseUrl')!, over.baseUrl ?? 'https://relay.example/v1');
   setValue(field('key')!, over.key ?? 'sk-1');
-  if (advanced) {
-    click(advancedToggle());
-    if (over.models) setValue(field('models')!, over.models);
-    if (over.id) setValue(field('id')!, over.id);
-  }
 };
 
 const submit = () =>
@@ -98,27 +93,19 @@ const submit = () =>
     click(saveButton());
   });
 
-describe('CustomProviderSetup 只让填三样', () => {
-  it('可见的就三个输入：显示名、地址、密钥', () => {
+describe('CustomProviderSetup 平时只有三样', () => {
+  it('可见的就三个输入，没有折叠区要展开', () => {
     render();
 
     expect(field('label')).toBeTruthy();
     expect(field('baseUrl')).toBeTruthy();
     expect(field('key')).toBeTruthy();
 
-    // 其余全在「高级」里，默认不渲染
-    expect(field('id')).toBeNull();
+    // 这些平时都不该出现，也不该有个「高级」要用户去点
     expect(field('api')).toBeNull();
     expect(field('models')).toBeNull();
-  });
-
-  it('高级里才是标识、API 类型、模型列表', () => {
-    render();
-    click(advancedToggle());
-
-    expect(field('id')).toBeTruthy();
-    expect(field('api')).toBeTruthy();
-    expect(field('models')).toBeTruthy();
+    expect(field('id')).toBeNull();
+    expect(text()).not.toContain('高级');
   });
 
   it('显示名、地址、密钥三个都得填', () => {
@@ -172,6 +159,7 @@ describe('CustomProviderSetup 保存时自动拉模型', () => {
 
     expect(onListModels).toHaveBeenCalledWith('https://relay.example/v1', 'sk-real');
     expect(onSave).toHaveBeenCalledWith({
+      // 标识从地址的域名推，不暴露给用户
       id: 'relay.example',
       label: '我的中转站',
       baseUrl: 'https://relay.example/v1',
@@ -181,20 +169,26 @@ describe('CustomProviderSetup 保存时自动拉模型', () => {
     });
   });
 
-  it('手填过模型就直接存，不再打扰网络', async () => {
-    const onListModels = vi.fn(async () => ['不该被用到']);
+  it('拉不到时把 API 类型和模型 id 就地摊出来，不用用户去找', async () => {
+    // 很多自建服务根本没实现 /models
+    const onListModels = vi.fn(async () => {
+      throw new Error('拉取模型列表失败（HTTP 404）');
+    });
     const onSave = vi.fn();
     render({}, { onListModels, onSave });
 
-    fill({ models: ' 本地模型 A \n\n 本地模型 B ' }, true);
+    expect(field('models')).toBeNull();
+
+    fill();
     await submit();
 
-    expect(onListModels).not.toHaveBeenCalled();
-    expect(onSave.mock.calls[0][0].models).toEqual(['本地模型 A', '本地模型 B']);
+    expect(onSave).not.toHaveBeenCalled();
+    expect(text()).toContain('404');
+    expect(field('models')).toBeTruthy();
+    expect(field('api')).toBeTruthy();
   });
 
-  it('拉不到时展开高级并说明原因，而不是默默失败', async () => {
-    // 很多自建服务根本没实现 /models
+  it('摊出来之后再填上模型就能存', async () => {
     const onListModels = vi.fn(async () => {
       throw new Error('拉取模型列表失败（HTTP 404）');
     });
@@ -204,9 +198,12 @@ describe('CustomProviderSetup 保存时自动拉模型', () => {
     fill();
     await submit();
 
-    expect(onSave).not.toHaveBeenCalled();
-    expect(text()).toContain('404');
-    expect(field('models')).toBeTruthy(); // 高级被自动展开了
+    setValue(field('models')!, ' 本地模型 A \n\n本地模型 B ');
+    await submit();
+
+    expect(onSave).toHaveBeenCalledWith(
+      expect.objectContaining({ models: ['本地模型 A', '本地模型 B'] })
+    );
   });
 
   it('拉到空列表也算失败：pi 那边一个模型都没有，存了也是空的', async () => {
@@ -218,14 +215,16 @@ describe('CustomProviderSetup 保存时自动拉模型', () => {
 
     expect(onSave).not.toHaveBeenCalled();
     expect(text()).toContain('没返回任何模型');
+    expect(field('models')).toBeTruthy();
   });
 
   it('正在拉取时按钮说清楚在干什么', async () => {
     let release: (ids: string[]) => void = () => {};
     const onListModels = vi.fn(
-      () => new Promise<string[]>(resolve => {
-        release = resolve;
-      })
+      () =>
+        new Promise<string[]>(resolve => {
+          release = resolve;
+        })
     );
     render({}, { onListModels });
 
@@ -241,27 +240,36 @@ describe('CustomProviderSetup 保存时自动拉模型', () => {
       release(['m1']);
     });
   });
+
+  it('摊出来那块里可以把拉取再试一次', async () => {
+    const onListModels = vi
+      .fn<(b: string, k: string) => Promise<string[]>>()
+      .mockRejectedValueOnce(new Error('拉取模型列表失败（HTTP 404）'))
+      .mockResolvedValueOnce(['m1', 'm2']);
+    render({}, { onListModels });
+
+    fill();
+    await submit();
+    expect(retryButton()).toBeTruthy();
+
+    await act(async () => {
+      click(retryButton());
+    });
+
+    expect((field('models') as HTMLTextAreaElement).value).toBe('m1\nm2');
+  });
 });
 
-describe('CustomProviderSetup 标识推导', () => {
-  it('标识在高级里、跟着地址变，也可以自己改', () => {
-    render();
+describe('CustomProviderSetup API 类型', () => {
+  it('默认 openai-completions，摊出来时列出 pi 支持的四种', async () => {
+    render({}, {
+      onListModels: vi.fn(async () => {
+        throw new Error('拉取模型列表失败（HTTP 404）');
+      }),
+    });
 
-    click(advancedToggle());
-    expect((field('id') as HTMLInputElement).value).toBe('relay');
-
-    setValue(field('baseUrl')!, 'https://relay.example/v1');
-    expect((field('id') as HTMLInputElement).value).toBe('relay.example');
-
-    setValue(field('id')!, 'my-own-id');
-    setValue(field('baseUrl')!, 'https://other.example/v1');
-    // 用户改过就不再跟着变了
-    expect((field('id') as HTMLInputElement).value).toBe('my-own-id');
-  });
-
-  it('API 类型默认 openai-completions，并列出 pi 支持的四种', () => {
-    render();
-    click(advancedToggle());
+    fill();
+    await submit();
 
     const select = field('api') as HTMLSelectElement;
     expect(select.value).toBe('openai-completions');
@@ -272,33 +280,26 @@ describe('CustomProviderSetup 标识推导', () => {
       'google-generative-ai',
     ]);
   });
-});
 
-describe('CustomProviderSetup 手动拉取', () => {
-  it('把拉回来的模型填进输入框', async () => {
-    const onListModels = vi.fn(async () => ['m1', 'm2']);
-    render({}, { onListModels });
+  it('改了类型之后提交的是改过的那个', async () => {
+    const onSave = vi.fn();
+    render(
+      {},
+      {
+        onListModels: vi.fn(async () => {
+          throw new Error('拉取模型列表失败（HTTP 404）');
+        }),
+        onSave,
+      }
+    );
 
-    setValue(field('baseUrl')!, 'https://relay.example/v1');
-    click(advancedToggle());
-    await act(async () => {
-      click(pullButton());
-    });
+    fill();
+    await submit();
 
-    expect((field('models') as HTMLTextAreaElement).value).toBe('m1\nm2');
-  });
+    setValue(field('api')!, 'anthropic-messages');
+    setValue(field('models')!, 'claude-y');
+    await submit();
 
-  it('把当前填的 key 一起带上，有些端点要鉴权才让列', async () => {
-    const onListModels = vi.fn(async () => ['m1']);
-    render({}, { onListModels });
-
-    setValue(field('baseUrl')!, 'https://relay.example/v1');
-    setValue(field('key')!, 'sk-1');
-    click(advancedToggle());
-    await act(async () => {
-      click(pullButton());
-    });
-
-    expect(onListModels).toHaveBeenCalledWith('https://relay.example/v1', 'sk-1');
+    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ api: 'anthropic-messages' }));
   });
 });
