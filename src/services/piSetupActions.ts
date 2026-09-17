@@ -20,8 +20,15 @@ export function createSetupActions({ request, sendCommand }: PiBridge) {
    * `baseUrl` 只在走中转站时给——给了它就仍然用 pi 内置的模型清单，
    * 只是把请求发到那个地址（pi 的凭证解析认这个字段）。
    */
-  const saveProviderKey = (provider: string, key: string, baseUrl?: string) =>
-    sendCommand({ type: 'save_provider_key', provider, key, ...(baseUrl ? { baseUrl } : {}) });
+  const saveProviderKey = (provider: string, key: string, baseUrl?: string, name?: string) =>
+    sendCommand({
+      type: 'save_provider_key',
+      provider,
+      key,
+      ...(baseUrl ? { baseUrl } : {}),
+      // 名字总是发：空字符串 = 请把已有那个清掉、退回官方名字
+      name: name ?? '',
+    });
 
   /**
    * 拉自定义端点的模型列表。

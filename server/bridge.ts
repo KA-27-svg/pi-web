@@ -28,11 +28,13 @@ import { planToolFallback } from './toolFallback.js';
 import {
   listConfiguredProviders,
   readDefaultTools,
+  readProviderNames,
   readShellPath,
   saveCustomProvider,
   saveDefaultModel,
   saveDefaultTools,
   saveProviderKey,
+  saveProviderName,
 } from './setupConfig.js';
 import { fetchProviderModels, normalizeBaseUrl, SUPPORTED_APIS } from './customProvider.js';
 import { PiSupervisor } from './pi.js';
@@ -275,13 +277,15 @@ let toolFallbackReady: Promise<void> = Promise.resolve();
  * 把一次探测结果包成向导需要的全部状态。
  * 供应商目录也一并给前端，免得两边各维护一份、迟早走样。
  */
-function setupPayloadFrom(setup: SetupStatus) {
+async function setupPayloadFrom(setup: SetupStatus) {
   return {
     setup,
     installCommand: buildInstallCommand().display,
     preflight: installPreflight(setup),
     providers: PROVIDER_PRESETS,
     subscriptions: SUBSCRIPTION_LOGINS,
+    // 用户给供应商起的名字（写在 models.json 里）。界面优先显示它，没有就用内置目录的名字
+    providerNames: await readProviderNames(),
   };
 }
 
@@ -380,6 +384,7 @@ wss.on('connection', (ws: WebSocket) => {
             const provider = String(data.provider ?? '').trim();
             const key = String(data.key ?? '').trim();
             const baseUrl = typeof data.baseUrl === 'string' ? data.baseUrl.trim() : '';
+            const name = typeof data.name === 'string' ? data.name.trim() : '';
 
             if (!provider) throw new Error('缺少供应商标识');
             if (!key) throw new Error('API key 不能为空');
@@ -389,6 +394,10 @@ wss.on('connection', (ws: WebSocket) => {
               key,
               ...(baseUrl ? { baseUrl } : {}),
             });
+
+            // 显示名写在 models.json 里（pi 也读它）。空字符串 = 退回官方名字。
+            // 只碰 name 这一个键，那份文件里可能躺着用户手写的全套模型细节
+            await saveProviderName(provider, name);
 
             // 回包只带供应商名：key 不回显、也不进日志
             return { provider };
@@ -538,7 +547,11 @@ wss.on('connection', (ws: WebSocket) => {
             );
             // 复用刚才那次探测，不再重跑一遍
             broadcast(
-              JSON.stringify({ type: 'setup_status', success: true, ...setupPayloadFrom(after) })
+              JSON.stringify({
+                type: 'setup_status',
+                success: true,
+                ...(await setupPayloadFrom(after)),
+              })
             );
 
             // 用新装的 pi 重新拉起。失败时不动：让用户自己重试，

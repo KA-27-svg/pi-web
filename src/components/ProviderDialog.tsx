@@ -1,4 +1,5 @@
 import type { BridgeStatus } from '../types/pi';
+import { providerLabel } from '../utils/providerLabel';
 import { Modal } from './Modal';
 import { ProviderSetup } from './ProviderSetup';
 
@@ -27,8 +28,6 @@ export function ProviderDialog({
   onSaved,
 }: ProviderDialogProps) {
   const configured = status.setup?.credentials.providers ?? [];
-  /** 供应商 id → 显示名。预设目录由桥接下发，取不到就退回 id */
-  const label = (id: string) => status.providers?.find(preset => preset.id === id)?.label ?? id;
 
   return (
     <Modal title="模型供应商" onClose={onClose}>
@@ -41,7 +40,7 @@ export function ProviderDialog({
                 key={id}
                 className="rounded bg-surface px-2 py-0.5 font-mono text-[11px] text-foreground/80"
               >
-                {label(id)}
+                {providerLabel(status, id)}
               </span>
             ))}
           </div>

@@ -4,8 +4,8 @@ import { useRefreshFeedback } from '../hooks/useRefreshFeedback';
 
 interface ProviderSetupProps {
   status: BridgeStatus;
-  /** 保存供应商凭证；baseUrl 只在走中转站时才填 */
-  onSave: (provider: string, key: string, baseUrl?: string) => void;
+  /** 保存供应商凭证；baseUrl 只在走中转站时才填，name 留空表示用官方名字 */
+  onSave: (provider: string, key: string, baseUrl?: string, name?: string) => void;
   /**
    * wizard：首次运行向导里用，自带「配置模型」标题，按钮说「保存并开始」
    * settings：设置面板里用，外面已经有分区标题了（而且不是「开始」什么），
@@ -47,9 +47,14 @@ export function ProviderSetup({
   const [selected, setSelected] = useState('');
   const [key, setKey] = useState('');
   const [baseUrl, setBaseUrl] = useState('');
+  /** 用户改过的名字。没改的供应商就用它已有那个 */
+  const [nameDraft, setNameDraft] = useState<Record<string, string>>({});
 
   // providers 是异步到达的，所以这里兜底到第一项，而不是在 useState 初始值里定
   const provider = selected || providers[0]?.id || '';
+  const savedName = status.providerNames?.[provider] ?? '';
+  // 切供应商时跟着换成那一个已有的名字；用户打过字就以他打过的为准
+  const name = nameDraft[provider] ?? savedName;
   const canSubmit = Boolean(provider) && key.trim().length > 0;
 
   // 保存结果由桥接广播回来（provider_saved → setup_status），拿 setup 的引用变化
@@ -65,7 +70,9 @@ export function ProviderSetup({
   const submit = (event: React.FormEvent) => {
     event.preventDefault();
     if (!canSubmit) return;
-    save.trigger(() => onSave(provider, key.trim(), baseUrl.trim() || undefined));
+    save.trigger(() =>
+      onSave(provider, key.trim(), baseUrl.trim() || undefined, name.trim() || undefined)
+    );
   };
 
   const inputClass =
@@ -100,6 +107,20 @@ export function ProviderSetup({
             placeholder="sk-..."
             autoComplete="off"
             className={`mt-1 font-mono ${inputClass}`}
+          />
+        </label>
+
+        <label className="block">
+          <span className="text-[11px] text-muted">名称</span>
+          <input
+            data-field="name"
+            value={name}
+            onChange={event =>
+              setNameDraft(draft => ({ ...draft, [provider]: event.target.value }))
+            }
+            placeholder="留空就用官方名字"
+            autoComplete="off"
+            className={`mt-1 ${inputClass}`}
           />
         </label>
 

@@ -120,7 +120,7 @@ describe('ProviderDialog', () => {
     click(document.body.querySelector('button[type="submit"]'));
 
     // 地址留空 → 不传 baseUrl，pi 就用该供应商的官方地址
-    expect(onSaveProvider).toHaveBeenCalledWith('deepseek', 'sk-ds-1', undefined);
+    expect(onSaveProvider).toHaveBeenCalledWith('deepseek', 'sk-ds-1', undefined, undefined);
   });
 
   it('填了地址就走中转站：地址跟着一块提交', () => {
@@ -137,8 +137,22 @@ describe('ProviderDialog', () => {
     expect(onSaveProvider).toHaveBeenCalledWith(
       'anthropic',
       'sk-1',
-      'https://relay.example/v1'
+      'https://relay.example/v1',
+      undefined
     );
+  });
+
+  it('名称也是可填可不填的', () => {
+    render();
+
+    setValue(passwordInput() as HTMLInputElement, 'sk-1');
+    setValue(
+      document.body.querySelector('[data-field="name"]') as HTMLInputElement,
+      '我的中转站'
+    );
+    click(document.body.querySelector('button[type="submit"]'));
+
+    expect(onSaveProvider).toHaveBeenCalledWith('anthropic', 'sk-1', undefined, '我的中转站');
   });
 
   it('按钮说「保存」，不是向导里的「保存并开始」', () => {

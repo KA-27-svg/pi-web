@@ -55,6 +55,7 @@ const select = () => host.querySelector('select') as HTMLSelectElement;
 const keyInput = () => host.querySelector('input[type="password"]') as HTMLInputElement;
 const baseUrlInput = () =>
   host.querySelector('[data-field="baseUrl"]') as HTMLInputElement;
+const nameInput = () => host.querySelector('[data-field="name"]') as HTMLInputElement;
 const submitButton = () => host.querySelector('button[type="submit"]') as HTMLButtonElement;
 const text = () => host.textContent ?? '';
 
@@ -92,7 +93,7 @@ describe('ProviderSetup', () => {
     expect(submitButton().disabled).toBe(false);
 
     submit();
-    expect(onSave).toHaveBeenCalledWith('anthropic', 'sk-ant-1', undefined);
+    expect(onSave).toHaveBeenCalledWith('anthropic', 'sk-ant-1', undefined, undefined);
   });
 
   it('换成另一个供应商后，提交用它', () => {
@@ -102,7 +103,7 @@ describe('ProviderSetup', () => {
     setValue(keyInput(), 'sk-ds-1');
     submit();
 
-    expect(onSave).toHaveBeenCalledWith('deepseek', 'sk-ds-1', undefined);
+    expect(onSave).toHaveBeenCalledWith('deepseek', 'sk-ds-1', undefined, undefined);
   });
 
   it('只有空白字符不算填了 key', () => {
@@ -134,7 +135,7 @@ describe('ProviderSetup', () => {
     setValue(keyInput(), 'sk-ant-1');
     submit();
 
-    expect(onSave).toHaveBeenCalledWith('anthropic', 'sk-ant-1', undefined);
+    expect(onSave).toHaveBeenCalledWith('anthropic', 'sk-ant-1', undefined, undefined);
   });
 
   it('填了地址就把它一起带上（走中转站）', () => {
@@ -146,7 +147,7 @@ describe('ProviderSetup', () => {
     setValue(baseUrlInput(), 'https://relay.example/v1');
     submit();
 
-    expect(onSave).toHaveBeenCalledWith('anthropic', 'sk-ant-1', 'https://relay.example/v1');
+    expect(onSave).toHaveBeenCalledWith('anthropic', 'sk-ant-1', 'https://relay.example/v1', undefined);
   });
 
   it('地址两端空白不会被当成填了', () => {
@@ -156,7 +157,43 @@ describe('ProviderSetup', () => {
     setValue(baseUrlInput(), '   ');
     submit();
 
-    expect(onSave).toHaveBeenCalledWith('anthropic', 'sk-ant-1', undefined);
+    expect(onSave).toHaveBeenCalledWith('anthropic', 'sk-ant-1', undefined, undefined);
+  });
+
+  it('名字留空就用官方名字（提交 undefined，不是空串）', () => {
+    const onSave = render();
+
+    setValue(keyInput(), 'sk-ant-1');
+    submit();
+
+    expect(onSave).toHaveBeenCalledWith('anthropic', 'sk-ant-1', undefined, undefined);
+  });
+
+  it('起了名字就一起带上', () => {
+    const onSave = render();
+
+    setValue(keyInput(), 'sk-ant-1');
+    setValue(nameInput(), '我的中转站');
+    submit();
+
+    expect(onSave).toHaveBeenCalledWith('anthropic', 'sk-ant-1', undefined, '我的中转站');
+  });
+
+  it('已经起过名的供应商，打开表单就带着那个名字', () => {
+    // 不带着的话，用户下次只是换个 key 就会把名字清掉
+    render({ providerNames: { anthropic: '公司账号' } });
+
+    expect(nameInput().value).toBe('公司账号');
+  });
+
+  it('把名字改空、提交，就是让它退回官方名字', () => {
+    const onSave = render({ providerNames: { anthropic: '公司账号' } });
+
+    setValue(keyInput(), 'sk-ant-1');
+    setValue(nameInput(), '');
+    submit();
+
+    expect(onSave).toHaveBeenCalledWith('anthropic', 'sk-ant-1', undefined, undefined);
   });
 });
 

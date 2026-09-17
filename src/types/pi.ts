@@ -222,6 +222,11 @@ export interface BridgeStatus {
   preflight?: { allowed: boolean; reason?: string };
   /** 可选供应商目录（桥接下发，免得两边各维护一份） */
   providers?: ProviderPreset[];
+  /**
+   * 用户给供应商起的显示名（存在 pi 的 models.json 里）。
+   * 没起过的供应商不在里面，界面就退回内置目录的名字。
+   */
+  providerNames?: Record<string, string>;
   /** 支持订阅登录（OAuth）的供应商，只能在终端跑 /login */
   subscriptions?: { id: string; label: string }[];
   /** 正在代跑安装器 */

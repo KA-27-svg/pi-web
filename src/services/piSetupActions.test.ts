@@ -35,7 +35,25 @@ describe('setup 动作', () => {
 
     actions.saveProviderKey('deepseek', 'sk-1');
 
-    expect(sent).toEqual([{ type: 'save_provider_key', provider: 'deepseek', key: 'sk-1' }]);
+    expect(sent).toEqual([
+      { type: 'save_provider_key', provider: 'deepseek', key: 'sk-1', name: '' },
+    ]);
+  });
+
+  it('走中转站时把 baseUrl 带上；名字总是发（空串 = 退回官方名）', () => {
+    const { actions, sent } = harness();
+
+    actions.saveProviderKey('deepseek', 'sk-1', 'https://relay.example/v1', '我的中转站');
+
+    expect(sent).toEqual([
+      {
+        type: 'save_provider_key',
+        provider: 'deepseek',
+        key: 'sk-1',
+        baseUrl: 'https://relay.example/v1',
+        name: '我的中转站',
+      },
+    ]);
   });
 
   it('自定义端点的供应商 id 走 providerId，不能占用 id', () => {

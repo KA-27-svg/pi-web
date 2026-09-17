@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { BridgeStatus, ModelInfo } from '../types/pi';
 import { formatCost, formatTokens } from '../utils/format';
+import { providerLabel } from '../utils/providerLabel';
 import { useRefreshFeedback } from '../hooks/useRefreshFeedback';
 import { X, ChevronDown, RefreshCw } from 'lucide-react';
 
@@ -31,6 +32,7 @@ function Row({
 }
 
 function modelKey(model: ModelInfo) {
+  // 这里用 id 而不是显示名：它是身份标识，用户起的名字可能重名
   return `${model.provider}/${model.id}`;
 }
 
@@ -92,7 +94,7 @@ function ModelPicker({
                   {model.name || model.id}
                 </span>
                 <span className="shrink-0 text-[10px] text-muted">
-                  {model.provider}
+                  {providerLabel(status, model.provider)}
                 </span>
               </button>
             );
@@ -211,7 +213,9 @@ export function SettingsPanel({
 
             <ModelPicker status={status} onSelectModel={onSelectModel} />
 
-            <Row label="提供方">{status.model?.provider || '—'}</Row>
+            <Row label="提供方">
+              {status.model ? providerLabel(status, status.model.provider) : '—'}
+            </Row>
 
             <ThinkingLevelPicker
               status={status}

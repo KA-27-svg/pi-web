@@ -168,6 +168,74 @@ export async function saveDefaultTools(
   await writeJsonObject(settings, existing);
 }
 
+/**
+ * 给供应商起个名字（写进 models.json 的 providers.<id>.name）。
+ *
+ * pi 的 models.json 支持给供应商一个显示名，界面上就用它。留空 = 删掉这个键，
+ * 退回内置目录里的官方名字。
+ *
+ * 只碰 `name` 这一个键：那份文件里躺着用户手写的 models / compat / cost 等等，
+ * 而且名字没变时直接返回不动文件。
+ */
+export async function saveProviderName(
+  provider: string,
+  name: string,
+  agentDir: string = resolveAgentDir()
+): Promise<void> {
+  const { models } = configPaths(agentDir);
+  const existing = await readJsonObject(models);
+
+  const providers =
+    existing.providers && typeof existing.providers === 'object' && !Array.isArray(existing.providers)
+      ? (existing.providers as Record<string, any>)
+      : {};
+
+  const raw = providers[provider];
+  const entry = raw && typeof raw === 'object' && !Array.isArray(raw) ? { ...raw } : {};
+
+  const current = typeof entry.name === 'string' ? entry.name : '';
+  const next = name.trim();
+  // 名字没变就别动用户的文件（它可能是手写的，重写一次虽然内容一样但 mtime 会变）
+  if (current === next) return;
+
+  if (next) entry.name = next;
+  else delete entry.name;
+
+  // 本来就没这个供应商、名字又清空了，那就什么也别留下
+  if (Object.keys(entry).length === 0) delete providers[provider];
+  else providers[provider] = entry;
+
+  if (Object.keys(providers).length === 0) delete existing.providers;
+  else existing.providers = providers;
+
+  // 整份文件还是一片空白就别凭空创建它
+  if (Object.keys(existing).length === 0) return;
+
+  await writeJsonObject(models, existing, { mode: 0o600 });
+}
+
+/**
+ * 供应商 id → 用户起的名字。没起过的不在里面。
+ * 读不到就当没有：坏掉的配置不该让整个探测失败。
+ */
+export async function readProviderNames(
+  agentDir: string = resolveAgentDir()
+): Promise<Record<string, string>> {
+  const settings = await readJsonObject(configPaths(agentDir).models).catch(
+    () => ({}) as Record<string, any>
+  );
+
+  const providers = settings.providers;
+  if (!providers || typeof providers !== 'object' || Array.isArray(providers)) return {};
+
+  const names: Record<string, string> = {};
+  for (const [id, config] of Object.entries(providers as Record<string, any>)) {
+    const name = config?.name;
+    if (typeof name === 'string' && name.trim()) names[id] = name.trim();
+  }
+  return names;
+}
+
 /** 记住启动时用的默认模型 */
 export async function saveDefaultModel(
   provider: string,
