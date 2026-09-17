@@ -38,13 +38,14 @@ const status = (extra: Partial<BridgeStatus> = {}): BridgeStatus => ({
   ...extra,
 });
 
-const render = (extra: Partial<BridgeStatus> = {}, onSave = vi.fn()) => {
+const render = (
+  extra: Partial<BridgeStatus> = {},
+  onSave = vi.fn(),
+  onSaved = vi.fn()
+) => {
   act(() => {
     root.render(
-      <ProviderSetup
-        status={status(extra)}
-        onSave={onSave}
-      />
+      <ProviderSetup status={status(extra)} onSave={onSave} onSaved={onSaved} />
     );
   });
   return onSave;
@@ -215,8 +216,7 @@ describe('ProviderSetup 保存反馈', () => {
     }
   });
 
-  it('过一会儿回到原来的文案，不会一直挂着「已保存」', () => {
-    vi.useFakeTimers();
+  it('过一会儿回到原来的文案，不会一直挂着「已保存」', () => {    vi.useFakeTimers();
     try {
       render({ setup: setup() });
       setValue(keyInput(), 'sk-1');
@@ -235,6 +235,28 @@ describe('ProviderSetup 保存反馈', () => {
       });
 
       expect(submitButton().textContent).toContain('保存并开始');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('存好了会通知外面一声（弹窗靠它关掉、外面靠它报成功）', () => {
+    vi.useFakeTimers();
+    try {
+      const onSaved = vi.fn();
+      render({ setup: setup() }, vi.fn(), onSaved);
+      setValue(keyInput(), 'sk-1');
+      submit();
+
+      // 回包还没到，不能报成功
+      expect(onSaved).not.toHaveBeenCalled();
+
+      render({ setup: setup() }, vi.fn(), onSaved);
+      act(() => {
+        vi.advanceTimersByTime(500);
+      });
+
+      expect(onSaved).toHaveBeenCalledTimes(1);
     } finally {
       vi.useRealTimers();
     }

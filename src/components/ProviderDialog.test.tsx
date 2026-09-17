@@ -58,6 +58,7 @@ const render = (
         status={status}
         onClose={onClose}
         onSaveProvider={onSaveProvider}
+        onSaved={vi.fn()}
       />
     );
   });

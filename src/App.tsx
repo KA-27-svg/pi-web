@@ -32,6 +32,30 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   /** 侧栏那两个弹窗。同时只开一个，所以用一个 state 而不是两个 boolean */
   const [dialog, setDialog] = useState<'provider' | 'cwd' | null>(null);
+  /** 一次性提示（配好了、切会话失败之类）。自己会淡掉 */
+  const [toast, setToast] = useState<string>();
+
+  /**
+   * 环境从「没就绪」变成「就绪」时说一声。
+   * 首次运行向导配完最后一样东西就是这样：那一整页直接消失、换上对话界面，
+   * 不说一句用户会愣一下。
+   */
+  const readyRef = useRef<boolean | undefined>(undefined);
+  useEffect(() => {
+    const ready = status.setup?.ready;
+    if (ready === undefined) return;
+    const was = readyRef.current;
+    readyRef.current = ready;
+    // 只在「刚变成就绪」时报。启动时本来就绪不该报
+    if (was === false && ready) setToast('已经配置完成，可以开始项目了');
+  }, [status.setup?.ready]);
+
+  // 提示自己淡掉，不用用户去关
+  useEffect(() => {
+    if (!toast) return;
+    const timer = window.setTimeout(() => setToast(undefined), 6000);
+    return () => window.clearTimeout(timer);
+  }, [toast]);
 
   const switching = status.switching ?? false;
   /**
@@ -251,11 +275,25 @@ export default function App() {
             status={status}
             onClose={() => setDialog(null)}
             onSaveProvider={saveProviderKey}
+            onSaved={() => {
+              // 直接转回对话，并在上面报一声——不然用户不知道配完没、下一步干什么
+              setDialog(null);
+              setToast('已经配置完成，可以开始项目了');
+            }}
           />
         )}
 
         {dialog === 'cwd' && (
           <CwdDialog cwd={status.cwd} onClose={() => setDialog(null)} onChangeCwd={changeCwd} />
+        )}
+
+        {/* 一次性提示。浮在对话区上方，不挡操作 */}
+        {toast && (
+          <div className="pointer-events-none absolute inset-x-0 top-5 z-[130] flex justify-center px-4">
+            <div className="paper-in rounded-full border border-border bg-background px-4 py-2 text-[12.5px] text-foreground shadow-[0_4px_24px_-8px_rgba(0,0,0,0.2)]">
+              {toast}
+            </div>
+          </div>
         )}
 
         <div className="relative min-h-0 min-w-0 flex-1">

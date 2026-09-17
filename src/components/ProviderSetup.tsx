@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { BridgeStatus } from '../types/pi';
 import { useRefreshFeedback } from '../hooks/useRefreshFeedback';
 
@@ -12,6 +12,8 @@ interface ProviderSetupProps {
    *           所以不要标题、按钮只说「保存」
    */
   variant?: 'wizard' | 'settings';
+  /** 存好了。弹窗用它把自己关掉，外面再报一声成功 */
+  onSaved?: () => void;
 }
 
 /**
@@ -31,7 +33,12 @@ interface ProviderSetupProps {
  * 订阅登录（Claude Pro / ChatGPT / Copilot）桥接做不了——`/login` 是纯 TUI 流程，
  * 所以只做引导，并说明授权完成后页面会自己继续。
  */
-export function ProviderSetup({ status, onSave, variant = 'wizard' }: ProviderSetupProps) {
+export function ProviderSetup({
+  status,
+  onSave,
+  variant = 'wizard',
+  onSaved,
+}: ProviderSetupProps) {
   const wizard = variant === 'wizard';
   const submitLabel = wizard ? '保存并开始' : '保存';
   const providers = status.providers ?? [];
@@ -48,6 +55,12 @@ export function ProviderSetup({ status, onSave, variant = 'wizard' }: ProviderSe
   // 保存结果由桥接广播回来（provider_saved → setup_status），拿 setup 的引用变化
   // 当完成信号；不然点一下「保存」什么都不变，用户不知道到底存上没
   const save = useRefreshFeedback(status.setup);
+
+  // 存好了才通知外面——按钮上那句「已保存」在弹窗里一闪就没了，
+  // 外面那条提示才是用户真正会看到的
+  useEffect(() => {
+    if (save.phase === 'done') onSaved?.();
+  }, [save.phase, onSaved]);
 
   const submit = (event: React.FormEvent) => {
     event.preventDefault();
@@ -91,15 +104,12 @@ export function ProviderSetup({ status, onSave, variant = 'wizard' }: ProviderSe
         </label>
 
         <label className="block">
-          <span className="text-[11px] text-muted">
-            地址
-            <span className="ml-1.5 text-muted/70">走中转站才需要改</span>
-          </span>
+          <span className="text-[11px] text-muted">地址</span>
           <input
             data-field="baseUrl"
             value={baseUrl}
             onChange={event => setBaseUrl(event.target.value)}
-            placeholder="留空就用官方的"
+            placeholder="仅中转填写"
             autoComplete="off"
             className={`mt-1 font-mono ${inputClass}`}
           />
