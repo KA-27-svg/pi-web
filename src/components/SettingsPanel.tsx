@@ -3,7 +3,8 @@ import type { BridgeStatus, ModelInfo } from '../types/pi';
 import { formatCost, formatTokens } from '../utils/format';
 import { providerLabel } from '../utils/providerLabel';
 import { useRefreshFeedback } from '../hooks/useRefreshFeedback';
-import { X, ChevronDown, RefreshCw } from 'lucide-react';
+import { useHiddenModels } from '../hooks/useHiddenModels';
+import { X, ChevronDown, RefreshCw, RotateCcw } from 'lucide-react';
 
 interface SettingsPanelProps {
   status: BridgeStatus;
@@ -44,8 +45,15 @@ function ModelPicker({
   onSelectModel: (provider: string, modelId: string) => void;
 }) {
   const [open, setOpen] = useState(false);
+  /** 管理模式：此时每行右边多一个隐藏 / 恢复的按钮 */
+  const [managing, setManaging] = useState(false);
   const models = status.availableModels ?? [];
   const current = status.model ? modelKey(status.model) : null;
+  const { isHidden, hide, show } = useHiddenModels();
+
+  const visible = models.filter(model => !isHidden(modelKey(model)));
+  const hiddenModels = models.filter(model => isHidden(modelKey(model)));
+  // 用 models 而不是 visible：全藏了也得能打开，否则就回不去恢复了
   const selectable = status.connected && models.length > 0;
 
   return (
@@ -73,32 +81,79 @@ function ModelPicker({
 
       {open && (
         <div className="mt-1.5 max-h-52 overflow-y-auto rounded-md border border-border/70">
-          {models.map(model => {
-            const active = modelKey(model) === current;
+          {(managing ? models : visible).map(model => {
+            const key = modelKey(model);
+            const active = key === current;
+            const hiddenNow = isHidden(key);
+
+            // 管理模式里，藏起来的那些排到最后，中间加一条分界
+            const needsDivider =
+              managing && hiddenNow && hiddenModels.length > 0 && visible.length > 0 && model === hiddenModels[0];
+
             return (
-              <button
-                key={modelKey(model)}
-                onClick={() => {
-                  if (!active) onSelectModel(model.provider, model.id);
-                  setOpen(false);
-                }}
-                className={`flex w-full items-baseline justify-between gap-3 px-2.5 py-1.5 text-left transition-colors ${
-                  active ? 'bg-surface-hover' : 'hover:bg-surface'
-                }`}
-              >
-                <span
-                  className={`truncate text-[11.5px] font-mono ${
-                    active ? 'text-foreground' : 'text-foreground/80'
+              <div key={key}>
+                {needsDivider && (
+                  <div className="border-t border-border/70 px-2.5 pt-2 pb-1 text-[10px] text-muted">
+                    已隐藏
+                  </div>
+                )}
+                <div
+                  className={`flex items-center gap-1 pr-2 transition-colors ${
+                    active && !managing ? 'bg-surface-hover' : 'hover:bg-surface'
                   }`}
                 >
-                  {model.name || model.id}
-                </span>
-                <span className="shrink-0 text-[10px] text-muted">
-                  {providerLabel(status, model.provider)}
-                </span>
-              </button>
+                  <button
+                    onClick={() => {
+                      if (managing) return;
+                      if (!active) onSelectModel(model.provider, model.id);
+                      setOpen(false);
+                    }}
+                    className="flex min-w-0 flex-1 items-baseline justify-between gap-3 px-2.5 py-1.5 text-left"
+                  >
+                    <span
+                      className={`truncate text-[11.5px] font-mono ${
+                        hiddenNow
+                          ? 'text-muted/60 line-through'
+                          : active
+                            ? 'text-foreground'
+                            : 'text-foreground/80'
+                      }`}
+                    >
+                      {model.name || model.id}
+                    </span>
+                    <span className="shrink-0 text-[10px] text-muted">
+                      {providerLabel(status, model.provider)}
+                    </span>
+                  </button>
+
+                  {managing && (
+                    <button
+                      onClick={() => (hiddenNow ? show(key) : hide(key))}
+                      aria-label={hiddenNow ? `恢复 ${model.id}` : `隐藏 ${model.id}`}
+                      title={hiddenNow ? '恢复' : '隐藏'}
+                      className="shrink-0 rounded p-1 text-muted transition-colors hover:text-foreground"
+                    >
+                      {hiddenNow ? <RotateCcw className="w-3 h-3" /> : <X className="w-3 h-3" />}
+                    </button>
+                  )}
+                </div>
+              </div>
             );
           })}
+
+          {!managing && visible.length === 0 && (
+            <p className="px-2.5 py-2 text-[11.5px] text-muted">
+              模型都被藏起来了，点下面的「管理」把它们放回来。
+            </p>
+          )}
+
+          {/* 藏掉不常用的（比如老模型），列表就不用每次都翻很久 */}
+          <button
+            onClick={() => setManaging(m => !m)}
+            className="w-full border-t border-border/70 px-2.5 py-1.5 text-left text-[11px] text-muted transition-colors hover:bg-surface hover:text-foreground"
+          >
+            {managing ? '完成' : '管理'}
+          </button>
         </div>
       )}
     </div>

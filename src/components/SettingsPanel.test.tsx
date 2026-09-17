@@ -14,6 +14,7 @@ beforeEach(() => {
   host = document.createElement('div');
   document.body.appendChild(host);
   root = createRoot(host);
+  window.localStorage.clear();
 });
 
 afterEach(() => {
@@ -33,12 +34,17 @@ const setup = (over: Partial<SetupStatus> = {}): SetupStatus => ({
   ...over,
 });
 
-const render = (s: SetupStatus | undefined, onRecheckSetup = vi.fn()) => {
+const render = (
+  s: SetupStatus | undefined,
+  onRecheckSetup = vi.fn(),
+  extra: Partial<BridgeStatus> = {}
+) => {
   const status: BridgeStatus = {
     connected: true,
     cwd: '/demo',
     isStreaming: false,
     setup: s,
+    ...extra,
   };
 
   act(() => {
@@ -126,6 +132,99 @@ describe('SettingsPanel 环境自检', () => {
     });
 
     expect(onRecheckSetup).toHaveBeenCalledTimes(1);
+  });
+});
+
+const MODELS = [
+  { id: 'gpt-6-astra', name: 'GPT-6 Astra', provider: 'micuapi-openai' },
+  { id: 'deepseek-v4-pro', name: 'DeepSeek V4 Pro', provider: 'micuapi-deepseek' },
+  { id: 'old-model-3.5', name: 'Old Model 3.5', provider: 'micuapi-openai' },
+];
+
+const findButton = (label: string) =>
+  [...host.querySelectorAll('button')].find(b => b.textContent?.trim() === label);
+
+const hideButton = (modelId: string) =>
+  host.querySelector(`button[aria-label="隐藏 ${modelId}"]`);
+const restoreButton = (modelId: string) =>
+  host.querySelector(`button[aria-label="恢复 ${modelId}"]`);
+
+const openPicker = (extra: Partial<BridgeStatus> = {}) => {
+  render(setup(), vi.fn(), { availableModels: MODELS, ...extra });
+  // 触发按钮上是「模型」加当前模型名（这里没有当前模型，所以是「模型—」）
+  const trigger = [...host.querySelectorAll('button')].find(b =>
+    b.textContent?.includes('模型')
+  );
+  click(trigger);
+};
+
+describe('SettingsPanel 模型管理', () => {
+  it('不常用的可以藏起来，藏了就不出现在列表里', () => {
+    // 用户那边有 72 个模型，每次选都得翻半天
+    openPicker();
+    expect(text()).toContain('Old Model 3.5');
+
+    click(findButton('管理'));
+    click(hideButton('old-model-3.5'));
+    click(findButton('完成'));
+
+    expect(text()).not.toContain('Old Model 3.5');
+    expect(text()).toContain('DeepSeek V4 Pro');
+  });
+
+  it('藏起来只记在浏览器里，不动 pi 的配置文件', () => {
+    // pi 那份 models.json 是用户手写的，每个模型上带着 cost / compat，写回一次就全没了
+    openPicker();
+    click(findButton('管理'));
+    click(hideButton('old-model-3.5'));
+
+    expect(JSON.parse(window.localStorage.getItem('pi-web:hidden-models') ?? '[]')).toEqual([
+      'micuapi-openai/old-model-3.5',
+    ]);
+  });
+
+  it('藏了还能恢复', () => {
+    openPicker();
+    click(findButton('管理'));
+    click(hideButton('old-model-3.5'));
+    click(findButton('完成'));
+    // 不管理的时候连「已隐藏」那一组都不显示，就是干干静静地少了一行
+    expect(text()).not.toContain('Old Model 3.5');
+
+    click(findButton('管理'));
+    expect(text()).toContain('已隐藏');
+    click(restoreButton('old-model-3.5'));
+    click(findButton('完成'));
+
+    expect(text()).toContain('Old Model 3.5');
+  });
+
+  it('全藏了也打得开选择器，不然就回不去恢复了', () => {
+    window.localStorage.setItem(
+      'pi-web:hidden-models',
+      JSON.stringify(MODELS.map(m => `${m.provider}/${m.id}`))
+    );
+    render(setup(), vi.fn(), { availableModels: MODELS });
+
+    click([...host.querySelectorAll('button')].find(b => b.textContent?.includes('模型')));
+
+    expect(text()).toContain('模型都被藏起来了');
+    click(findButton('管理'));
+    expect(restoreButton('gpt-6-astra')).toBeTruthy();
+  });
+
+  it('藏过的那个即使正被用着也照常显示在上面', () => {
+    // 只是不列在菜单里，不是把正在用的模型弄没
+    openPicker({ model: { id: 'gpt-6-astra', name: 'GPT-6 Astra', provider: 'micuapi-openai' } });
+    click(findButton('管理'));
+    click(hideButton('gpt-6-astra'));
+    click(findButton('完成'));
+
+    // 触发按钮上仍然是它（那个按钮的文字是「模型」+ 当前模型名）
+    const trigger = [...host.querySelectorAll('button')].find(b =>
+      b.textContent?.includes('模型')
+    );
+    expect(trigger?.textContent).toContain('GPT-6 Astra');
   });
 });
 
