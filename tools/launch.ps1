@@ -293,19 +293,34 @@ if ($piVersion) {
 # 这里起 npm 就是前面刚接进 PATH 的那份 Node，所以它必然是达标的
 Start-Step '项目依赖'
 
-if (-not (Test-Path (Join-Path $ProjectDir 'node_modules'))) {
+# 判据不能只看目录在不在：npm install 装到一半断掉，同样会留下 node_modules。
+# 那样下次启动就会一直说「已经有了」，然后构建失败成一句看不懂的
+# 「'tsc' 不是内部或外部命令」——而且双击多少次都一样，用户出不来。
+# npm 成功装完会写 node_modules\.package-lock.json，拿它当「装完整了」的凭据。
+$nodeModules = Join-Path $ProjectDir 'node_modules'
+$installMarker = Join-Path $nodeModules '.package-lock.json'
+
+if (Test-Path $installMarker) {
+  Complete-Step '已经有了'
+} else {
+  # 有残留先清掉：半成品留着只会让 npm 更难判断该补什么
+  Remove-Item -LiteralPath $nodeModules -Recurse -Force -ErrorAction SilentlyContinue
+
   Write-Host '        正在安装，可能需要几分钟...'
   Write-Host ''
   & npm install
-  if ($LASTEXITCODE -ne 0) {
+
+  if ($LASTEXITCODE -ne 0 -or -not (Test-Path $installMarker)) {
+    # 失败也不留残留：留着下次启动会跳过安装，再报一个看不出真因的构建错误
+    Remove-Item -LiteralPath $nodeModules -Recurse -Force -ErrorAction SilentlyContinue
     Write-Host ''
-    Write-Host '  [错误] 依赖安装失败，请检查网络后重试。'
+    Write-Host '  [错误] 依赖安装失败（多半是网络），已清掉装了一半的内容。'
+    Write-Host '         检查网络后再双击一次即可重试。'
     Wait-ForExit
     exit 1
   }
+
   Complete-Step '已安装'
-} else {
-  Complete-Step '已经有了'
 }
 
 Start-Step '构建'
@@ -315,7 +330,8 @@ Write-Host ''
 & npm run build
 if ($LASTEXITCODE -ne 0) {
   Write-Host ''
-  Write-Host '  [错误] 构建失败。原因在上面的输出里；改完代码再双击一次即可。'
+  Write-Host '  [错误] 构建失败。原因在上面的输出里。'
+  Write-Host '         第一次跑的话，先删掉 node_modules 目录再双击一次（重装依赖）。'
   Wait-ForExit
   exit 1
 }
