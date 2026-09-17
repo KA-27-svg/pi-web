@@ -377,7 +377,7 @@ wss.on('connection', (ws: WebSocket) => {
       // 不重启 pi：`/login` 在终端里也是写同一个文件、当前会话立即生效，说明
       // 凭证是惰性读取的，重起反而会把正在聊的会话弄丢。
       if (data.type === 'save_provider_key') {
-        reply(
+        const saved = reply(
           ws,
           'provider_saved',
           async () => {
@@ -406,10 +406,14 @@ wss.on('connection', (ws: WebSocket) => {
           () => ({ id: data.id })
         );
 
-        // 写完让界面看到新模型。凭证是惰性的，不必重启，但状态得刷新。
-        void broadcastSetupStatus();
-        pi.send({ type: 'get_available_models' });
-        pi.send({ type: 'get_state' });
+        // 必须等配置真的落盘再让 pi 重读：saveProviderKey / saveProviderName 是异步写文件，
+        // 抢在它们前面发 get_available_models，pi 读到的还是旧配置——
+        // 表现成「配了第二个模型，第一个才出现」这种差一的怪现象。
+        void saved.then(() => {
+          void broadcastSetupStatus();
+          pi.send({ type: 'get_available_models' });
+          pi.send({ type: 'get_state' });
+        });
         return;
       }
 
@@ -457,7 +461,7 @@ wss.on('connection', (ws: WebSocket) => {
       // 自定义端点：写 models.json（端点与模型），key 写 auth.json。
       // models.json 每次打开 /model 都会重读，所以不需要重启 pi。
       if (data.type === 'save_custom_provider') {
-        reply(
+        const saved = reply(
           ws,
           'custom_provider_saved',
           async () => {
@@ -494,9 +498,12 @@ wss.on('connection', (ws: WebSocket) => {
           () => ({ id: data.id })
         );
 
-        void broadcastSetupStatus();
-        pi.send({ type: 'get_available_models' });
-        pi.send({ type: 'get_state' });
+        // 同上：models.json 写完了再让 pi 重读
+        void saved.then(() => {
+          void broadcastSetupStatus();
+          pi.send({ type: 'get_available_models' });
+          pi.send({ type: 'get_state' });
+        });
         return;
       }
 

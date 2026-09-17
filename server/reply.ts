@@ -6,6 +6,9 @@ import { WebSocket } from 'ws';
  * - `payload` 只用于成功分支，把操作结果带回去
  * - `extra` 成功与失败**都会**带上：请求方靠它配对（例如上传请求的 id）。
  *   漏在失败分支上，前端就永远配不上号，只能一直等到超时——而不是立刻看到错误。
+ *
+ * 返回一个“run 真正跑完才 resolve”的 Promise（失败也 resolve，不会拒绝）。
+ * 调用方需要“写盘之后再刷新”时靠它排序：抢在写完成前让 pi 重读，读到的是旧配置。
  */
 export function reply<T>(
   ws: WebSocket,
@@ -13,11 +16,11 @@ export function reply<T>(
   run: () => Promise<T>,
   payload?: (value: T) => Record<string, unknown>,
   extra?: () => Record<string, unknown>
-) {
+): Promise<void> {
   // 立刻求值：放进 catch 里再算，extra 自己抛错就会变成未捕获的 rejection
   const extraFields = extra?.() ?? {};
 
-  run()
+  return run()
     .then(value => {
       if (ws.readyState !== WebSocket.OPEN) return;
       ws.send(

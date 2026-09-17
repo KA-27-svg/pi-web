@@ -90,4 +90,40 @@ describe('reply', () => {
     expect(onError).toHaveBeenCalled();
     onError.mockRestore();
   });
+
+  it('返回的 Promise 在 run 真的完成后才 resolve，供调用方排序后续动作', async () => {
+    const ws = fakeWs();
+    let written = false;
+
+    const done = reply(ws, 'provider_saved', async () => {
+      await new Promise(resolve => setTimeout(resolve, 5));
+      written = true;
+      return {};
+    });
+
+    // 还没写完就不能 resolve：抢在写盘前刷新，读到的会是旧配置
+    let settled = false;
+    void done.then(() => {
+      settled = true;
+    });
+    expect(settled).toBe(false);
+    expect(written).toBe(false);
+
+    await done;
+    expect(written).toBe(true);
+    expect(settled).toBe(true);
+  });
+
+  it('run 失败时返回的 Promise 正常 resolve，不把拒绝抛给调用方', async () => {
+    const ws = fakeWs();
+    const onError = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    await expect(
+      reply(ws, 'thing_done', async () => {
+        throw new Error('写盘失败');
+      })
+    ).resolves.toBeUndefined();
+
+    onError.mockRestore();
+  });
 });
