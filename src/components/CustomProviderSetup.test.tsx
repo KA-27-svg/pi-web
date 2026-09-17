@@ -85,7 +85,7 @@ const click = (el: Element | null | undefined) => {
 const fill = (over: Record<string, string> = {}, advanced = false) => {
   setValue(field('label')!, over.label ?? '我的中转站');
   setValue(field('baseUrl')!, over.baseUrl ?? 'https://relay.example/v1');
-  if (over.key) setValue(field('key')!, over.key);
+  setValue(field('key')!, over.key ?? 'sk-1');
   if (advanced) {
     click(advancedToggle());
     if (over.models) setValue(field('models')!, over.models);
@@ -121,7 +121,7 @@ describe('CustomProviderSetup 只让填三样', () => {
     expect(field('models')).toBeTruthy();
   });
 
-  it('显示名或地址没填就不能保存', () => {
+  it('显示名、地址、密钥三个都得填', () => {
     render();
 
     expect(saveButton().disabled).toBe(true);
@@ -130,19 +130,21 @@ describe('CustomProviderSetup 只让填三样', () => {
     expect(saveButton().disabled).toBe(true);
 
     setValue(field('baseUrl')!, 'https://relay.example/v1');
+    // 密钥不能省：pi 没配鉴权时模型会加载但在 /model 里始终不可用，
+    // 存一个没密钥的供应商等于存了个选不了的
+    expect(saveButton().disabled).toBe(true);
+
+    setValue(field('key')!, 'sk-1');
     expect(saveButton().disabled).toBe(false);
   });
 
-  it('密钥可以不填：本地服务常常不需要', async () => {
-    const onSave = vi.fn();
-    render({}, { onListModels: vi.fn(async () => ['m1']), onSave });
+  it('只有空白字符不算填了密钥', () => {
+    render();
 
     fill();
-    await submit();
+    setValue(field('key')!, '   ');
 
-    expect(onSave).toHaveBeenCalledWith(
-      expect.objectContaining({ label: '我的中转站', key: '' })
-    );
+    expect(saveButton().disabled).toBe(true);
   });
 
   it('密钥输入框是密码类型', () => {
@@ -165,17 +167,17 @@ describe('CustomProviderSetup 保存时自动拉模型', () => {
     const onSave = vi.fn();
     render({}, { onListModels, onSave });
 
-    fill({ key: 'sk-1' });
+    fill({ key: 'sk-real' });
     await submit();
 
-    expect(onListModels).toHaveBeenCalledWith('https://relay.example/v1', 'sk-1');
+    expect(onListModels).toHaveBeenCalledWith('https://relay.example/v1', 'sk-real');
     expect(onSave).toHaveBeenCalledWith({
       id: 'relay.example',
       label: '我的中转站',
       baseUrl: 'https://relay.example/v1',
       api: 'openai-completions',
       models: ['gpt-x', 'claude-y'],
-      key: 'sk-1',
+      key: 'sk-real',
     });
   });
 

@@ -41,6 +41,10 @@ interface CustomProviderSetupProps {
  * 模型那一项没法彻底去掉：pi 的 models.json 靠 `models` 声明这个供应商有哪些模型，
  * 它自己不会去 `/models` 发现（那是我们 UI 用来省事的）。所以拉不到的少数自建服务，
  * 得让用户展开「高级」手填——拉取失败时会自动展开并说明原因。
+ *
+ * 密钥是**必填**的。pi 的文档写得很直白：没配鉴权时模型会加载，但「在 `/model` 和
+ * `--list-models` 里始终不可用」——留空等于存了一个选不了的供应商。本地服务
+ * （Ollama / LM Studio）不需要真的 key，但也得填一个占位的，不然同样选不了。
  */
 export function CustomProviderSetup({
   status,
@@ -66,7 +70,7 @@ export function CustomProviderSetup({
     .split('\n')
     .map(line => line.trim())
     .filter(Boolean);
-  const canSubmit = Boolean(label.trim()) && Boolean(baseUrl.trim()) && !busy;
+  const canSubmit = Boolean(label.trim()) && Boolean(baseUrl.trim()) && Boolean(key.trim()) && !busy;
 
   const commit = (modelIds: string[]) => {
     onSave({
@@ -158,13 +162,16 @@ export function CustomProviderSetup({
       </label>
 
       <label className="block">
-        <span className="text-[11px] text-muted">API 密钥</span>
+        <span className="text-[11px] text-muted">
+          API 密钥
+          <Hint>本地服务（Ollama / LM Studio）随便填一个，例如 ollama</Hint>
+        </span>
         <input
           data-field="key"
           type="password"
           value={key}
           onChange={event => setKey(event.target.value)}
-          placeholder="没有就留空"
+          placeholder="sk-..."
           autoComplete="off"
           className={`mt-1 font-mono ${inputClass}`}
         />
