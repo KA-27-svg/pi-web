@@ -41,6 +41,24 @@ if (Test-Path $shortcutScript) {
 }
 
 # ── 已经开着服务？ ───────────────────────────────────────────────────────────
+# 先看端口通不通，再去问「是不是我们的页面」。
+#
+# 顺序反过来的话（先 Invoke-WebRequest），端口空着时也要先把整个请求发完；而
+# Get-NetTCPConnection 走的是 WMI，实测要 ~0.9 秒——每次启动都白等。
+function Test-PortBusy {
+  param([int]$Port)
+
+  $client = New-Object System.Net.Sockets.TcpClient
+  try {
+    $task = $client.ConnectAsync('127.0.0.1', $Port)
+    return $task.Wait(400) -and $client.Connected
+  } catch {
+    return $false
+  } finally {
+    $client.Close()
+  }
+}
+
 # 3001 有人听不代表就是我们：开发模式的 npm run dev 也用这个端口，改动前的旧桥接
 # 更是只会在 / 上吐一段 JSON。所以看响应类型：项目页面是 text/html。
 function Test-AppServing {
@@ -52,15 +70,14 @@ function Test-AppServing {
   }
 }
 
-if (Test-AppServing) {
-  Write-Host '  服务已经在运行，直接打开页面。'
-  Start-Process $Url
-  Wait-ForExit
-  exit 0
-}
+if (Test-PortBusy -Port $Port) {
+  if (Test-AppServing) {
+    Write-Host '  服务已经在运行，直接打开页面。'
+    Start-Process $Url
+    Wait-ForExit
+    exit 0
+  }
 
-$portBusy = $null -ne (Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue)
-if ($portBusy) {
   # 端口被占但不是我们的页面：最常见是一个 npm run dev 的窗口还开着
   Write-Host "  [提示] $Port 端口被别的进程占着，而且它不是本项目的页面。"
   Write-Host ''
@@ -347,19 +364,78 @@ if ($depsInstalled) {
   Complete-Step '已安装'
 }
 
-Start-Step '构建'
-if ($ShowChecklist) { Write-Host '        首次会慢一些...' }
-Write-Host ''
+# ── 构建 ────────────────────────────────────────────────────────────────────
+# 只在前端真的改动过时才构建。
+#
+# 以前这里无条件跑 `npm run build`，而它是 `tsc -b && vite build`：
+# 实测 tsc 5.5 秒 + vite 2.3 秒，每次启动白等 7 秒多，产物却一个字都没变。
+# 现在 dist 比所有前端源文件新就直接跳过；真需要构建时也只跑 vite——
+# 产物不需要类型检查，tsc 交给 CI（.github/workflows/ci.yml 里在跑 npm run build）。
+function Get-NewestWriteTime {
+  param([string[]]$Paths)
 
-& npm run build
-if ($LASTEXITCODE -ne 0) {
-  Write-Host ''
-  Write-Host '  [错误] 构建失败。原因在上面的输出里。'
-  Write-Host '         第一次跑的话，先删掉 node_modules 目录再双击一次（重装依赖）。'
-  Wait-ForExit
-  exit 1
+  $newest = $null
+  foreach ($path in $Paths) {
+    if (-not (Test-Path -LiteralPath $path)) { continue }
+
+    $item = Get-Item -LiteralPath $path
+    $files = if ($item.PSIsContainer) {
+      # 测试文件不进产物，改它们不该触发构建
+      Get-ChildItem -LiteralPath $path -Recurse -File -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -notlike '*.test.*' }
+    } else {
+      @($item)
+    }
+
+    foreach ($file in $files) {
+      if ($null -eq $newest -or $file.LastWriteTimeUtc -gt $newest) {
+        $newest = $file.LastWriteTimeUtc
+      }
+    }
+  }
+  return $newest
 }
-Complete-Step '已完成'
+
+Start-Step '构建'
+
+$distIndex = Join-Path $ProjectDir 'dist\index.html'
+$needsBuild = -not (Test-Path -LiteralPath $distIndex)
+
+if (-not $needsBuild) {
+  $sourceTime = Get-NewestWriteTime @(
+    (Join-Path $ProjectDir 'index.html'),
+    (Join-Path $ProjectDir 'src'),
+    (Join-Path $ProjectDir 'public'),
+    (Join-Path $ProjectDir 'vite.config.ts'),
+    (Join-Path $ProjectDir 'tailwind.config.js'),
+    (Join-Path $ProjectDir 'postcss.config.js'),
+    (Join-Path $ProjectDir 'package.json')
+  )
+  $distTime = (Get-Item -LiteralPath $distIndex).LastWriteTimeUtc
+  if ($sourceTime -and $sourceTime -gt $distTime) { $needsBuild = $true }
+}
+
+if ($needsBuild) {
+  if ($ShowChecklist) { Write-Host '        首次会慢一些...' }
+  Write-Host ''
+
+  & npm run build:web
+  if ($LASTEXITCODE -ne 0) {
+    Write-Host ''
+    Write-Host '  [错误] 构建失败。原因在上面的输出里。'
+    Write-Host '         第一次跑的话，先删掉 node_modules 目录再双击一次（重装依赖）。'
+    Wait-ForExit
+    exit 1
+  }
+  Complete-Step '已完成'
+} else {
+  if ($ShowChecklist) {
+    Complete-Step '已是最新，跳过'
+  } else {
+    Write-Host '  前端没有改动，跳过构建。'
+  }
+  Write-Host ''
+}
 
 # 后台等端口真的起来再开浏览器，否则用户先看到的是「无法访问」。
 # 用 /api/status 而不是 /：它不受前端路由回落影响，响应也小。
