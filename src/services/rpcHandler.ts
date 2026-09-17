@@ -109,6 +109,21 @@ export class RpcEventHandler {
     );
   }
 
+  /**
+   * 清掉当前回答上的错误，回到「生成中」。
+   *
+   * 用在自动重试上：上一次失败已经在消息上挂了错误，重试开始 / 成功之后它还挂着，
+   * 表现成「网络恢复了，Request timed out 还在」。
+   */
+  private clearAssistantError() {
+    const targetId = this.currentAssistantId;
+    if (!targetId) return;
+
+    this.setMessages(prev =>
+      prev.map(m => (m.id === targetId ? { ...m, status: 'streaming', error: undefined } : m))
+    );
+  }
+
   public handleEvent(data: any, ws: WebSocket) {
     // 1. 桥接服务连接与目录变化
     if (data.type === 'bridge_status' || data.type === 'cwd_changed') {
@@ -209,6 +224,8 @@ export class RpcEventHandler {
           maxAttempts: typeof data.maxAttempts === 'number' ? data.maxAttempts : 0,
         },
       }));
+      // 正在重试就别再把上一次的失败挂在消息上：重试失败会重新写上
+      this.clearAssistantError();
       return;
     }
 
@@ -218,6 +235,9 @@ export class RpcEventHandler {
       // 重试到底还是失败：不会再有一条成功的 assistant 消息来报错，得在这里报
       if (data.success === false && data.finalError) {
         this.setAssistantError(String(data.finalError));
+      } else {
+        // 重试成功：上一次失败留下的错误不能继续挂着
+        this.clearAssistantError();
       }
       return;
     }

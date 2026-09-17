@@ -805,6 +805,50 @@ describe('回答失败时的报错', () => {
     expect(h.status().retrying).toBeUndefined();
   });
 
+  it('重试成功后把上一次失败挂上的错误清掉（网络恢复了就不该还挂着）', () => {
+    const h = createHarness();
+    startTurn(h);
+
+    h.handler.handleEvent(
+      {
+        type: 'message_end',
+        message: { role: 'assistant', stopReason: 'error', errorMessage: 'Request timed out' },
+      },
+      h.ws
+    );
+    expect(h.messages()[0].error).toContain('Request timed out');
+
+    h.handler.handleEvent({ type: 'auto_retry_start', attempt: 1, maxAttempts: 3 }, h.ws);
+    h.handler.handleEvent({ type: 'auto_retry_end', success: true, attempt: 2 }, h.ws);
+
+    expect(h.messages()[0].error).toBeUndefined();
+
+    // 重试拉起来的那一轮正常结束
+    h.handler.handleEvent({ type: 'agent_settled' }, h.ws);
+    expect(h.messages()[0].status).toBe('done');
+    expect(h.messages()[0].error).toBeUndefined();
+  });
+
+  it('重试到底还是失败时，finalError 盖掉上一次的错误', () => {
+    const h = createHarness();
+    startTurn(h);
+
+    h.handler.handleEvent(
+      {
+        type: 'message_end',
+        message: { role: 'assistant', stopReason: 'error', errorMessage: 'Request timed out' },
+      },
+      h.ws
+    );
+    h.handler.handleEvent({ type: 'auto_retry_start', attempt: 3, maxAttempts: 3 }, h.ws);
+    h.handler.handleEvent(
+      { type: 'auto_retry_end', success: false, attempt: 3, finalError: '529 overloaded_error' },
+      h.ws
+    );
+
+    expect(h.messages()[0].error).toContain('overloaded');
+  });
+
   it('重试到底还是失败时，用 finalError 报错', () => {
     const h = createHarness();
     startTurn(h);
