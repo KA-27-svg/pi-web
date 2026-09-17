@@ -36,7 +36,7 @@ const setup = (over: Partial<SetupStatus> = {}): SetupStatus => ({
   node: { version: 'v22.23.2', ok: true, minimum: '22.19.0' },
   npm: { available: true },
   pi: { installed: false, version: null },
-  gitBash: { required: false, available: true },
+  gitBash: { required: false, available: true, path: null, mode: 'bash' },
   credentials: { providers: ['anthropic'] },
   ready: false,
   issues: [{ code: 'pi-missing', message: '这台机器上还没安装 pi。' }],

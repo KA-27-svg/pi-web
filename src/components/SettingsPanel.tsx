@@ -279,7 +279,15 @@ export function SettingsPanel({
               </Row>
               <Row label="pi">{setup.pi.version ?? '未安装'}</Row>
               {setup.gitBash.required && (
-                <Row label="Git Bash">{setup.gitBash.available ? '已找到' : '未找到'}</Row>
+                <Row label="Git Bash">
+                  {/* 找不到 bash 时桥接会把 pi 的工具集换成 PowerShell，实际照样能跑命令。
+                      只说「未找到」会让人以为这台机器跑不了命令 */}
+                  {setup.gitBash.available
+                    ? (setup.gitBash.path ?? '已找到')
+                    : setup.gitBash.mode === 'powershell'
+                      ? '未找到，pi 改用 PowerShell'
+                      : '未找到'}
+                </Row>
               )}
               <Row label="模型凭证">
                 {setup.credentials.providers.length > 0

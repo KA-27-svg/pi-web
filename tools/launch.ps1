@@ -215,6 +215,41 @@ if ($portBusy) {
   exit 1
 }
 
+# ── pi ──────────────────────────────────────────────────────────────────────
+# 检测 + 没装就装。放在这个位置而不是紧挨着 Node，是为了让「服务已经在跑」那条
+# 快速路径不受影响——那种情况下页面上的向导自己会处理缺 pi。
+#
+# 直接让 npm 装，而不跑官方安装器：pi 本身就是一个 npm 包，而官方安装器的核心也
+# 就是这一句。不跑它的原因有两个：
+#   1. 它有交互提问（要不要装 Git Bash、要不要改 PATH），自动化流程里会卡住；
+#   2. 它开头那些判断在无终端环境下本来就会跳过 Node / Git Bash，拿不到好处。
+# 装失败不阻断：页面上的「帮我安装 pi」还在，用户有别的路可走。
+function Get-PiVersion {
+  if (-not (Get-Command pi -ErrorAction SilentlyContinue)) { return $null }
+  try { return (& pi '--version').Trim() } catch { return $null }
+}
+
+$piVersion = Get-PiVersion
+if ($piVersion) {
+  Write-Host "  使用已装的 pi $piVersion"
+} else {
+  Write-Host '  没找到 pi，正在安装（约 22 MB 下载 + 142 MB 依赖）...'
+  Write-Host ''
+  & npm install -g --ignore-scripts --min-release-age=0 @earendil-works/pi-coding-agent
+  Write-Host ''
+
+  # 以探测为准，不是退出码：npm 可能因为与安装无关的告警返回非零，
+  # 而 pi 其实已经装好了
+  $piVersion = Get-PiVersion
+  if ($piVersion) {
+    Write-Host "  pi 已装好：$piVersion"
+  } else {
+    Write-Host '  [提示] pi 没能自动装好。不影响继续——打开页面后可以用向导里的'
+    Write-Host '         「帮我安装 pi」再试一次。'
+  }
+  Write-Host ''
+}
+
 # ── 依赖 ────────────────────────────────────────────────────────────────────
 # 这里起 npm 就是前面刚接进 PATH 的那份 Node，所以它必然是达标的
 if (-not (Test-Path (Join-Path $ProjectDir 'node_modules'))) {

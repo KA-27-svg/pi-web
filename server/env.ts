@@ -1,5 +1,7 @@
 import { execFile } from 'child_process';
-import { listConfiguredProviders } from './setupConfig.js';
+import { listConfiguredProviders, readDefaultTools, readShellPath } from './setupConfig.js';
+import { findGitBash, type GitBashLookup } from './gitBash.js';
+import { planToolFallback, type ShellMode } from './toolFallback.js';
 
 /**
  * 环境探测：这台机器能不能跑 pi。
@@ -105,7 +107,23 @@ export interface SetupStatus {
   npm: { available: boolean };
   pi: { installed: boolean; version: string | null };
   /** Git Bash 只在 Windows 上必需（pi 的 bash 工具用它） */
-  gitBash: { required: boolean; available: boolean };
+  gitBash: {
+    required: boolean;
+    available: boolean;
+    /**
+     * 实际能跑起来的那个 bash 路径（可能是 settings.json 里的 shellPath）。
+     * 界面上用它做诊断：说「缺 Git Bash」时，用户得能看出来我们找过哪些地方。
+     */
+    path: string | null;
+    /**
+     * 生效之后 pi 用哪个工具跑命令。
+     *
+     * 找不到 bash 时桥接会把 defaultTools 里的 `bash` 换成 `powershell`
+     * （见 toolFallback.ts），所以界面不能光看 available 就说「不能用」——
+     * 实际已经能用了，只是换了个工具。
+     */
+    mode: ShellMode;
+  };
   /**
    * 已配好凭证的供应商（来自 auth.json 与环境变量）。
    * 只看有没有，不读凭证内容——key 不进这个进程之外的任何地方。
@@ -129,6 +147,15 @@ export interface ProbeOptions {
    * 「还没安装 pi」，用户点一次按钮就重装一次。
    */
   piCommand?: string;
+  /**
+   * 读 pi 的 settings.json 里的 shellPath。
+   * 必须可注入，否则测试会去读宿主机上真实的配置。
+   */
+  readShellPath?: () => Promise<string | null>;
+  /**
+   * 读 pi 的 settings.json 里的 defaultTools。同理必须可注入。
+   */
+  readDefaultTools?: () => Promise<string[] | null>;
 }
 
 export async function probeEnvironment(
@@ -141,19 +168,31 @@ export async function probeEnvironment(
   const piCommand = options.piCommand || 'pi';
 
   // 互相独立，并行探测；Git Bash 只在 Windows 上问
-  const [nodeRaw, npmRaw, piRaw, bashRaw, providers] = await Promise.all([
+  const [nodeRaw, npmRaw, piRaw, gitBash, providers, defaultTools] = await Promise.all([
     run('node', ['--version']),
     run('npm', ['--version']),
     run(piCommand, ['--version']),
-    gitBashRequired ? run('bash', ['--version']) : Promise.resolve(null),
+    gitBashRequired
+      ? // shellPath 要读配置，和别的探测并行做，别串行等它
+        (options.readShellPath ?? readShellPath)().then(shellPath =>
+          findGitBash(run, { platform, shellPath })
+        )
+      : Promise.resolve<GitBashLookup>({ available: true, path: null }),
     (options.listCredentials ?? listConfiguredProviders)(),
+    // 只有 Windows 上我们会去动 defaultTools，别的平台不必读
+    gitBashRequired ? (options.readDefaultTools ?? readDefaultTools)() : Promise.resolve(null),
   ]);
 
   const parsedNode = nodeRaw === null ? null : parseNodeVersion(nodeRaw);
   const nodeOk = meetsMinimumNode(parsedNode);
   const npmAvailable = npmRaw !== null;
   const piInstalled = piRaw !== null;
-  const gitBashAvailable = !gitBashRequired || bashRaw !== null;
+  const gitBashAvailable = gitBash.available;
+  // 缺 bash 时桥接启动时会按同一个计划把 defaultTools 换成 powershell
+  // （见 toolFallback.ts）。这里跑一遍计划，是因为界面要按「生效之后」的状态
+  // 说话——光看 available 会把「已改成 PowerShell」误报成「跑不了命令」。
+  const gitBashPlan = planToolFallback({ bashAvailable: gitBashAvailable, defaultTools });
+  const gitBashMode = gitBashPlan.mode;
 
   // 顺序固定：界面按这个顺序展示，测试也据此断言
   const issues: SetupIssue[] = [];
@@ -178,7 +217,9 @@ export async function probeEnvironment(
     issues.push({
       code: 'git-bash-missing',
       message:
-        '没找到 Git Bash。pi 的 bash 工具需要它——在你自己的终端里跑一次上面的官方命令，它会顺手装好并配置。',
+        gitBashMode === 'powershell'
+          ? '没找到 Git Bash，已改用 PowerShell 执行命令（不需要装任何东西）。想用 bash 就装一个 Git for Windows，下次启动会自动换回来。'
+          : '没找到 Git Bash，而你自定义过 pi 的工具集，所以我们没动它——bash 工具会失败。装一个 Git for Windows，或自己在 settings.json 的 defaultTools 里加上 powershell。',
     });
   }
   // 装了 pi 却没配凭证，和没装 pi 是同一种结局：发消息不会有任何回复
@@ -200,7 +241,12 @@ export async function probeEnvironment(
     },
     npm: { available: npmAvailable },
     pi: { installed: piInstalled, version: piRaw === null ? null : piRaw.trim() },
-    gitBash: { required: gitBashRequired, available: gitBashAvailable },
+    gitBash: {
+      required: gitBashRequired,
+      available: gitBashAvailable,
+      path: gitBash.path,
+      mode: gitBashMode,
+    },
     credentials: { providers },
     // Git Bash 缺失不阻断对话（只影响 shell 工具）；凭证缺失则阻断，因为对话根本进行不了
     ready: nodeReady && providers.length > 0,

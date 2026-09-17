@@ -113,6 +113,61 @@ export async function saveProviderKey(
   await writeJsonObject(auth, existing, { mode: 0o600 });
 }
 
+/**
+ * pi 的 settings.json 里指定的 bash 路径。
+ *
+ * 读不到就返回 null（文件不存在、键没设、内容坏了都一样）：
+ * 这只是「用户可能指定过」的额外线索，不该让整个环境探测失败。
+ * 原因同 listConfiguredProviders：坏掉的配置只影响它自己那一项。
+ */
+export async function readShellPath(
+  agentDir: string = resolveAgentDir()
+): Promise<string | null> {
+  const settings = await readJsonObject(configPaths(agentDir).settings).catch(
+    () => ({}) as Record<string, any>
+  );
+
+  const value = settings.shellPath;
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+/**
+ * pi 启动时启用的内置工具集。没配过时返回 null（= 用 pi 自己的默认）。
+ *
+ * 同样是「读不到就当没有」：坏掉的配置只影响这一项。
+ */
+export async function readDefaultTools(
+  agentDir: string = resolveAgentDir()
+): Promise<string[] | null> {
+  const settings = await readJsonObject(configPaths(agentDir).settings).catch(
+    () => ({}) as Record<string, any>
+  );
+
+  const value = settings.defaultTools;
+  if (!Array.isArray(value) || !value.every(item => typeof item === 'string')) return null;
+  return value as string[];
+}
+
+/**
+ * 换掉 pi 启动时启用的内置工具集。
+ *
+ * 目前只有一处用它：Windows 上找不到 Git Bash 时把 `bash` 换成 `powershell`
+ * （见 toolFallback.ts）。
+ *
+ * 同样是读改写：settings.json 里还躺着 defaultProvider / defaultModel / shellPath /
+ * sessionDir 一堆键，整体覆盖一次就全没了。
+ */
+export async function saveDefaultTools(
+  tools: string[],
+  agentDir: string = resolveAgentDir()
+): Promise<void> {
+  const { settings } = configPaths(agentDir);
+  const existing = await readJsonObject(settings);
+
+  existing.defaultTools = tools;
+  await writeJsonObject(settings, existing);
+}
+
 /** 记住启动时用的默认模型 */
 export async function saveDefaultModel(
   provider: string,

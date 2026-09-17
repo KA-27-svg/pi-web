@@ -127,7 +127,21 @@ export interface SetupStatus {
   npm: { available: boolean };
   pi: { installed: boolean; version: string | null };
   /** Git Bash 只在 Windows 上必需 */
-  gitBash: { required: boolean; available: boolean };
+  gitBash: {
+    required: boolean;
+    available: boolean;
+    /**
+     * 实际能跑起来的那个 bash 路径（可能是 settings.json 里的 shellPath）。
+     * 说「缺 Git Bash」时，用户得能看出来我们到底找过哪里。
+     */
+    path: string | null;
+    /**
+     * 生效之后 pi 用哪个工具跑命令。
+     * 找不到 bash 时桥接会把 defaultTools 里的 `bash` 换成 `powershell`，
+     * 所以光看 available 会误判成「不能跑命令」。
+     */
+    mode: 'bash' | 'powershell';
+  };
   /** 已配好凭证的供应商（只看有没有，不含凭证内容） */
   credentials: { providers: string[] };
   /** 环境与凭证都就绪，可以开始对话 */
@@ -216,6 +230,12 @@ export interface BridgeStatus {
   installLog?: string[];
   /** 安装失败或被拒绝的原因 */
   installError?: string;
+  /**
+   * 安装器报了失败、但 pi 其实已经装好时的一条说明。
+   * 不是错误（installError 才是），但不该静默吞掉——
+   * 用户真报「装的时候出错了」时，这是唯一线索。
+   */
+  installNotice?: string;
   /** 写配置失败的原因（保存供应商 / 默认模型 / 默认工具） */
   setupNotice?: string;
   /**

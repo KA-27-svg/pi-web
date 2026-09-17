@@ -107,6 +107,45 @@ export interface InstallResult {
   error?: string;
 }
 
+export interface InstallOutcome {
+  /** 用户该看到的结论：以「pi 到底能不能跑」为准，不是安装器的退出码 */
+  ok: boolean;
+  /** 真正的失败原因，ok 为假时才有 */
+  error?: string;
+  /** 安装器报了失败、但 pi 其实已可用时留一条线索，不静默吞掉 */
+  notice?: string;
+}
+
+/**
+ * 判断这次安装到底算不算成功。
+ *
+ * 不能只看安装器的退出码。官方安装器在 `npm install -g pi` 成功之后还有收尾步骤
+ * （配置 PowerShell shim 的执行策略、刷新 PATH 等），任何一步失败都会让整份脚本以
+ * 非零码退出——而 pi 其实已经装好了。实测复现过：装完 `pi.cmd` 就躺在磁盘上、能跑，
+ * 退出码却是 1。只看退出码，用户在页面上会同时看到红色的【安装失败】和已经就绪的
+ * 状态，完全不知道该信哪个。
+ *
+ * 所以以「pi 能不能跑」为准：探测说装好了就算成功，退出码降级成一条提示。
+ */
+export function classifyInstallOutcome(
+  result: InstallResult,
+  piReady: boolean
+): InstallOutcome {
+  if (result.ok) return { ok: true };
+
+  if (piReady) {
+    return {
+      ok: true,
+      notice: `安装器以退出码 ${result.code ?? '未知'} 结束，但 pi 已经装好并可用（多半是收尾步骤失败，不影响使用）。`,
+    };
+  }
+
+  return {
+    ok: false,
+    error: result.error ?? `安装器以退出码 ${result.code ?? '未知'} 结束`,
+  };
+}
+
 /**
  * 结束安装进程。
  *

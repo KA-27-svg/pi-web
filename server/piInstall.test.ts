@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { SetupStatus } from './env';
 import {
   buildInstallCommand,
+  classifyInstallOutcome,
   installPreflight,
   runInstall,
   type SpawnInstaller,
@@ -83,7 +84,7 @@ describe('installPreflight', () => {
     node: { version: 'v22.23.2', ok: true, minimum: '22.19.0' },
     npm: { available: true },
     pi: { installed: false, version: null },
-    gitBash: { required: false, available: true },
+    gitBash: { required: false, available: true, path: null, mode: 'bash' },
     credentials: { providers: [] },
     ready: false,
     issues: [],
@@ -139,6 +140,43 @@ describe('installPreflight', () => {
     const status: SetupStatus = { ...base, npm: { available: false } };
 
     expect(installPreflight(status).allowed).toBe(false);
+  });
+});
+
+describe('classifyInstallOutcome', () => {
+  it('安装器成功时就是成功', () => {
+    expect(classifyInstallOutcome({ ok: true, code: 0 }, true)).toEqual({ ok: true });
+  });
+
+  it('安装器报了失败、但 pi 其实已经能跑时算成功，并留一条提示', () => {
+    // 真实复现过：官方安装器在 npm install -g 成功之后还有收尾步骤
+    // （配置 PowerShell shim 的执行策略等），那些步骤失败会让整个脚本以非零码退出。
+    // 只看退出码就会把「装好了」判成「装失败了」，页面上同时出现
+    // 红色【安装失败】和已经就绪的状态。
+    const outcome = classifyInstallOutcome({ ok: false, code: 1, error: '安装器以退出码 1 结束' }, true);
+
+    expect(outcome.ok).toBe(true);
+    expect(outcome.error).toBeUndefined();
+    // 不能静默吞掉：真出问题时这条是唯一线索
+    expect(outcome.notice).toContain('退出码 1');
+  });
+
+  it('安装器报了失败、pi 也确实不在时才算真失败，并给出原因', () => {
+    const outcome = classifyInstallOutcome(
+      { ok: false, code: 1, error: '安装器以退出码 1 结束' },
+      false
+    );
+
+    expect(outcome.ok).toBe(false);
+    expect(outcome.error).toBe('安装器以退出码 1 结束');
+    expect(outcome.notice).toBeUndefined();
+  });
+
+  it('退出码都没有时也能拼出一句可读的失败原因', () => {
+    const outcome = classifyInstallOutcome({ ok: false, code: null }, false);
+
+    expect(outcome.ok).toBe(false);
+    expect(outcome.error).toBeTruthy();
   });
 });
 

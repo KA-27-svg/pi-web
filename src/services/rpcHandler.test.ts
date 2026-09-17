@@ -827,6 +827,37 @@ describe('环境与安装事件', () => {
 
     expect(h.status().installing).toBe(false);
     expect(h.status().installError).toContain('退出码 1');
+    expect(h.status().installNotice).toBeUndefined();
+  });
+
+  it('install_done 成功但带说明时不算错误，只留一句看得见的提示', () => {
+    // 官方安装器的收尾步骤失败会把「装好了」报成非零退出码；
+    // 桥接改用探测结果判成功，但退出码不能就这么丢掉
+    const h = createHarness();
+
+    h.handler.handleEvent({ type: 'install_started' }, h.ws);
+    h.handler.handleEvent(
+      {
+        type: 'install_done',
+        ok: true,
+        code: 1,
+        notice: '安装器以退出码 1 结束，但 pi 已经装好并可用。',
+      },
+      h.ws
+    );
+
+    expect(h.status().installing).toBe(false);
+    expect(h.status().installError).toBeUndefined();
+    expect(h.status().installNotice).toContain('已经装好并可用');
+  });
+
+  it('重新开始安装时清掉上一次的提示，不把旧结论留在页面上', () => {
+    const h = createHarness();
+
+    h.handler.handleEvent({ type: 'install_done', ok: true, code: 1, notice: '旧提示' }, h.ws);
+    h.handler.handleEvent({ type: 'install_started' }, h.ws);
+
+    expect(h.status().installNotice).toBeUndefined();
   });
 
   it('install_refused 把拒绝原因显示出来，而不是点了没反应', () => {

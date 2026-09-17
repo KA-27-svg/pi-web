@@ -49,13 +49,13 @@ Windows 也可以直接双击 `start.bat`：它会自动装依赖、构建、等
 | --- | --- |
 | 没装 Node | **根本到不了网页**（桥接自己就跑在 Node 上）。Windows 上双击 `start.bat` / 桌面图标时先装好 |
 | Node 版本不够 | **同上**，启动时自动下一份达标的 Node 到 `runtime/node`（约 100 MB，只改本进程 PATH，不动系统） |
-| 没装 pi | 给出 pi 官方的安装命令；点「帮我安装」由桥接代跑，输出实时显示 |
+| 没装 pi | **启动时就自动装好**（直接调 npm，不问也不等）。页面上的「帮我安装 pi」作为兜底保留 |
 | 没配模型 | 选供应商贴 API key；订阅账号（Claude Pro / ChatGPT / Copilot）引导你去终端跑 `/login`，授权完页面自己继续 |
 | 中转站 / 自建端点 | 填 `baseUrl` + API 类型 + 模型 id；可以从 `<baseUrl>/models` 拉列表，拉不到就手填 |
-| 没找到 Git Bash（Windows） | 只是提示，不阻断。在终端跑一次官方安装命令，它会顺手装好并配好 `shellPath` |
+| 没找到 Git Bash（Windows） | **自动把 pi 的工具集换成 PowerShell**（写一行 `defaultTools`，不用装任何东西）。装了 Git for Windows 后下次启动会自动换回 bash |
 
-> 前两行只覆盖 Windows 的启动方式。Unix 上没有对应的启动脚本，自己 `npm start` 时
-> Node 不达标仍然只能自己装。
+> 前三行只覆盖 Windows 的启动方式。Unix 上没有对应的启动脚本，自己 `npm start` 时
+> Node / pi 不达标仍然只能自己装。
 
 向导做的事就是 pi 自己的配置文件（`auth.json` / `models.json` / `settings.json`），所以想跳过向导、自己手配也完全行。
 

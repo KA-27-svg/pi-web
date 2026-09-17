@@ -116,10 +116,20 @@ export function SetupWizard({
           {setup?.gitBash.required && (
             <div className="flex gap-1.5">
               <dt>Git Bash</dt>
-              <dd className="font-mono">{setup.gitBash.available ? '已找到' : '未找到'}</dd>
+              <dd className="font-mono" title={setup.gitBash.path ?? undefined}>
+                {setup.gitBash.path ?? '未找到'}
+              </dd>
             </div>
           )}
         </dl>
+
+        {/*
+          放在这里而不是安装那段里：安装成功后 piInstalled 会变成真、那整段会收起来，
+          提示跟着一起消失就等于没提示。
+        */}
+        {status.installNotice && (
+          <p className="mt-4 text-[12px] leading-[1.7] text-muted">{status.installNotice}</p>
+        )}
 
         {/* 没装 pi 才展示安装；已经装好了还摆着「帮我安装 pi」只会让人困惑 */}
         {!piInstalled && status.installCommand && (

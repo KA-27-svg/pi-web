@@ -14,14 +14,24 @@ import { readAttachment, resolveAttachment } from './textAttachment.js';
 import { reply } from './reply.js';
 import { attachOriginGuard, parseAllowedOrigins } from './origin.js';
 import { createStaticHandler } from './static.js';
-import { defaultRunCommand, probeEnvironment } from './env.js';
+import { defaultRunCommand, probeEnvironment, type SetupStatus } from './env.js';
 import { createPiLocator } from './piLocate.js';
-import { buildInstallCommand, installPreflight, runInstall } from './piInstall.js';
+import {
+  buildInstallCommand,
+  classifyInstallOutcome,
+  installPreflight,
+  runInstall,
+} from './piInstall.js';
 import { PROVIDER_PRESETS, SUBSCRIPTION_LOGINS } from './providers.js';
+import { findGitBash } from './gitBash.js';
+import { planToolFallback } from './toolFallback.js';
 import {
   listConfiguredProviders,
+  readDefaultTools,
+  readShellPath,
   saveCustomProvider,
   saveDefaultModel,
+  saveDefaultTools,
   saveProviderKey,
 } from './setupConfig.js';
 import { fetchProviderModels, normalizeBaseUrl, SUPPORTED_APIS } from './customProvider.js';
@@ -234,14 +244,38 @@ async function locatePi(force = false): Promise<string | null> {
 let installInFlight = false;
 
 /**
- * 向导需要的全部状态。
+ * 找不到 Git Bash 时，把 pi 的 bash 工具换成 PowerShell。
+ *
+ * 放在启动时而不是探测接口的副作用里：get_setup_status 是个查询，查询不该改配置。
+ *
+ * 只动「没配过」或「正好是我们上次写的那一套」的 defaultTools——用户自己配过的
+ * 永远不碰（规则表见 toolFallback.ts）。
+ */
+async function applyToolFallback(): Promise<void> {
+  if (process.platform !== 'win32') return;
+
+  const bash = await findGitBash(defaultRunCommand, { shellPath: await readShellPath() });
+  const plan = planToolFallback({
+    bashAvailable: bash.available,
+    defaultTools: await readDefaultTools(),
+  });
+
+  if (plan.write) await saveDefaultTools(plan.write);
+  console.log(`[Pi Bridge] ${plan.reason}`);
+}
+
+/**
+ * 工具集回退只做一次。
+ * 探测必须等它落定——它会改 settings.json，而 gitBash.mode 正是从那里读出来的。
+ * 没等的话，页面会先说「用 bash」，然后再变成「用 PowerShell」。
+ */
+let toolFallbackReady: Promise<void> = Promise.resolve();
+
+/**
+ * 把一次探测结果包成向导需要的全部状态。
  * 供应商目录也一并给前端，免得两边各维护一份、迟早走样。
  */
-async function setupPayload() {
-  // 先解析一次再探测：探测要用已解析的绝对路径，
-  // 否则装到 PATH 之外时会把「装好了」误报成「还没安装 pi」
-  await locatePi();
-  const setup = await probeEnvironment(defaultRunCommand, { piCommand: pi.currentCommand });
+function setupPayloadFrom(setup: SetupStatus) {
   return {
     setup,
     installCommand: buildInstallCommand().display,
@@ -249,6 +283,17 @@ async function setupPayload() {
     providers: PROVIDER_PRESETS,
     subscriptions: SUBSCRIPTION_LOGINS,
   };
+}
+
+async function setupPayload() {
+  // 先解析一次再探测：探测要用已解析的绝对路径，
+  // 否则装到 PATH 之外时会把「装好了」误报成「还没安装 pi」
+  await locatePi();
+  // 工具集回退会改 settings.json，而 mode 从那里读——必须等它写完
+  await toolFallbackReady;
+  return setupPayloadFrom(
+    await probeEnvironment(defaultRunCommand, { piCommand: pi.currentCommand })
+  );
 }
 
 /** 环境或凭证变动后广播一次，所有标签页都会跟着更新 */
@@ -475,12 +520,30 @@ wss.on('connection', (ws: WebSocket) => {
             // 解析新路径必须在探测之前：装完后当前进程的 PATH 还是旧的
             await locatePi(true);
 
-            broadcast(JSON.stringify({ type: 'install_done', ...result }));
-            await broadcastSetupStatus();
+            // 以「pi 到底能不能跑」为准，而不是安装器的退出码：
+            // 它的收尾步骤失败会把「装好了」误报成「装失败了」
+            const after = await probeEnvironment(defaultRunCommand, {
+              piCommand: pi.currentCommand,
+            });
+            const outcome = classifyInstallOutcome(result, after.pi.installed);
+
+            broadcast(
+              JSON.stringify({
+                type: 'install_done',
+                ...result,
+                ok: outcome.ok,
+                error: outcome.error,
+                notice: outcome.notice,
+              })
+            );
+            // 复用刚才那次探测，不再重跑一遍
+            broadcast(
+              JSON.stringify({ type: 'setup_status', success: true, ...setupPayloadFrom(after) })
+            );
 
             // 用新装的 pi 重新拉起。失败时不动：让用户自己重试，
             // 而不是把一个起不来的进程换成另一个。
-            if (result.ok) pi.restart(currentCwd);
+            if (outcome.ok) pi.restart(currentCwd);
           } catch (err) {
             console.error('[Pi Bridge] Install failed:', err);
             broadcast(
@@ -667,6 +730,12 @@ server.listen(PORT, HOST, () => {
   void locatePi().catch(err =>
     console.error('[Pi Bridge] Failed to resolve pi path:', err)
   );
+
+  // 找不到 Git Bash 就把 pi 的 bash 工具换成 PowerShell。
+  // 必须赶在第一个 get_setup_status 之前落定（setupPayload 会等它）。
+  toolFallbackReady = applyToolFallback().catch(err => {
+    console.error('[Pi Bridge] Tool fallback failed:', err);
+  });
 
   // 读一次之前记住的文件名单：历史消息里那些「从电脑选择」的附件重启后才还能打开
   void picked

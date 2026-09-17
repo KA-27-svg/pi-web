@@ -259,6 +259,7 @@ export class RpcEventHandler {
         installing: true,
         installLog: [],
         installError: undefined,
+        installNotice: undefined,
       }));
       return;
     }
@@ -276,6 +277,8 @@ export class RpcEventHandler {
         ...prev,
         installing: false,
         installError: data.ok ? undefined : String(data.error ?? '安装失败'),
+        // 成功但安装器报了错（收尾步骤失败）：不当成错误，但留一句看得见的说明
+        installNotice: data.ok && data.notice ? String(data.notice) : undefined,
       }));
       return;
     }

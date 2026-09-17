@@ -19,6 +19,9 @@ function runnerFor(outputs: Record<string, string | null>): RunCommand {
 // 凭证必须注入：不注入就会去读宿主机真实的 ~/.pi/agent，测试结果随机器漂移
 const noCredentials = async () => [] as string[];
 const withAnthropic = async () => ['anthropic'];
+// shellPath 同理：不注入就会去读宿主机真实的 settings.json
+const noShellPath = async () => null;
+const noDefaultTools = async () => null;
 
 describe('parseNodeVersion', () => {
   it('解析标准的 node --version 输出', () => {
@@ -123,7 +126,7 @@ describe('probeEnvironment', () => {
       listCredentials: withAnthropic,
     });
 
-    expect(status.gitBash).toEqual({ required: false, available: true });
+    expect(status.gitBash).toEqual({ required: false, available: true, path: null, mode: 'bash' });
     expect(status.issues).toEqual([]);
   });
 
@@ -132,10 +135,100 @@ describe('probeEnvironment', () => {
     const status = await probeEnvironment(runnerFor({ ...healthy, bash: null }), {
       platform: 'win32',
       listCredentials: withAnthropic,
+      readShellPath: noShellPath,
+      readDefaultTools: noDefaultTools,
     });
 
-    expect(status.gitBash).toEqual({ required: true, available: false });
+    expect(status.gitBash).toEqual({ required: true, available: false, path: null, mode: 'powershell' });
     expect(status.issues.map(i => i.code)).toContain('git-bash-missing');
+    expect(status.ready).toBe(true);
+  });
+
+  it('已经无 bash 可用的机器上，提示说的是「已改用 PowerShell」而不是「你自己去装」', async () => {
+    // 桥接启动时会把默认工具集里的 bash 换成 powershell（toolFallback.ts），
+    // 所以这时候让用户去装 Git Bash 是多余的要求——实际已经能跑命令了
+    const status = await probeEnvironment(runnerFor({ ...healthy, bash: null }), {
+      platform: 'win32',
+      listCredentials: withAnthropic,
+      readShellPath: noShellPath,
+      readDefaultTools: noShellPath,
+    });
+
+    const issue = status.issues.find(i => i.code === 'git-bash-missing');
+
+    expect(issue?.message).toContain('PowerShell');
+    expect(issue?.message).toContain('不需要装任何东西');
+  });
+
+  it('用户的 defaultTools 是自定义的时候，提示不能声称「已改用 PowerShell」', async () => {
+    // 我们没动他的配置，说「已改用」就是假话
+    const status = await probeEnvironment(runnerFor({ ...healthy, bash: null }), {
+      platform: 'win32',
+      listCredentials: withAnthropic,
+      readShellPath: noShellPath,
+      readDefaultTools: async () => ['read', 'edit'],
+    });
+
+    const issue = status.issues.find(i => i.code === 'git-bash-missing');
+
+    expect(status.gitBash.mode).toBe('bash');
+    expect(issue?.message).not.toContain('已改用');
+    expect(issue?.message).toContain('自定义');
+  });
+
+  it('defaultTools 已经换成 powershell 时，mode 报 powershell', async () => {
+    const status = await probeEnvironment(runnerFor({ ...healthy, bash: null }), {
+      platform: 'win32',
+      listCredentials: withAnthropic,
+      readShellPath: noShellPath,
+      readDefaultTools: async () => ['read', 'powershell', 'edit', 'write'],
+    });
+
+    expect(status.gitBash.mode).toBe('powershell');
+  });
+
+  it('settings.json 里指了 shellPath 就用它，哪怕别的候选也能跑', async () => {
+    // 用户装了 Cygwin / MSYS2 并显式指定了路径，pi 用的就是它。
+    // 我们报成另一个的话，界面上说的和 pi 实际用的就对不上了
+    const cygwin = 'C:\\cygwin64\\bin\\bash.exe';
+    const run: RunCommand = async (command, args) => {
+      if (args.join(' ') !== '--version') return null;
+      if (command === cygwin) return 'GNU bash, version 5.2.26\n';
+      return healthy[command] ?? null;
+    };
+
+    const status = await probeEnvironment(run, {
+      platform: 'win32',
+      listCredentials: withAnthropic,
+      readShellPath: async () => cygwin,
+      readDefaultTools: noDefaultTools,
+    });
+
+    expect(status.gitBash).toEqual({ required: true, available: true, path: cygwin, mode: 'bash' });
+    expect(status.issues.map(i => i.code)).not.toContain('git-bash-missing');
+  });
+
+  it('PATH 上没有 bash、但 Git for Windows 装在默认位置时不再误报缺失', async () => {
+    // 这是本次要修的核心。pi 自己会去 C:\Program Files\Git\bin\bash.exe 找，
+    // 而以前我们只跑 PATH 上的 `bash --version`——用户装 Git 时没勾「加入 PATH」
+    // 就会看到一个假的「缺 Git Bash」，照着做也修不好
+    const gitBashPath = 'C:\\Program Files\\Git\\bin\\bash.exe';
+    const run: RunCommand = async (command, args) => {
+      if (args.join(' ') !== '--version') return null;
+      if (command === gitBashPath) return 'GNU bash, version 5.2.26\n';
+      if (command === 'bash') return null; // PATH 上就是没有
+      return healthy[command] ?? null;
+    };
+
+    const status = await probeEnvironment(run, {
+      platform: 'win32',
+      listCredentials: withAnthropic,
+      readShellPath: noShellPath,
+      readDefaultTools: noDefaultTools,
+    });
+
+    expect(status.gitBash.path).toBe(gitBashPath);
+    expect(status.issues.map(i => i.code)).not.toContain('git-bash-missing');
     expect(status.ready).toBe(true);
   });
 
@@ -143,6 +236,8 @@ describe('probeEnvironment', () => {
     const status = await probeEnvironment(runnerFor({ pi: null }), {
       platform: 'win32',
       listCredentials: noCredentials,
+      readShellPath: noShellPath,
+      readDefaultTools: noDefaultTools,
     });
 
     expect(status.issues.map(i => i.code)).toEqual([

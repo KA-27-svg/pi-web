@@ -26,7 +26,7 @@ const setup = (over: Partial<SetupStatus> = {}): SetupStatus => ({
   node: { version: 'v22.23.2', ok: true, minimum: '22.19.0' },
   npm: { available: true },
   pi: { installed: true, version: '0.85.1' },
-  gitBash: { required: true, available: true },
+  gitBash: { required: true, available: true, path: 'C:\\Program Files\\Git\\bin\\bash.exe', mode: 'bash' },
   credentials: { providers: ['anthropic', 'deepseek'] },
   ready: true,
   issues: [],
@@ -69,8 +69,25 @@ describe('SettingsPanel 环境自检', () => {
     expect(text()).toContain('环境自检');
     expect(text()).toContain('v22.23.2');
     expect(text()).toContain('0.85.1');
-    expect(text()).toContain('已找到');
+    // 找到时显示具体路径：说「缺 Git Bash」的时候，用户得能看出来我们找过哪里
+    expect(text()).toContain('C:\\Program Files\\Git\\bin\\bash.exe');
     expect(text()).toContain('2 个供应商');
+  });
+
+  it('没找到 Git Bash 但已用 PowerShell 顶替时说清楚，而不是只写「未找到」', () => {
+    // 只说「未找到」会让人以为这台机器跑不了命令，实际已经能跑了
+    render(
+      setup({ gitBash: { required: true, available: false, path: null, mode: 'powershell' } })
+    );
+
+    expect(text()).toContain('PowerShell');
+  });
+
+  it('没找到 Git Bash 而且没顶替时只说「未找到」', () => {
+    render(setup({ gitBash: { required: true, available: false, path: null, mode: 'bash' } }));
+
+    expect(text()).toContain('未找到');
+    expect(text()).not.toContain('PowerShell');
   });
 
   it('没配凭证时明说，而不是留空', () => {
@@ -87,7 +104,7 @@ describe('SettingsPanel 环境自检', () => {
   });
 
   it('非 Windows 平台不显示 Git Bash 这一行', () => {
-    render(setup({ platform: 'linux', gitBash: { required: false, available: true } }));
+    render(setup({ platform: 'linux', gitBash: { required: false, available: true, path: null, mode: 'bash' } }));
 
     expect(text()).not.toContain('Git Bash');
   });
