@@ -16,6 +16,11 @@ interface ComposerHeightOptions {
   value: string;
   /** 外壳高度真的变化时通知父级，便于贴底时重新对齐滚动位置 */
   onResize?: () => void;
+  /**
+   * 跳过形变：切会话导致的图标态→展开态不是「开场」，那一帧正在渲染新会话历史，
+   * 再叠一场宽度/圆角/高度共 720ms 的动画，每帧都要带着整列内容重新布局，必卡。
+   */
+  skipMorph?: boolean;
 }
 
 /**
@@ -30,6 +35,7 @@ export function useComposerHeight({
   showIcon,
   value,
   onResize,
+  skipMorph = false,
 }: ComposerHeightOptions) {
   /** 上一次真正应用到外壳的高度，用来跳过无变化的写入 */
   const appliedHeightRef = useRef(0);
@@ -72,6 +78,12 @@ export function useComposerHeight({
     const stage = stageRef.current;
     if (!stage) return;
 
+    // 切会话：不进形变窗口，外壳直接落在最终态
+    if (skipMorph) {
+      stage.removeAttribute('data-morphing');
+      return;
+    }
+
     if (showIcon) {
       stage.setAttribute('data-morphing', 'true');
       return;
@@ -82,7 +94,7 @@ export function useComposerHeight({
       measure();
     }, MORPH_MS);
     return () => window.clearTimeout(timer);
-  }, [showIcon, stageRef, measure]);
+  }, [showIcon, skipMorph, stageRef, measure]);
 
   useEffect(() => {
     measure();

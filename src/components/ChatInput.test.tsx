@@ -307,3 +307,19 @@ describe('发送失败时不丢草稿', () => {
     expect(textarea().value).toBe('');
   });
 });
+
+describe('切会话时跳过开场形变', () => {
+  it('skipMorph 时直接落最终态：不进形变窗口、也关掉过渡', () => {
+    mount({ showIcon: true, skipMorph: true });
+
+    expect(stage().getAttribute('data-no-transition')).toBe('true');
+    expect(morphing()).toBe(false);
+  });
+
+  it('平时（不跳过）图标态仍走形变', () => {
+    mount({ showIcon: true });
+
+    expect(morphing()).toBe(true);
+    expect(stage().hasAttribute('data-no-transition')).toBe(false);
+  });
+});

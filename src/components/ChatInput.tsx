@@ -22,6 +22,8 @@ interface ChatInputProps {
   onResize?: () => void;
   /** 中断后取回的排队文本；seq 变化才消费一次 */
   restoredDraft?: { text: string; seq: number };
+  /** 切会话导致的布局变化：跳过开场形变，直接落到最终态 */
+  skipMorph?: boolean;
   /** 弹系统原生的文件选择框，拿回绝对路径（不复制文件） */
   onPickFile?: (imagesOnly?: boolean) => Promise<string[]>;
   /** 列工作目录，用于「从项目里选」 */
@@ -50,6 +52,7 @@ export function ChatInput({
   onActivate,
   onResize,
   restoredDraft,
+  skipMorph,
   onPickFile,
   onListDir,
   onReadAttachment,
@@ -64,7 +67,7 @@ export function ChatInput({
   const { attachments, dragging, addFiles, addFromComputer, addFromWorkspace, remove, clear } =
     useComposerAttachments({ onPickFile, onReadAttachment, onUploadFile });
 
-  useComposerHeight({ textareaRef, stageRef, showIcon, value: input, onResize });
+  useComposerHeight({ textareaRef, stageRef, showIcon, value: input, onResize, skipMorph });
 
   useEffect(() => {
     if (autoFocus) textareaRef.current?.focus();
@@ -149,7 +152,11 @@ export function ChatInput({
     <div className="w-full max-w-content mx-auto px-5 sm:px-6 pb-6 sm:pb-8">
       <ComposerAttachments attachments={attachments} dragging={dragging} onRemove={remove} />
 
-      <div className="pi-stage rounded-2xl" ref={stageRef}>
+      <div
+        className="pi-stage rounded-2xl"
+        ref={stageRef}
+        data-no-transition={skipMorph ? 'true' : undefined}
+      >
         <div
           className={`pi-composer relative flex items-end rounded-2xl bg-surface ${
             showIcon ? 'is-icon' : ''
