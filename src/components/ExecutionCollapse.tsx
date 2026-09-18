@@ -38,7 +38,9 @@ export function ExecutionCollapse({
     const onDocumentClick = (event: MouseEvent) => {
       const target = event.target;
       if (rootRef.current?.contains(target as Node)) return;
-      if (!(target instanceof Element) || !target.closest('#conversation-scroll')) return;
+      // 对话区用**属性**标记而不是 id：页面上现在有两个 pane（执行 + 顾问），
+      // id 只能有一个，属性两个都能有
+      if (!(target instanceof Element) || !target.closest('[data-conversation-scroll]')) return;
       if (dismissSuspended) return;
       if (!isSidebarDismissClick(target, window.getSelection()?.isCollapsed ?? true)) return;
 

@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { usePiWebSocket } from './usePiWebSocket';
+import { ADVISOR_LANE } from '../services/piBridge';
 import { useEffect } from 'react';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -58,9 +59,11 @@ class FakeWebSocket {
 let root: Root;
 let host: HTMLElement;
 let api: ReturnType<typeof usePiWebSocket>;
+/** 这个用例要挂在哪条 lane 上（undefined = 默认的 main） */
+let requestedLane: string | undefined;
 
 function Probe() {
-  const value = usePiWebSocket();
+  const value = usePiWebSocket(requestedLane ? { lane: requestedLane } : {});
   // 在 effect 里取，而不是渲染期间给模块级变量赋值
   useEffect(() => {
     api = value;
@@ -70,10 +73,10 @@ function Probe() {
 
 const socket = () => FakeWebSocket.latest as FakeWebSocket;
 
-beforeEach(() => {
-  (globalThis as unknown as { WebSocket: unknown }).WebSocket = FakeWebSocket;
-  FakeWebSocket.latest = null;
+/** 所有发出去的帧，按顺序 */
+const frames = () => socket().sent.map(raw => JSON.parse(raw));
 
+function mount() {
   host = document.createElement('div');
   document.body.appendChild(host);
   root = createRoot(host);
@@ -84,11 +87,94 @@ beforeEach(() => {
   act(() => {
     socket().open();
   });
+}
+
+function unmount() {
+  act(() => root.unmount());
+  host.remove();
+}
+
+/** 丢掉当前实例，换一条 lane 重新挂一个 */
+function remountOn(lane: string) {
+  unmount();
+  FakeWebSocket.latest = null;
+  requestedLane = lane;
+  mount();
+}
+
+beforeEach(() => {
+  (globalThis as unknown as { WebSocket: unknown }).WebSocket = FakeWebSocket;
+  FakeWebSocket.latest = null;
+  requestedLane = undefined;
+  mount();
 });
 
 afterEach(() => {
-  act(() => root.unmount());
-  host.remove();
+  unmount();
+});
+
+describe('lane', () => {
+  it('连上后第一件事是登记自己属于哪条 lane', () => {
+    expect(frames()[0]).toMatchObject({ type: 'register_lane', lane: 'main' });
+  });
+
+  it('初始状态也带 lane（否则会拉到另一个窗口的历史）', () => {
+    expect(frames().every(frame => frame.lane === 'main')).toBe(true);
+    expect(frames().map(frame => frame.type)).toContain('get_messages');
+    expect(frames().map(frame => frame.type)).toContain('get_state');
+  });
+
+  it('顾问实例：登记与指令都带顾问的 lane', () => {
+    remountOn(ADVISOR_LANE);
+
+    const all = frames();
+    expect(all[0]).toMatchObject({ type: 'register_lane', lane: ADVISOR_LANE });
+    expect(all.filter(frame => frame.type === 'get_messages')[0].lane).toBe(ADVISOR_LANE);
+    expect(all.every(frame => frame.lane === ADVISOR_LANE)).toBe(true);
+  });
+
+  it('动作模块不必自己拼 lane', () => {
+    act(() => {
+      api.sendPrompt({ text: '问', images: [], files: [] });
+    });
+
+    expect(socket().lastRequest('prompt').lane).toBe('main');
+  });
+
+  it('旧版桥接不认识 register_lane 也不影响首屏', async () => {
+    // 现实里最常见的原因：改了桥接没重启。
+    // 首屏绝不依赖这条登记的回包——否则忘重启一次就白屏。
+    const frame = socket().lastRequest('register_lane');
+
+    await act(async () => {
+      socket().emit({
+        id: frame.id,
+        type: 'response',
+        command: 'register_lane',
+        success: false,
+        error: 'Unknown command: register_lane',
+      });
+    });
+
+    expect(socket().lastRequest('get_messages')).toBeTruthy();
+  });
+
+  it('顾问窗口换模型走 set_lane_model，不走 set_model', async () => {
+    // 走 set_model 的话，前端会在成功后发 set_default_model，
+    // 那是写全局默认模型——从顾问窗口换一次，执行窗口的默认也跟着变
+    remountOn(ADVISOR_LANE);
+
+    act(() => {
+      api.setLaneModel('anthropic/claude-sonnet-4');
+    });
+
+    expect(socket().lastRequest('set_lane_model')).toMatchObject({
+      lane: ADVISOR_LANE,
+      model: 'anthropic/claude-sonnet-4',
+    });
+    expect(socket().lastRequest('set_model')).toBeFalsy();
+    expect(socket().lastRequest('set_default_model')).toBeFalsy();
+  });
 });
 
 describe('桥接请求的配对', () => {

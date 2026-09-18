@@ -1,5 +1,5 @@
 import { memo, useEffect, useRef, type RefObject } from 'react';
-import type { PiMessage } from '../types/pi';
+import type { HandoffMode, PiMessage } from '../types/pi';
 import { PiMessageItem } from './PiMessageItem';
 
 interface ConversationThreadProps {
@@ -28,6 +28,8 @@ interface ConversationThreadProps {
   fallbackModel?: string;
   /** 模型 id → 显示名，透传 */
   modelNames?: Record<string, string>;
+  /** 能把结论交给执行窗口时传它（只有顾问窗口传），透传给每条消息 */
+  onHandoff?: (text: string, mode: HandoffMode) => Promise<string>;
   scrollRef: RefObject<HTMLElement | null>;
   contentRef: RefObject<HTMLDivElement | null>;
   endRef: RefObject<HTMLDivElement | null>;
@@ -44,6 +46,7 @@ function ConversationThreadBase({
   onOpenFile,
   fallbackModel,
   modelNames,
+  onHandoff,
   scrollRef,
   contentRef,
   endRef,
@@ -101,6 +104,7 @@ function ConversationThreadBase({
           onOpenFile={onOpenFile}
           fallbackModel={fallbackModel}
           modelNames={modelNames}
+          onHandoff={onHandoff}
         />
       ))}
 

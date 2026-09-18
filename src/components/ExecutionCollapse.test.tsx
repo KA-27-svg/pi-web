@@ -46,6 +46,8 @@ const tool = (over: Partial<ToolCallState> = {}): ToolCallState => ({
 beforeEach(() => {
   shell = document.createElement('div');
   shell.id = 'conversation-scroll';
+  // 对话区用属性标记（页面上有两个 pane，id 只能有一个）
+  shell.dataset.conversationScroll = '';
   host = document.createElement('div');
   shell.appendChild(host);
   document.body.appendChild(shell);

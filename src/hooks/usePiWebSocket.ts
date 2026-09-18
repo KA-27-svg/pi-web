@@ -1,11 +1,12 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import type { BridgeStatus, PiMessage } from '../types/pi';
 import { RpcEventHandler } from '../services/rpcHandler';
-import type { PiBridge } from '../services/piBridge';
+import { DEFAULT_LANE, type PiBridge } from '../services/piBridge';
 import { createStreamingActions } from '../services/piStreamingActions';
 import { createSessionActions } from '../services/piSessionActions';
 import { createAttachmentActions } from '../services/piAttachmentActions';
 import { createSetupActions } from '../services/piSetupActions';
+import { createHandoffActions } from '../services/piHandoffActions';
 
 interface PendingRequest {
   resolve: (value: any) => void;
@@ -22,8 +23,12 @@ const REQUEST_TIMEOUT_MS = 60_000;
  * 这里只做三件事：连上桥接、把 pi 推来的事件交给 RpcEventHandler 翻译、
  * 把动作模块组装起来返回。动作本身在 services/pi*Actions.ts 里各自独立——
  * 以前全挤在这一个文件里，改附件会碰到会话管理。
+ *
+ * `lane` 决定这条连接连到哪个 pi 进程（默认 main = 执行窗口）。一个页面上
+ * 可以同时挂两个实例：各自一套 messages / status，互不干扰。
  */
-export function usePiWebSocket() {
+export function usePiWebSocket(options: { lane?: string } = {}) {
+  const lane = options.lane ?? DEFAULT_LANE;
   const [messages, setMessages] = useState<PiMessage[]>([]);
   const [status, setStatus] = useState<BridgeStatus>({
     connected: false,
@@ -45,18 +50,21 @@ export function usePiWebSocket() {
   // setMessages/setStatus 来自 useState，引用是稳定的，所以处理器只需构造一次。
   const [handler] = useState(() => new RpcEventHandler(setMessages, setStatus));
 
-  const requestInitialState = (ws: WebSocket) => {
-    if (ws.readyState !== WebSocket.OPEN) return;
-    ws.send(JSON.stringify({ type: 'get_state' }));
-    ws.send(JSON.stringify({ type: 'get_messages' }));
-    ws.send(JSON.stringify({ type: 'get_available_models' }));
-    ws.send(JSON.stringify({ type: 'get_available_thinking_levels' }));
-    ws.send(JSON.stringify({ type: 'get_session_stats' }));
-    // 环境探测：未就绪时界面要进向导，不能等用户发完消息才发现没回复
-    ws.send(JSON.stringify({ type: 'get_setup_status' }));
-    // 连接建立后再拉历史会话，否则首屏调用时连接尚未就绪
-    ws.send(JSON.stringify({ type: 'list_sessions' }));
-  };
+  const requestInitialState = useCallback(
+    (ws: WebSocket) => {
+      if (ws.readyState !== WebSocket.OPEN) return;
+      ws.send(JSON.stringify({ type: 'get_state', lane }));
+      ws.send(JSON.stringify({ type: 'get_messages', lane }));
+      ws.send(JSON.stringify({ type: 'get_available_models', lane }));
+      ws.send(JSON.stringify({ type: 'get_available_thinking_levels', lane }));
+      ws.send(JSON.stringify({ type: 'get_session_stats', lane }));
+      // 环境探测：未就绪时界面要进向导，不能等用户发完消息才发现没回复
+      ws.send(JSON.stringify({ type: 'get_setup_status', lane }));
+      // 连接建立后再拉历史会话，否则首屏调用时连接尚未就绪
+      ws.send(JSON.stringify({ type: 'list_sessions', lane }));
+    },
+    [lane]
+  );
 
   /**
    * 按 id 把回包交给等待中的 Promise；不是我们的就返回 false，交给 rpcHandler。
@@ -98,10 +106,10 @@ export function usePiWebSocket() {
         }, REQUEST_TIMEOUT_MS);
 
         pendingRequestsRef.current.set(id, { resolve, reject, timer });
-        ws.send(JSON.stringify({ type, id, ...payload }));
+        ws.send(JSON.stringify({ type, lane, id, ...payload }));
       });
     },
-    []
+    [lane]
   );
 
   const isOpen = useCallback(() => {
@@ -109,11 +117,14 @@ export function usePiWebSocket() {
     return !!ws && ws.readyState === WebSocket.OPEN;
   }, []);
 
-  const sendCommand = useCallback((command: object) => {
-    const ws = wsRef.current;
-    if (!ws || ws.readyState !== WebSocket.OPEN) return;
-    ws.send(JSON.stringify(command));
-  }, []);
+  const sendCommand = useCallback(
+    (command: object) => {
+      const ws = wsRef.current;
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      ws.send(JSON.stringify({ ...command, lane }));
+    },
+    [lane]
+  );
 
   // 命名函数表达式：让递归重连引用自身，而不是在初始化过程中引用 connectWs
   const connectWs = useCallback(function connect() {
@@ -140,6 +151,12 @@ export function usePiWebSocket() {
     ws.onopen = () => {
       if (!isMountedRef.current || isStale()) return;
       setStatus(prev => ({ ...prev, connected: true }));
+
+      // 告诉桥接这条连接属于哪个 lane。**不等回包**：WebSocket 保证顺序，
+      // 桥接是逐条处理的，所以紧接着发的初始状态一定在登记之后到达；
+      // 而旧版桥接不认识这条指令（会被转给 pi 并回一条错误），等它反而会把
+      // 首屏拖到超时。失败无所谓——每条指令自己也都带着 lane。
+      void request('register_lane', { lane }).catch(() => undefined);
       requestInitialState(ws);
     };
 
@@ -171,7 +188,7 @@ export function usePiWebSocket() {
         console.error('[usePiWebSocket] Failed to process message', e);
       }
     };
-  }, [handler, settleRequest]);
+  }, [handler, settleRequest, request, requestInitialState, lane]);
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -198,8 +215,8 @@ export function usePiWebSocket() {
   // 连接上下文。字段都是稳定的，所以下面三个动作模块只会构造一次，
   // 它们返回的函数引用也就稳定，不会让下游白白重渲染。
   const bridge = useMemo<PiBridge>(
-    () => ({ setMessages, setStatus, handler, request, sendCommand, isOpen }),
-    [handler, request, sendCommand, isOpen]
+    () => ({ lane, setMessages, setStatus, handler, request, sendCommand, isOpen }),
+    [lane, handler, request, sendCommand, isOpen]
   );
 
   /**
@@ -216,6 +233,7 @@ export function usePiWebSocket() {
       ...createSessionActions(bridge),
       ...createAttachmentActions(bridge),
       ...createSetupActions(bridge),
+      ...createHandoffActions(bridge),
     }),
     [bridge]
   );

@@ -172,6 +172,20 @@ export function createStreamingActions(bridge: PiBridge) {
   const setModel = (provider: string, modelId: string) =>
     sendCommand({ type: 'set_model', provider, modelId });
 
+  /**
+   * 顾问窗口换模型。
+   *
+   * 不跟 `setModel` 共用：那条路是 pi 的会话内切换，前端在成功后还会发
+   * `set_default_model`，而那是写 `settings.json` 的**全局默认模型**——
+   * 从顾问窗口换一次模型，执行窗口的默认也跟着变了。这里只重启顾问那一个
+   * pi 进程（桥接用 `--model` 传参），全局配置一个字节不动。
+   */
+  const setLaneModel = (model: string) => {
+    void request('set_lane_model', { model }).catch((error: Error) => {
+      setStatus(prev => ({ ...prev, modelNotice: error?.message || '换模型失败' }));
+    });
+  };
+
   const setThinkingLevel = (level: string) =>
     sendCommand({ type: 'set_thinking_level', level });
 
@@ -185,6 +199,7 @@ export function createStreamingActions(bridge: PiBridge) {
     changeCwd,
     newSession,
     setModel,
+    setLaneModel,
     setThinkingLevel,
     compactContext,
   };

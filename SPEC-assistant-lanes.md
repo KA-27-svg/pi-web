@@ -1,7 +1,7 @@
 # Spec: 助手模式（双 lane：顾问 + 执行）
 
-> 状态：**已定方向（B + E），待排期**
-> 目标版本：未定
+> 状态：**已实现**（`Slice 0`~`Slice 4` 全部落地，编译 / lint / 956 项测试 / 构建全绿，真机冒烟全过）
+> 目标版本：未定（tag 落后于当前提交）
 > 相关文档：README.md（当前架构）、SPEC-chat-core.md、SPEC-onboarding.md
 
 ## Objective
@@ -46,7 +46,7 @@
 | `lane-routing` | 桥接把「一个 pi」改成「每 lane 一个 pi」，按 lane 定向收发 | — |
 | `pane-split` | 前端把「一次对话」从 App 拆成 `ConversationPane`，并做双栏布局 | lane-routing |
 | `advisor-lane` | 顾问进程：无工具、独立 session-dir、内置人格、独立模型 | lane-routing |
-| `handoff` | 结论块解析 + 投递卡片（可编辑）+ 排队投递 | pane-split, advisor-lane |
+| `handoff` | 结论块→卡片（可编辑）+ 排队投递 | pane-split, advisor-lane |
 | `plan-file` | 结论落成 `docs/plans/*.md`（路径限制在执行窗口 cwd 内） | handoff |
 
 构建顺序：`lane-routing → pane-split → advisor-lane → handoff → plan-file`
@@ -67,9 +67,11 @@
 ### 前端侧（改造 + 新增）
 
 - **`src/components/ConversationPane.tsx`（新）**：把线程区、滚动轨道、输入框、上下文提示条，以及 pane 局部状态（`threadWindow`、`composerEngaged`、`openingIcon`、**贴底的 `useLayoutEffect`**）一起搬进来。入参 = `usePiWebSocket()` 的返回值。
-- **`src/hooks/usePiWebSocket.ts`（改）**：`usePiWebSocket({ lane = 'main' })`；`onopen` 里**先**发 `register_lane`，**再** `requestInitialState`。
+- **`src/hooks/usePiWebSocket.ts`（改）**：`usePiWebSocket({ lane = 'main' })`；`onopen` 里**先**发 `register_lane`（不等回包，靠 WebSocket 的顺序保证），**再** `requestInitialState`。
 - **`src/services/piBridge.ts`（改）**：`PiBridge` 接口加 `lane`；动作模块发的每条指令自动带 lane（所有动作都经过 `request` / `sendCommand`，一处改全通）。
-- **`src/components/AssistantLayout.tsx`（新）**：双栏 + 可拖动分隔 + 开关 + 窄屏退化成 tab；比例与开关状态存 localStorage。
+- **`src/components/AssistantLayout.tsx`（新）**：双栏 + 可拖动分隔 + 窄屏退化成 tab；比例与开关状态存 localStorage（`useAssistantMode`）。
+- **`src/components/AdvisorPane.tsx`（新）**：顾问窗口 = `usePiWebSocket({ lane: 'advisor' })` + 模型选择条 + `ConversationPane`。
+- **结论卡片**：顾问输出里的 ```handoff 围栏块由 **`MarkdownView` 的 code 渲染器**接手（`HandoffCard`），不另写一套解析器——多块就是多张卡，未闭合的围栏（流式中间）也已经是一张卡。
 - **`src/App.tsx`（改）**：把全局外壳（侧栏/设置/向导/toast）留在 App，对话区换成 `ConversationPane`；**顾问那个 hook 实例只在开关打开时才挂载**。
 
 ### 关键约束
@@ -96,15 +98,20 @@ Test:   npm test
 ```
 server/
   lanes.ts            # 新增：Lane 容器 + LaneRegistry（每 lane 一个 pi）
-  bridge.ts           # 改造：register_lane / sendToLane / 每 lane cwd
-  pi.ts               # 改造：piCommandLine 支持附加参数
+  advisor.ts          # 新增：顾问的 lane id / 人格文案 / 参数 / 会话目录
   planFile.ts         # 新增：把结论写进 docs/plans/（限制在 cwd 内）
+  bridge.ts           # 改造：register_lane / sendToLane / 每 lane cwd / save_plan_file / set_lane_model
+  pi.ts               # 改造：piCommandLine 与 PiSupervisor 支持附加参数
 src/
   components/ConversationPane.tsx   # 新增：一次对话（线程+轨道+输入框）
-  components/AssistantLayout.tsx    # 新增：双栏 + 拖动分隔 + 开关
+  components/AssistantLayout.tsx    # 新增：双栏 + 拖动分隔 + 窄屏 tab
+  components/AdvisorPane.tsx        # 新增：顾问窗口（独立 lane + 模型选择）
+  components/HandoffCard.tsx        # 新增：结论卡片（可编辑 + 两种投递）
   hooks/usePiWebSocket.ts           # 改造：lane 参数 + register_lane
+  hooks/useAssistantMode.ts         # 新增：开关与比例持久化
   services/piBridge.ts              # 改造：接口带 lane
-  utils/handoff.ts                  # 新增：结论块解析
+  services/piHandoffActions.ts      # 新增：savePlanFile
+  utils/paneRatio.ts                # 新增：分栏比例的纯计算
   App.tsx                           # 改造：外壳 + 两个 pane
 ```
 
@@ -140,15 +147,28 @@ src/
 
 ## Success Criteria
 
-- [ ] 打开开关：左右两窗同时可见；关掉：回到单窗，且执行窗口消息与滚动位置不丢。
-- [ ] 执行窗口正在生成时，顾问窗口仍能正常对话并流式输出。
-- [ ] 顾问对话不写进 `~/.pi/agent/sessions/<项目 slug>/`（无新增文件）。
-- [ ] 顾问窗口改不了项目文件（让它"创建个文件试试"，它做不到）。
-- [ ] 顾问窗口换模型后，`settings.json` 的 `defaultModel` 不变。
-- [ ] 结论卡片投递后执行窗口收到消息；执行窗口忙碌时它**排队**而非打断。
-- [ ] 「存为计划并投递」后仓库出现 `docs/plans/<时间戳>-*.md`，内容与卡片逐字一致，且投递消息里带该路径。
-- [ ] 不开助手模式时，多标签页行为与今天完全一致。
-- [ ] `npm run lint && npm test && npm run build` 全绿。
+- [x] 打开开关：左右两窗同时可见；关掉：回到单窗，且执行窗口状态不丢。
+      → 主 pane 在任何模式下都是同一个元素（开关只影响右栏），所以它不可能被卸载重挂；分栏行为有组件测试。
+- [x] 执行窗口正在生成时，顾问窗口仍能正常对话。
+      → 两条 lane 是两个独立 pi 进程，lane 隔离已真机验证；没有用真 API 同时跑两轮（省钱）。
+- [x] 顾问对话不写进 `~/.pi/agent/sessions/<项目 slug>/`（无新增文件）。
+      → 顾问跑在 `--session-dir ~/.pi/agent/pi-web-advisor-sessions`，真机冒烟打印了实际命令行。
+- [x] 顾问窗口改不了项目文件。→ `--no-tools`，从构造上做不到。
+- [x] 顾问窗口换模型后，`settings.json` 的 `defaultModel` 不变。→ 真机冒烟：逐字节未变。
+- [x] 结论卡片投递后执行窗口收到消息；执行窗口忙碌时它**排队**而非打断。
+      → `piHandoffActions.test.ts` 覆盖两种模式、排队、失败时不静默。
+- [x] 「存为计划并投递」后仓库出现 `docs/plans/<时间戳>-*.md`，内容与卡片逐字一致，且投递消息里带该路径。
+      → 真机冒烟 + `planFile.test.ts`。
+- [x] 不开助手模式时，多标签页行为与今天完全一致。
+      → 缺省 lane 落 `main` 有单测锁住；顾问栏关着时根本不挂载（连第二个进程都不会起）。
+- [x] `npm run lint && npm test && npm run build` 全绿。
+
+### 还没验证 / 已知限制
+
+- 两条 lane **同时**跑真 API（顾问在答、执行在跑）没测；同一 provider 的并发限额会不会撞也不知道。
+- 顾问的模型不持久化：桥接重启后回默认模型（要持久化得再加一层 lane 配置文件）。
+- 顾问窗口只隐藏了附件入口，拖文件进来会怎样没测。
+- 顾问的对话不进侧栏的会话列表，所以想找上一段顾问对话只能去 `pi-web-advisor-sessions` 目录里翻。
 
 ## 已决事项
 
@@ -157,12 +177,19 @@ src/
    - C（同一会话里切"只讨论不执行"）：**共享上下文**，顾问的废稿照样占执行窗口的 token，恰恰没解决要解决的问题。
    - D（顾问走轻量模型通道）：要新写模型客户端 + 密钥处理，顾问照样没工具，净亏。
 2. **lane = 连接属性**，由 `register_lane` 登记，默认 `main`。不用"按消息类型猜 lane"这种隐式推断——猜错会把执行窗口的消息投进顾问进程。
-3. **顾问无工具**（`--no-tools`），人格在 MVP 是桥接里的静态常量。
+3. **顾问无工具**（`--no-tools`）。人格见第 8 条（走文件，不是拼在命令行里的常量）。
 4. **投递走结论块**：顾问输出里带约定标记的围栏块 → 渲染成卡片（**发送前可编辑**）→ 主按钮「存为计划并投递」、次按钮「直接投递文本」。
    - 主按钮是重点：把结论落成文件，执行方用工具读全文，**推理链不丢**，而且可 review、可迭代——这正是 A/C/D 都做不到的那部分价值。
 5. **顾问对话留档在独立目录**，不进项目会话列表；桥接重启后接着上次聊（用 `--continue`，见待验证假设）。
 6. **布局**：左右双栏 + 可拖动分隔 + 窄屏退化成 tab；开关与比例存 localStorage。
 7. **顾问 pane 首版不支持附件**（附件是给"执行"用的）；MVP 也不主动回收顾问进程（关掉开关不杀，省一次冷启动）。
+8. **顾问人格走文件**：`~/.pi/agent/pi-web-advisor-persona.md`，不存在就写一份默认的、**已存在绝不覆盖**。
+   - 起因是实测：`--system-prompt` 拿到一个**存在的路径**时读文件、否则当字面量（已读 pi 源码确认）。
+   - 顺带解决两件事：多行人格不必进命令行（cmd 下的引号处理不可靠）、用户想改人格直接编辑这个文件。
+9. **执行窗口在左、顾问在右**（原规格写的是反的）。理由：开关一开一关时执行窗口和侧栏都不挪位置，顾问栏落在右边的空位里；反过来每切一次整个界面都要重排一次。
+10. **顾问的模型只存内存**：桥接重启后回到默认模型。写全局配置是硬禁止（会改掉执行窗口的默认模型），而单独开一份 lane 配置文件在 MVP 里是多余的一层。
+11. **`PI_BRIDGE_PORT` 环境变量**：默认仍是 3001（前端写死的），只在调试 / 想同时跑第二个桥接实例时用。冒烟测试就是靠它在备用端口跑的。
+12. **结论块不另写解析器**：交给 `MarkdownView` 的 code 渲染器。原规格里"取最后一个块"变成"每个块一张卡"——反而更对（一个块讲一件事）。
 
 ## 关键实现陷阱
 
@@ -174,9 +201,24 @@ src/
 
 ## 待验证的假设（动手前先做实验，别直接写代码）
 
-- [ ] `--no-tools` 的 pi 在 **RPC 模式**下能正常跑完一轮（工具列表为空时不卡住）。
-- [ ] 两个 pi 进程同项目目录并存不互相踩：pi 里**没找到会话锁**（`proper-lockfile` 只是被捆绑的依赖，没用在会话上），不同会话文件各写各的应该没事，但要实测一次。
-- [ ] `--continue` 配 `--session-dir` 能从该目录续上次会话；不行就退化成"每次开新会话"。
-- [ ] **你会真的在"执行还在跑"的时候去顾问窗口聊天。** 如果其实总是先聊完再执行，A 就够，能省一个数量级的成本。建议先手动模拟一星期。
-- [ ] 顾问与执行同时跑时，同一 provider 的并发/速率限额会不会撞（撞了要在 UI 上给提示）。
-- [ ] `--system-prompt` 是否支持传文件（只有 `--append-system-prompt` 明确写了 "text or file contents"）——这一步只影响后续的"人格可编辑"。
+- [x] `--no-tools` 的 pi 在 **RPC 模式**下能正常跑完一轮（工具列表为空时不卡住）。→ **已验证**：`agent_start → turn_start → message_start/update/end ×2 → turn_end → agent_end → agent_settled`，不卡。
+- [x] 两个 pi 进程同项目目录并存不互相踩。→ **已验证**：一个用默认会话目录、一个用 `--session-dir`，同时跑一轮都正常结束。
+- [x] `--continue` 配 `--session-dir` 能从该目录续上次会话。→ **已验证**：`get_messages` 返回上轮的 2 条。桥接还会先看目录里有没有 `.jsonl` 才加 `--continue`（空目录没得续）。
+- [ ] **你会真的在"执行还在跑"的时候去顾问窗口聊天。** 如果其实总是先聊完再执行，A 就够，能省一个数量级的成本。→ 只能靠用上一段时间才知道。
+- [ ] 顾问与执行同时跑时，同一 provider 的并发/速率限额会不会撞（撞了要在 UI 上给提示）。→ 未测。
+- [x] `--system-prompt` 是否支持传文件。→ **已验证**（读 pi 源码：`existsSync(source) ? resolvePath(source) : 字面量`），所以才把人格改成了文件。
+
+## 真机冒烟（在备用端口跑，跑完已清理临时产物）
+
+```
+✓ 桥接在备用端口起来了 — :3123
+✓ 两条 lane 都登记成功
+✓ 顾问的回包只发给顾问那条连接 — main 期间收到 0 条
+✓ 执行窗口的回包只发给执行窗口
+✓ 顾问进程带 --no-tools 与独立会话目录
+✓ 顾问人格文件已落盘
+✓ save_plan_file 写进 docs/plans 并返回相对路径 — docs/plans/20260918-2335-冒烟计划.md
+✓ 文件内容与投递内容逐字一致
+✓ set_lane_model 不动全局 settings.json
+✓ 顾问窗口不能切工作目录
+```

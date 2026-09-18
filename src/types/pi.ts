@@ -1,3 +1,6 @@
+/** 把顾问的结论交给执行窗口的两种方式 */
+export type HandoffMode = 'file' | 'text';
+
 export interface ToolCallState {
   id: string;
   name: string;

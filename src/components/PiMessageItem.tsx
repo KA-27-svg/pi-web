@@ -1,5 +1,5 @@
 import { memo, useState } from 'react';
-import type { PiMessage } from '../types/pi';
+import type { HandoffMode, PiMessage } from '../types/pi';
 import { MarkdownView } from './MarkdownView';
 import { ExecutionCollapse } from './ExecutionCollapse';
 import { ImageLightbox } from './ImageLightbox';
@@ -16,6 +16,8 @@ interface PiMessageItemProps {
   fallbackModel?: string;
   /** 模型 id → 显示名。历史消息只存了 id，靠它显示成人看得懂的名字 */
   modelNames?: Record<string, string>;
+  /** 能把结论交给执行窗口时传它（只有顾问窗口传） */
+  onHandoff?: (text: string, mode: HandoffMode) => Promise<string>;
 }
 
 function PiMessageItemBase({
@@ -24,6 +26,7 @@ function PiMessageItemBase({
   onOpenFile,
   fallbackModel,
   modelNames,
+  onHandoff,
 }: PiMessageItemProps) {
   /** 正在放大查看的图片；null 表示没开 */
   const [zoomed, setZoomed] = useState<{ src: string; alt: string } | null>(null);
@@ -107,7 +110,7 @@ function PiMessageItemBase({
         isStreaming={isStreaming}
       />
 
-      {message.content && <MarkdownView content={message.content} />}
+      {message.content && <MarkdownView content={message.content} onHandoff={onHandoff} />}
 
       {message.error && (
         <p className="mt-2 text-[12.5px] leading-[1.7] text-rose-500 break-words">

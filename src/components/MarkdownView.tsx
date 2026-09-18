@@ -1,12 +1,19 @@
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { CodeBlock } from './CodeBlock';
+import { HandoffCard } from './HandoffCard';
+import type { HandoffMode } from '../types/pi';
 
 interface MarkdownViewProps {
   content: string;
+  /**
+   * 能把结论交给执行窗口时传它：```handoff 围栏块会渲染成可投递的卡片，
+   * 而不是一段代码。不传（执行窗口自己）时就是普通代码块。
+   */
+  onHandoff?: (text: string, mode: HandoffMode) => Promise<string>;
 }
 
-export function MarkdownView({ content }: MarkdownViewProps) {
+export function MarkdownView({ content, onHandoff }: MarkdownViewProps) {
   return (
     <div className="text-[13.5px] leading-[1.75] text-foreground break-words">
       <ReactMarkdown
@@ -17,6 +24,10 @@ export function MarkdownView({ content }: MarkdownViewProps) {
             const match = /language-(\w+)/.exec(className || '');
             const isInline = !match && !String(children).includes('\n');
             const codeText = String(children).replace(/\n$/, '');
+
+            if (!isInline && match && onHandoff && match[1].toLowerCase() === 'handoff') {
+              return <HandoffCard text={codeText} onDeliver={onHandoff} />;
+            }
 
             if (!isInline) {
               return (

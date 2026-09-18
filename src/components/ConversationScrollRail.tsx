@@ -29,6 +29,8 @@ interface ConversationScrollRailProps {
   windowKey?: string | number;
   /** 点到还没渲染的提问：请上层把窗口滑到它 */
   onNeedRender?: (absoluteIndex: number) => void;
+  /** 对话滚动容器的 id（页面上现在有两个 pane，不能都叫同一个名字） */
+  scrollId?: string;
 }
 
 interface Metrics {
@@ -86,6 +88,7 @@ function ConversationScrollRailBase({
   items,
   windowKey,
   onNeedRender,
+  scrollId = 'conversation-scroll',
 }: ConversationScrollRailProps) {
   const railRef = useRef<HTMLDivElement>(null);
 
@@ -333,7 +336,7 @@ function ConversationScrollRailBase({
         ref={railRef}
         role="scrollbar"
         aria-orientation="vertical"
-        aria-controls="conversation-scroll"
+        aria-controls={scrollId}
         aria-label="对话滚动条"
         aria-valuemin={0}
         aria-valuemax={100}
