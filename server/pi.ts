@@ -15,6 +15,17 @@ export interface PiSupervisorCallbacks {
 export type SpawnPi = (cwd: string, command: string) => ChildProcessWithoutNullStreams;
 
 /**
+ * 拉起 pi 的完整命令行。
+ *
+ * 拼成一个字符串而不是「命令 + args 数组」：数组形式配 shell: true 会触发
+ * Node 的 DEP0190（args 不转义、只拼接）。参数是静态字面量，命令名过
+ * quoteIfNeeded，所以拼起来没有注入面。
+ */
+export function piCommandLine(command: string): string {
+  return `${quoteIfNeeded(command)} --mode rpc`;
+}
+
+/**
  * 把 spawn 的底层错误翻译成能看懂的话。
  * ENOENT 实际只意味着「这个路径下没有可执行文件」，也就是 pi 没装或路径不对，
  * 直接把 `spawn pi ENOENT` 丢给用户等于什么也没说。
@@ -30,12 +41,14 @@ export const defaultSpawnPi: SpawnPi = (cwd, command) => {
   // 必须加引号：command 可能是 resolvePiCommand 解析出的绝对路径，而 shell: true
   // 是把它拼进命令行交给 cmd 的，路径带空格（用户目录叫 `John Doe` 这类）会被
   // 从空格处断开，表现成「pi 明明在、就是起不来」。
-  const file = quoteIfNeeded(command);
-  console.log(`[Pi Bridge] Spawning ${file} --mode rpc in: ${cwd}`);
-  return spawn(file, ['--mode', 'rpc'], {
+  const line = piCommandLine(command);
+  console.log(`[Pi Bridge] Spawning ${line} in: ${cwd}`);
+  return spawn(line, {
     cwd,
-    // shell: true 是 Windows 上运行 npm 全局 CLI（pi.cmd）所必需的；
-    // 参数是静态字面量，cwd 也只通过 spawn 的 cwd 选项传递，不经过 shell 拼接。
+    // shell: true 是 Windows 上运行 npm 全局 CLI（pi.cmd）所必需的。
+    // 整条命令作为**一个字符串**传，而不是 [command, ...args] 数组：
+    // Node 会给后者打 DEP0190（args 不转义、只拼接）。参数是静态字面量，
+    // 命令名过 quoteIfNeeded，所以这条路没有注入面。
     shell: true,
     env: { ...process.env, FORCE_COLOR: '0' },
   });
@@ -115,6 +128,15 @@ export class PiSupervisor {
       this.callbacks.onStderr(stderrDecoder.write(chunk));
     });
 
+    // 管道已死（EPIPE）而 writable 恰好还是 true 时，write 会让 stdin 触发 'error'。
+    // 没有监听器的话这个事件会被当成未捕获异常，整个桥接进程直接退出。
+    proc.stdin.on('error', err => {
+      // 被 restart 换掉的旧进程不代表当前状态，静默丢弃
+      if (this.proc !== proc) return;
+      this.proc = null;
+      this.callbacks.onError(`向 pi 写入指令失败：${err.message}`);
+    });
+
     proc.on('close', code => {
       // 被 restart 换掉的旧进程不代表桥接现在没进程，静默丢弃它的退出：
       // 否则「新进程刚建好就被置空」会让下一条指令又拉起一个，
@@ -151,8 +173,15 @@ export class PiSupervisor {
     const proc = this.proc;
     if (!proc || !proc.stdin.writable) return false;
 
-    proc.stdin.write(`${JSON.stringify(command)}\n`, 'utf-8');
-    return true;
+    try {
+      proc.stdin.write(`${JSON.stringify(command)}\n`, 'utf-8');
+      return true;
+    } catch (err) {
+      // 同步抛错（如 ERR_STREAM_DESTROYED）也不能让它冒出去拖垮桥接
+      if (this.proc === proc) this.proc = null;
+      this.callbacks.onError(`向 pi 写入指令失败：${(err as Error).message}`);
+      return false;
+    }
   }
 
   private isAlive(

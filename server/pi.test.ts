@@ -6,6 +6,7 @@ import {
   PiSupervisor,
   defaultSpawnPi,
   describeSpawnError,
+  piCommandLine,
   type PiSupervisorCallbacks,
 } from './pi';
 
@@ -19,13 +20,21 @@ vi.mock('child_process', async importOriginal => ({
 type FakeChild = ChildProcessWithoutNullStreams & {
   written: string[];
   setStdinWritable(value: boolean): void;
+  setWriteError(message: string): void;
+  failStdin(message: string): void;
   close(code?: number | null): void;
   fail(message: string): void;
 };
 
 function createFakeChild(): FakeChild {
   const emitter = new EventEmitter();
-  const state = { killed: false, exitCode: null as number | null, stdinWritable: true };
+  const stdinEmitter = new EventEmitter();
+  const state = {
+    killed: false,
+    exitCode: null as number | null,
+    stdinWritable: true,
+    writeError: null as string | null,
+  };
   const written: string[] = [];
 
   const child = {
@@ -38,9 +47,13 @@ function createFakeChild(): FakeChild {
         return state.stdinWritable;
       },
       write(chunk: string) {
+        if (state.writeError) throw new Error(state.writeError);
         written.push(chunk);
         return true;
       },
+      on: stdinEmitter.on.bind(stdinEmitter),
+      once: stdinEmitter.once.bind(stdinEmitter),
+      off: stdinEmitter.off.bind(stdinEmitter),
     },
     get killed() {
       return state.killed;
@@ -59,6 +72,12 @@ function createFakeChild(): FakeChild {
     written,
     setStdinWritable(value: boolean) {
       state.stdinWritable = value;
+    },
+    setWriteError(message: string) {
+      state.writeError = message;
+    },
+    failStdin(message: string) {
+      stdinEmitter.emit('error', new Error(message));
     },
     close(code: number | null = 0) {
       state.exitCode = code;
@@ -170,6 +189,38 @@ describe('PiSupervisor 生命周期', () => {
 
     expect(h.supervisor.send({ type: 'prompt', message: 'hi' })).toBe(false);
   });
+
+  it('stdin 抛 error（EPIPE）时不崩，并让下一次 ensure 重新拉起', () => {
+    // 管道已死而 writable 恰好还是 true 时，write 会触发 stdin 的 'error'。
+    // 没有监听器的话这个事件会被当成未捕获异常，整个桥接进程直接退出。
+    h.supervisor.ensure();
+
+    expect(() => h.spawned[0].failStdin('write EPIPE')).not.toThrow();
+    expect(h.events.onError).toHaveBeenCalledWith(expect.stringContaining('EPIPE'));
+    expect(h.supervisor.running).toBe(false);
+
+    h.supervisor.ensure();
+    expect(h.spawnPi).toHaveBeenCalledTimes(2);
+  });
+
+  it('被换掉的旧进程 stdin 迟到报错时同样不干扰新进程', () => {
+    h.supervisor.ensure();
+    const old = h.spawned[0];
+    h.supervisor.restart('C:/demo');
+
+    old.failStdin('write EPIPE');
+
+    expect(h.events.onError).not.toHaveBeenCalled();
+    expect(h.supervisor.running).toBe(true);
+  });
+
+  it('write 同步抛错时 send 返回 false，不让异常冒出去', () => {
+    h.supervisor.ensure();
+    h.spawned[0].setWriteError('ERR_STREAM_DESTROYED');
+
+    expect(h.supervisor.send({ type: 'get_state' })).toBe(false);
+    expect(h.events.onError).toHaveBeenCalledWith(expect.stringContaining('ERR_STREAM_DESTROYED'));
+  });
 });
 
 describe('PiSupervisor 可执行文件路径', () => {
@@ -215,8 +266,7 @@ describe('defaultSpawnPi', () => {
     defaultSpawnPi('C:/demo', withSpace);
 
     expect(spawn).toHaveBeenCalledWith(
-      `"${withSpace}"`,
-      ['--mode', 'rpc'],
+      `"${withSpace}" --mode rpc`,
       expect.objectContaining({ cwd: 'C:/demo', shell: true })
     );
   });
@@ -225,7 +275,25 @@ describe('defaultSpawnPi', () => {
     vi.mocked(spawn).mockClear();
     defaultSpawnPi('C:/demo', 'pi');
 
-    expect(spawn).toHaveBeenCalledWith('pi', ['--mode', 'rpc'], expect.anything());
+    expect(spawn).toHaveBeenCalledWith('pi --mode rpc', expect.anything());
+  });
+
+  it('整条命令当一个字符串传，不把参数数组交给 shell（否则 Node 打 DEP0190）', () => {
+    vi.mocked(spawn).mockClear();
+    defaultSpawnPi('C:/demo', 'pi');
+
+    const args = vi.mocked(spawn).mock.calls.at(-1);
+    // 第二参是 options，不是 args 数组
+    expect(Array.isArray(args?.[1])).toBe(false);
+  });
+});
+
+describe('piCommandLine', () => {
+  it('拼出「命令 + 静态参数」，命令名过引号', () => {
+    expect(piCommandLine('pi')).toBe('pi --mode rpc');
+    expect(piCommandLine('C:/Program Files/pi/pi.cmd')).toBe(
+      '"C:/Program Files/pi/pi.cmd" --mode rpc'
+    );
   });
 });
 
