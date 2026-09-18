@@ -306,11 +306,16 @@ export function SettingsPanel({
 
     const ms = typeof result.ms === 'number' ? ` · ${result.ms} ms` : '';
     if (!result.ok) {
+      const error = result.error ?? '未知原因';
+      // 跑着的桥接是改动之前的进程，不认识这条新指令——提示重启，而不是甩一句英文
+      if (/unknown command/i.test(error)) {
+        return { text: '桥接是旧进程，重启一下再试', tone: 'text-amber-600' };
+      }
       // 没配密钥时 401 不代表 key 错，只是没法核对
       if (!result.keyUsed && (result.status === 401 || result.status === 403)) {
         return { text: '没配密钥，没法核对', tone: 'text-amber-600' };
       }
-      return { text: `不通：${result.error ?? '未知原因'}`, tone: 'text-rose-500' };
+      return { text: `不通：${error}`, tone: 'text-rose-500' };
     }
     if (result.modelFound === true) return { text: `通 · 模型在列${ms}`, tone: 'text-emerald-600' };
     if (result.modelFound === false) {

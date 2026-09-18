@@ -445,3 +445,25 @@ describe('上下文提示与压缩', () => {
     expect(text()).toContain('150k → 32k');
   });
 });
+
+describe('桥接是旧进程时不甩英文', () => {
+  it('Unknown command 提示重启，而不是把英文原样丢出来', async () => {
+    const onProbeApi = vi.fn(async () => ({
+      ok: false,
+      keyUsed: true,
+      error: 'Unknown command: probe_api',
+    }));
+    render(
+      setup(),
+      vi.fn(),
+      { model: { id: 'm', name: 'M', provider: 'p', baseUrl: 'https://relay.example/v1' } },
+      onProbeApi
+    );
+
+    click(recheckButton());
+    await act(async () => {});
+
+    expect(text()).toContain('桥接是旧进程，重启一下再试');
+    expect(text()).not.toContain('Unknown command');
+  });
+});
