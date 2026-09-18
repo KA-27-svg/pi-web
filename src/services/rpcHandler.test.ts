@@ -1114,3 +1114,77 @@ describe('供应商配置事件', () => {
     expect(JSON.stringify(h.status())).not.toContain('sk-should-not-leak');
   });
 });
+
+describe('上下文压缩', () => {
+  it('compaction_start 进入「压缩中」', () => {
+    const h = createHarness();
+
+    h.handler.handleEvent({ type: 'compaction_start', reason: 'manual' }, h.ws);
+
+    expect(h.status().compacting).toBe(true);
+  });
+
+  it('压缩成功：退出压缩中，给出前后对比，并重取用量', () => {
+    const h = createHarness();
+    h.handler.handleEvent({ type: 'compaction_start', reason: 'manual' }, h.ws);
+
+    h.handler.handleEvent(
+      {
+        type: 'compaction_end',
+        reason: 'manual',
+        aborted: false,
+        willRetry: false,
+        result: { tokensBefore: 150000, estimatedTokensAfter: 32000 },
+      },
+      h.ws
+    );
+
+    expect(h.status().compacting).toBe(false);
+    expect(h.status().compactionNotice).toContain('150');
+    expect(h.status().compactionNotice).toContain('32');
+
+    const sent = h.ws.sent.map(raw => JSON.parse(raw));
+    expect(sent.some(m => m.type === 'get_session_stats')).toBe(true);
+    expect(sent.some(m => m.type === 'get_state')).toBe(true);
+  });
+
+  it('压缩被取消：说明是取消了，不当成失败', () => {
+    const h = createHarness();
+
+    h.handler.handleEvent(
+      { type: 'compaction_end', reason: 'manual', aborted: true, result: null },
+      h.ws
+    );
+
+    expect(h.status().compacting).toBe(false);
+    expect(h.status().compactionNotice).toContain('取消');
+  });
+
+  it('压缩失败：把原因带出来', () => {
+    const h = createHarness();
+
+    h.handler.handleEvent(
+      {
+        type: 'compaction_end',
+        reason: 'overflow',
+        aborted: false,
+        result: null,
+        errorMessage: 'quota exceeded',
+      },
+      h.ws
+    );
+
+    expect(h.status().compactionNotice).toContain('quota exceeded');
+  });
+
+  it('get_state 里的 isCompacting 也能进入「压缩中」（自动压缩时界面要知道）', () => {
+    const h = createHarness();
+
+    h.handler.handleEvent(
+      { type: 'response', command: 'get_state', success: true, data: { isCompacting: true } },
+      h.ws
+    );
+
+    expect(h.status().compacting).toBe(true);
+  });
+});

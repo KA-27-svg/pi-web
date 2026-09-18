@@ -119,12 +119,14 @@ describe('streaming 动作', () => {
     actions.newSession();
     actions.setModel('anthropic', 'claude');
     actions.setThinkingLevel('high');
+    actions.compactContext();
 
     expect(sent).toEqual([
       { type: 'change_cwd', cwd: 'C:/x' },
       { type: 'new_session' },
       { type: 'set_model', provider: 'anthropic', modelId: 'claude' },
       { type: 'set_thinking_level', level: 'high' },
+      { type: 'compact' },
     ]);
     expect(handler.setCurrentAssistantId).toHaveBeenCalledWith(null);
   });

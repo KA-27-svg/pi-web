@@ -85,9 +85,10 @@ export interface TokenUsage {
 }
 
 export interface ContextUsage {
-  tokens: number;
+  /** 压缩刚结束时 pi 会短暂给出 null，等下一次回答才恢复 */
+  tokens: number | null;
   contextWindow: number;
-  percent: number;
+  percent: number | null;
 }
 
 /**
@@ -249,4 +250,8 @@ export interface BridgeStatus {
    * 有值时界面要明说“在重试”，否则用户看着不动的界面会以为卡死了。
    */
   retrying?: { attempt: number; maxAttempts: number };
+  /** 正在压缩上下文（手动或自动） */
+  compacting?: boolean;
+  /** 压缩结果的一句话提示（成功或原因），显示在上下文提示条上 */
+  compactionNotice?: string;
 }

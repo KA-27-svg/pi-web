@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { BridgeStatus, ModelInfo } from '../types/pi';
 import { formatCost, formatTokens } from '../utils/format';
+import { contextLevel, type ContextLevel } from '../utils/contextUsage';
 import { providerLabel } from '../utils/providerLabel';
 import { useRefreshFeedback } from '../hooks/useRefreshFeedback';
 import { useHiddenModels } from '../hooks/useHiddenModels';
@@ -13,7 +14,17 @@ interface SettingsPanelProps {
   onSelectThinkingLevel: (level: string) => void;
   /** 重新探测环境（自检区用） */
   onRecheckSetup: () => void;
+  /** 手动压缩上下文 */
+  onCompact: () => void;
 }
+
+/** 上下文占用档位 → 数值的配色 */
+const CONTEXT_TONE: Record<ContextLevel, string> = {
+  ok: '',
+  half: 'text-muted',
+  high: 'text-amber-600',
+  full: 'text-rose-500',
+};
 
 function Row({
   label,
@@ -217,6 +228,7 @@ export function SettingsPanel({
   onSelectModel,
   onSelectThinkingLevel,
   onRecheckSetup,
+  onCompact,
 }: SettingsPanelProps) {
   const stats = status.stats;
   const setup = status.setup;
@@ -224,8 +236,11 @@ export function SettingsPanel({
   // 用户点完只看到同一幅画面，会以为没点上
   const recheck = useRefreshFeedback(setup);
   const context = stats?.contextUsage;
+  const level = contextLevel(context?.percent);
   const contextText = context
-    ? `${formatTokens(context.tokens)} / ${formatTokens(context.contextWindow)} · ${Math.round(context.percent)}%`
+    ? `${context.tokens === null ? '—' : formatTokens(context.tokens)} / ${formatTokens(
+        context.contextWindow
+      )}${context.percent === null ? '' : ` · ${Math.round(context.percent)}%`}`
     : status.model?.contextWindow
       ? `— / ${formatTokens(status.model.contextWindow)}`
       : '—';
@@ -285,8 +300,28 @@ export function SettingsPanel({
               <span title={costTitle}>{stats ? formatCost(stats.cost) : '—'}</span>
             </Row>
 
-            <Row label="上下文">{contextText}</Row>
+            <Row label="上下文">
+              <span className={CONTEXT_TONE[level]}>{contextText}</span>
+            </Row>
           </div>
+
+          {/* 过半就把「压缩上下文」摆出来 */}
+          {(level !== 'ok' || status.compacting) && (
+            <div className="mt-2 flex items-center gap-2">
+              <button
+                onClick={onCompact}
+                disabled={status.compacting}
+                className="rounded-full border border-border px-2.5 py-1 text-[11.5px] text-foreground/90 transition-colors hover:bg-surface disabled:cursor-default disabled:opacity-50"
+              >
+                {status.compacting ? '正在压缩上下文…' : '压缩上下文'}
+              </button>
+              {status.compactionNotice && (
+                <span className="min-w-0 truncate text-[11px] text-muted" title={status.compactionNotice}>
+                  {status.compactionNotice}
+                </span>
+              )}
+            </div>
+          )}
         </div>
 
         {/* 环境自检：出问题时先看这里，比让用户自己猜快得多 */}

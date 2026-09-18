@@ -7,10 +7,19 @@ import { ExecutionDismissContext } from './components/executionDismissContext';
 import { isSidebarDismissClick } from './utils/sidebarDismiss';
 import { growWindow, initialWindow, loadLater as loadLaterPage, visibleSlice, windowAround } from './utils/threadWindow';
 import { composerLayout } from './utils/composerLayout';
+import { contextLevel, contextLevelText } from './utils/contextUsage';
 
 /** 与 Tailwind 的 sm 断点一致：窄屏时侧栏是覆盖层，而不是并排的一栏 */
 const NARROW_VIEWPORT = '(max-width: 640px)';
 const isOverlaySidebar = () => window.matchMedia(NARROW_VIEWPORT).matches;
+
+/** 上下文占用档位 → 提示条的配色 */
+const CONTEXT_TONE: Record<string, string> = {
+  ok: 'border-border bg-surface text-muted',
+  half: 'border-border bg-surface text-muted',
+  high: 'border-amber-400/40 bg-amber-500/5 text-amber-700',
+  full: 'border-rose-400/40 bg-rose-500/5 text-rose-600',
+};
 import { SettingsPanel } from './components/SettingsPanel';
 import { SetupWizard } from './components/SetupWizard';
 import { ProviderDialog } from './components/ProviderDialog';
@@ -20,7 +29,7 @@ import { ChatInput } from './components/ChatInput';
 import { Settings, PanelLeftOpen } from 'lucide-react';
 
 export default function App() {
-  const { messages, status, sendPrompt, interrupt, changeCwd, newSession, setModel, setThinkingLevel, requestSessions, requestStats, uploadFile, listDir, readAttachment, pickFile, openAttachment, switchSession, renameSession, deleteSession, requestTrash, restoreSession, purgeSession, emptyTrash, requestSetupStatus, installPi, saveProviderKey, deleteProvider } =
+  const { messages, status, sendPrompt, interrupt, changeCwd, newSession, setModel, setThinkingLevel, compactContext, requestSessions, requestStats, uploadFile, listDir, readAttachment, pickFile, openAttachment, switchSession, renameSession, deleteSession, requestTrash, restoreSession, purgeSession, emptyTrash, requestSetupStatus, installPi, saveProviderKey, deleteProvider } =
     usePiWebSocket();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLElement>(null);
@@ -67,6 +76,11 @@ export default function App() {
   // 切换会话时对话区不显示内容，但布局要按「有对话」算，
   // 否则底部输入区位置与开场图标都会跟着弹一次
   const isEmpty = messages.length === 0 && !switching;
+
+  // 上下文占用：过半 / 快到上限 / 已满三档提示
+  const context = status.stats?.contextUsage;
+  const ctxLevel = contextLevel(context?.percent);
+  const ctxText = contextLevelText(ctxLevel, context?.percent);
 
   // 只渲染最近一段消息（参考官方 pi-web：一次渲染整段历史会卡）
   const [threadWindow, setThreadWindow] = useState(initialWindow);
@@ -282,6 +296,7 @@ export default function App() {
             onSelectModel={setModel}
             onSelectThinkingLevel={setThinkingLevel}
             onRecheckSetup={requestSetupStatus}
+            onCompact={compactContext}
           />
         )}
 
@@ -363,6 +378,28 @@ export default function App() {
               : 'pb-[calc(50vh-50.5px)] sm:pb-[calc(50vh-58.5px)]'
           }`}
         >
+          {/* 上下文过半 / 快到上限 / 已满时提示，并就地提供压缩 */}
+          {(ctxLevel !== 'ok' || status.compacting || status.compactionNotice) && (
+            <div className="mx-auto w-full max-w-content px-5 pb-2 sm:px-6">
+              <div
+                className={`flex items-center justify-between gap-3 rounded-lg border px-3 py-2 text-[12px] ${CONTEXT_TONE[ctxLevel]}`}
+              >
+                <span className="min-w-0 truncate">
+                  {status.compacting
+                    ? '正在压缩上下文…'
+                    : status.compactionNotice || ctxText}
+                </span>
+                <button
+                  onClick={compactContext}
+                  disabled={status.compacting || status.isStreaming}
+                  className="shrink-0 rounded-full border border-current px-2.5 py-0.5 text-[11.5px] transition-opacity hover:opacity-80 disabled:cursor-default disabled:opacity-40"
+                >
+                  {status.compacting ? '压缩中…' : '压缩上下文'}
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* 自动重试时明说一声，否则界面看起来就是卡死了 */}
           {status.retrying && (
             <div className="mx-auto w-full max-w-content px-5 pb-2 sm:px-6">

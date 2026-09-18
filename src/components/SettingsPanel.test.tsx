@@ -55,6 +55,7 @@ const render = (
         onSelectModel={vi.fn()}
         onSelectThinkingLevel={vi.fn()}
         onRecheckSetup={onRecheckSetup}
+        onCompact={vi.fn()}
       />
     );
   });
@@ -258,6 +259,7 @@ describe('SettingsPanel 重新检测的点击反馈', () => {
             onSelectModel={vi.fn()}
             onSelectThinkingLevel={vi.fn()}
             onRecheckSetup={vi.fn()}
+            onCompact={vi.fn()}
           />
         );
       });
@@ -286,5 +288,66 @@ describe('切模型失败', () => {
   it('没有出错时不占位置', () => {
     render(setup());
     expect(text()).not.toContain('切换模型失败');
+  });
+});
+
+describe('上下文提示与压缩', () => {
+  const tokens = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 };
+
+  const renderPanel = (
+    percent: number,
+    extra: Partial<BridgeStatus> = {},
+    onCompact = vi.fn()
+  ) => {
+    act(() => {
+      root.render(
+        <SettingsPanel
+          status={{
+            connected: true,
+            cwd: '/demo',
+            isStreaming: false,
+            stats: { cost: 0, tokens, contextUsage: { tokens: 60000, contextWindow: 100000, percent } },
+            ...extra,
+          }}
+          onClose={vi.fn()}
+          onSelectModel={vi.fn()}
+          onSelectThinkingLevel={vi.fn()}
+          onRecheckSetup={vi.fn()}
+          onCompact={onCompact}
+        />
+      );
+    });
+    return onCompact;
+  };
+
+  const compactButton = () =>
+    [...host.querySelectorAll('button')].find(b => b.textContent?.includes('压缩')) as
+      | HTMLButtonElement
+      | undefined;
+
+  it('占用过半才摆出「压缩上下文」，点了会回调', () => {
+    const onCompact = renderPanel(60);
+
+    click(compactButton());
+    expect(onCompact).toHaveBeenCalledTimes(1);
+  });
+
+  it('占用不到一半时不摆这个按钮', () => {
+    renderPanel(30);
+
+    expect(compactButton()).toBeUndefined();
+  });
+
+  it('压缩中时按钮不可点，并说明正在压缩', () => {
+    renderPanel(60, { compacting: true });
+
+    expect(compactButton()?.disabled).toBe(true);
+    expect(compactButton()?.textContent).toContain('正在压缩');
+  });
+
+  it('压缩完成后把结果显示出来', () => {
+    renderPanel(60, { compactionNotice: '上下文已压缩：150k → 32k' });
+
+    expect(text()).toContain('150k → 32k');
   });
 });

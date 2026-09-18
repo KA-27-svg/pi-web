@@ -1,4 +1,5 @@
 import { MessageParser } from '../utils/messageParser';
+import { formatTokens } from '../utils/format';
 import type { PiMessage, ToolCallState, ModelInfo, BridgeStatus, SetupStatus } from '../types/pi';
 
 /** 安装日志只保留末尾这么多行：进度看的是最新几行，留着全量只会吃内存 */
@@ -139,7 +140,11 @@ export class RpcEventHandler {
 
     // 3. Agent 执行生命周期
     if (data.type === 'agent_start') {
-      this.setStatus((prev: BridgeStatus) => ({ ...prev, isStreaming: true }));
+      this.setStatus((prev: BridgeStatus) => ({
+        ...prev,
+        isStreaming: true,
+        compactionNotice: undefined,
+      }));
 
       // 排队消息投递时会开新的一轮，但本地没有占位消息可承接，流式增量会被丢掉。
       // 这里补上；普通发送时占位已经建好，不会重复。
@@ -239,6 +244,50 @@ export class RpcEventHandler {
         // 重试成功：上一次失败留下的错误不能继续挂着
         this.clearAssistantError();
       }
+      return;
+    }
+
+    // 上下文压缩（手动或自动）。过程与结果由 compaction_start / compaction_end 报告
+    if (data.type === 'compaction_start') {
+      this.setStatus((prev: BridgeStatus) => ({
+        ...prev,
+        compacting: true,
+        compactionNotice: undefined,
+      }));
+      return;
+    }
+
+    if (data.type === 'compaction_end') {
+      const result = data.result as
+        | { tokensBefore?: number; estimatedTokensAfter?: number }
+        | null
+        | undefined;
+
+      let notice: string;
+      if (data.aborted) {
+        notice = '上下文压缩已取消';
+      } else if (data.errorMessage) {
+        notice = `上下文压缩失败：${data.errorMessage}`;
+      } else if (result) {
+        const before = typeof result.tokensBefore === 'number' ? formatTokens(result.tokensBefore) : '?';
+        const after =
+          typeof result.estimatedTokensAfter === 'number'
+            ? formatTokens(result.estimatedTokensAfter)
+            : '?';
+        notice = `上下文已压缩：${before} → ${after}`;
+      } else {
+        notice = '上下文已压缩';
+      }
+
+      this.setStatus((prev: BridgeStatus) => ({
+        ...prev,
+        compacting: false,
+        compactionNotice: notice,
+      }));
+
+      // 压缩后用量与上下文占用都变了，重取一次
+      ws.send(JSON.stringify({ type: 'get_session_stats' }));
+      ws.send(JSON.stringify({ type: 'get_state' }));
       return;
     }
 
@@ -377,6 +426,7 @@ export class RpcEventHandler {
         thinkingLevel: state.thinkingLevel,
         sessionId: state.sessionId,
         model: toModelInfo(state.model),
+        compacting: !!state.isCompacting,
         // 本地已经有一条在生成的回复时，不让回包把状态改回“已停止”
         isStreaming: this.currentAssistantId ? true : !!state.isStreaming,
       }));

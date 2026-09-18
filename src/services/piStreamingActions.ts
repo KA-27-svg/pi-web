@@ -175,6 +175,9 @@ export function createStreamingActions(bridge: PiBridge) {
   const setThinkingLevel = (level: string) =>
     sendCommand({ type: 'set_thinking_level', level });
 
+  /** 手动压缩上下文。过程与结果由 compaction_start / compaction_end 事件回报 */
+  const compactContext = () => sendCommand({ type: 'compact' });
+
   return {
     sendPrompt,
     abort,
@@ -183,5 +186,6 @@ export function createStreamingActions(bridge: PiBridge) {
     newSession,
     setModel,
     setThinkingLevel,
+    compactContext,
   };
 }
