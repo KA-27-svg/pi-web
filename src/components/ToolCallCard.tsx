@@ -56,7 +56,7 @@ export function ToolCallCard({ tool }: ToolCallCardProps) {
       <button
         onClick={() => setIsOpen(prev => !prev)}
         aria-expanded={isOpen}
-        className="group -mx-2 flex w-[calc(100%+1rem)] items-center gap-2.5 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-surface/60"
+        className="group -mx-2 flex w-[calc(100%+1rem)] items-center gap-2.5 rounded-md px-2 py-1 text-left transition-colors hover:bg-surface/60"
       >
         <span
           className={`shrink-0 rounded px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide ${TONES[kind]}`}
@@ -79,7 +79,7 @@ export function ToolCallCard({ tool }: ToolCallCardProps) {
 
       {/* 展开：缩进 + 竖线，与上层同一套语言 */}
       {isOpen && (
-        <div className="mt-2 ml-[6px] space-y-3 border-l border-border pl-4">
+        <div className="mt-1.5 ml-[6px] space-y-2 border-l border-border pl-4">
           {/* edit 专属：增删对照 */}
           {edits.length > 0 && (
             <div className="space-y-2">
@@ -124,7 +124,7 @@ export function ToolCallCard({ tool }: ToolCallCardProps) {
 
           {/* 输出 */}
           {tool.result && (
-            <pre className="max-h-72 overflow-y-auto rounded-lg border border-[var(--code-border)] bg-[var(--code-bg)] px-3.5 py-3 font-mono text-[11.5px] leading-[1.75] text-foreground/80 whitespace-pre-wrap break-all">
+            <pre className="max-h-56 overflow-y-auto rounded-lg border border-[var(--code-border)] bg-[var(--code-bg)] px-3 py-2.5 font-mono text-[11.5px] leading-[1.75] text-foreground/80 whitespace-pre-wrap break-all">
               {typeof tool.result === 'string'
                 ? tool.result
                 : JSON.stringify(tool.result, null, 2)}

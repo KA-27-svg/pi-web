@@ -15,8 +15,14 @@ export function ExecutionCollapse({
   tools,
   isStreaming,
 }: ExecutionCollapseProps) {
-  // 仅由用户点击决定开合，绝不随流式更新自动收起
-  const [isOpen, setIsOpen] = useState(false);
+  /**
+   * 开合跟着「流式阶段」走：只在用户点过的那个阶段里保持展开。
+   * 思考期间点开看——回答一落地（streaming → done）就自动收起，把回答内容让出来；
+   * 结束后再点开就一直开着（那时用户就是要看它）。不用 effect，渲染期直接派生。
+   */
+  const phase = isStreaming ? 'streaming' : 'done';
+  const [openedPhase, setOpenedPhase] = useState<string | null>(null);
+  const isOpen = openedPhase === phase;
 
   const hasReasoning = !!reasoning?.trim();
   const toolCount = tools?.length || 0;
@@ -35,11 +41,11 @@ export function ExecutionCollapse({
         .join(' · ');
 
   return (
-    <div className="mb-3">
+    <div className="mb-2">
       {/* 一行灰字 —— 唯一的入口 */}
       <button
-        onClick={() => setIsOpen(prev => !prev)}
-        className="group flex items-center gap-1.5 text-[12px] text-muted hover:text-foreground transition-colors duration-150"
+        onClick={() => setOpenedPhase(prev => (prev === phase ? null : phase))}
+        className="group flex items-center gap-1.5 text-[11.5px] text-muted hover:text-foreground transition-colors duration-150"
       >
         <ChevronRight
           className={`w-3 h-3 shrink-0 transition-transform duration-200 ${
@@ -51,7 +57,7 @@ export function ExecutionCollapse({
 
       {/* 展开：一根竖线 + 缩进，无底色无边框 */}
       {isOpen && (
-        <div className="mt-3 ml-[5px] pl-4 border-l border-border space-y-4">
+        <div className="mt-2 ml-[5px] pl-4 border-l border-border space-y-3">
           {hasReasoning && (
             <div className="rounded-lg bg-surface/50 px-3.5 py-3">
               <div className="mb-2 flex items-center gap-1.5 text-[10.5px] text-muted/70">
@@ -59,7 +65,8 @@ export function ExecutionCollapse({
                 思考过程
               </div>
 
-              <div className="space-y-2.5">
+              {/* 长思考别把整屏撑满：超过上限就内部滚动 */}
+              <div data-reasoning className="max-h-64 space-y-2.5 overflow-y-auto">
                 {reasoningParagraphs(reasoning as string).map((paragraph, index) => (
                   <p
                     key={index}
@@ -73,7 +80,7 @@ export function ExecutionCollapse({
           )}
 
           {hasTools && (
-            <div className="space-y-2.5">
+            <div className="space-y-2">
               {tools?.map(tool => (
                 <ToolCallCard key={tool.id} tool={tool} />
               ))}
