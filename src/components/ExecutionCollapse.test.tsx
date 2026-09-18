@@ -96,3 +96,37 @@ describe('排版', () => {
     expect(header().textContent).toContain('2 步操作');
   });
 });
+
+describe('思考 + 一步操作 ×5', () => {
+  const fiveSteps = () =>
+    Array.from({ length: 5 }, (_, i) =>
+      tool({ id: `t${i}`, name: 'bash', args: { command: `echo ${i}` }, result: `结果 ${i}` })
+    );
+
+  it('收起时只占一行，写明 5 步', () => {
+    render({ isStreaming: false, tools: fiveSteps(), reasoning: '想了五轮' });
+
+    expect(expanded()).toBe(false);
+    expect(header().textContent).toContain('思考');
+    expect(header().textContent).toContain('5 步操作');
+  });
+
+  it('展开后是 5 行工具卡，思考过程仍然有高度上限', () => {
+    render({ isStreaming: false, tools: fiveSteps(), reasoning: '想'.repeat(500) });
+    click();
+
+    expect(host.querySelectorAll('button[aria-expanded]')).toHaveLength(5);
+    const box = host.querySelector('[data-reasoning]') as HTMLElement;
+    expect(box.className).toMatch(/max-h-/);
+    expect(box.className).toContain('overflow-y-auto');
+  });
+
+  it('思考期间展开这 5 步，回答落地后自动收起', () => {
+    render({ isStreaming: true, tools: fiveSteps(), reasoning: '想了五轮' });
+    click();
+    expect(expanded()).toBe(true);
+
+    render({ isStreaming: false, tools: fiveSteps(), reasoning: '想了五轮' });
+    expect(expanded()).toBe(false);
+  });
+});
