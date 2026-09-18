@@ -40,6 +40,40 @@ interface Metrics {
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
 /**
+ * 那一列横线。单独 memo 出来是因为它**不依赖滚动位置 / 容器尺寸**
+ * （间距写在轨道容器的 style 上）：不这么做的话，滚动和 composer 过渡时容器
+ * 每帧触发一次 setMetrics，整列横线（可能上百条）就跟着每帧重渲染。
+ */
+const RailDashes = memo(function RailDashes({
+  items,
+  hoveredIndex,
+  isOpen,
+}: {
+  items: RailItem[];
+  hoveredIndex: number | null;
+  isOpen: boolean;
+}) {
+  return (
+    <>
+      {items.map((item, index) => {
+        const hovered = hoveredIndex === index;
+        const width = hovered ? 'w-5' : isOpen ? 'w-3.5' : 'w-2.5';
+        const tone = hovered ? 'bg-foreground' : 'bg-muted';
+
+        return (
+          <span
+            key={item.index}
+            data-part="dash"
+            aria-hidden="true"
+            className={`h-[2px] shrink-0 rounded-full transition-all duration-150 ${width} ${tone}`}
+          />
+        );
+      })}
+    </>
+  );
+});
+
+/**
  * 对话区右侧的滚动指示，一条对应一次用户输入，有三种形态：
  *   1. 提问少 → 一列散开的短横线，悬停预览该次输入，点击跳过去；
  *   2. 提问变多 → 间距自动收紧，越来越密；
@@ -343,20 +377,7 @@ function ConversationScrollRailBase({
             />
           </div>
         ) : (
-          items.map((item, index) => {
-            const hovered = hoveredIndex === index;
-            const width = hovered ? 'w-5' : isOpen ? 'w-3.5' : 'w-2.5';
-            const tone = hovered ? 'bg-foreground' : 'bg-muted';
-
-            return (
-              <span
-                key={item.index}
-                data-part="dash"
-                aria-hidden="true"
-                className={`h-[2px] shrink-0 rounded-full transition-all duration-150 ${width} ${tone}`}
-              />
-            );
-          })
+          <RailDashes items={items} hoveredIndex={hoveredIndex} isOpen={isOpen} />
         )}
       </div>
 
