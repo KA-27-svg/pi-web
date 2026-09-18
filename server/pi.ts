@@ -153,8 +153,10 @@ export class PiSupervisor {
     });
   }
 
-  /** 换一个工作目录重启：先断开引用再杀，旧进程的回调因此不会影响新进程 */
+  // 重启 pi 进程（换工作目录 / 装完 pi）。日志留着：它会把正在跑的那一轮打断，
+  // 表现成「对话自己暂停了」，出问题时这是唯一线索。
   restart(cwd: string = this.cwd): void {
+    console.log(`[Pi Bridge] Restarting pi process (cwd: ${cwd})`);
     const old = this.proc;
     this.proc = null;
     if (old) {

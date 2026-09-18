@@ -52,6 +52,15 @@ import {
 } from './trash.js';
 
 const PORT = 3001;
+/** 收到这几条就把正在跑的那一轮打断或重启 pi：单独打日志，便于事后定位 */
+const WATCHED_COMMANDS = new Set([
+  'abort',
+  'new_session',
+  'switch_session',
+  'change_cwd',
+  'compact',
+  'install_pi',
+]);
 // 桥接能以任意 cwd 拉起 `pi --mode rpc`，等同于把本机命令执行能力开放出去，
 // 因此默认只监听回环地址，确有跨设备需求时再用环境变量显式放开。
 const HOST = process.env.PI_BRIDGE_HOST || '127.0.0.1';
@@ -124,8 +133,7 @@ const server = http.createServer((req, res) => {
 const wss = new WebSocketServer({ noServer: true });
 attachOriginGuard(server, wss, parseAllowedOrigins());
 
-let currentCwd = process.cwd();
-/**
+let currentCwd = process.cwd();/**
  * 刚请求切换到的会话的工作目录。
  * pi 的 switch_session 会连带把工作目录换掉，但那个 cwd 只存在会话文件里，
  * RPC 的 get_state 也不返回它，所以桥接自己在转发前读出来，等 pi 确认成功后再应用。
@@ -344,6 +352,12 @@ wss.on('connection', (ws: WebSocket) => {
   ws.on('message', (message: string) => {
     try {
       const data = JSON.parse(message.toString());
+
+      // 这几条会把正在跑的那一轮打断（abort / 新建 / 切会话）或重启 pi
+      // （change_cwd / 装 pi）。打一行日志，下次「对话自己暂停了」时有据可查。
+      if (WATCHED_COMMANDS.has(data.type)) {
+        console.log(`[Pi Bridge] 收到指令 ${data.type}`);
+      }
 
       // 切换工作目录：只接受真实存在的目录，否则 pi 会以无效 cwd 启动失败
       if (data.type === 'change_cwd') {
