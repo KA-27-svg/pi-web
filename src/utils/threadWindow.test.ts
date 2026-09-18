@@ -4,6 +4,7 @@ import {
   growWindow,
   initialWindow,
   loadLater,
+  messageWeight,
   visibleSlice,
   windowAround,
   windowFor,
@@ -23,7 +24,7 @@ describe('对话区渲染窗口', () => {
     let w = initialWindow();
     w = growWindow(w, 'h1', 500);
     w = growWindow(w, 'h1', 500);
-    w = windowAround('h1', 500, 100);
+    w = windowAround('h1', Array.from({ length: 500 }, (_, i) => i), 100);
     expect(windowFor(w, 'h1').end).toBeGreaterThan(0);
 
     // 新的历史（key 变了）
@@ -96,7 +97,7 @@ describe('定位到某一条（右侧轨道点击还没渲染的提问）', () =
   it('把目标放到窗口开头，前后都留出未渲染的段', () => {
     const { visible, startIndex, endIndex, hasEarlier, hasLater } = visibleSlice(
       history,
-      windowAround('h1', history.length, 30),
+      windowAround('h1', history, 30),
       'h1'
     );
 
@@ -111,7 +112,7 @@ describe('定位到某一条（右侧轨道点击还没渲染的提问）', () =
   it('目标靠近末尾时退化成末尾一页', () => {
     const { visible, hasLater } = visibleSlice(
       history,
-      windowAround('h1', history.length, 110),
+      windowAround('h1', history, 110),
       'h1'
     );
 
@@ -122,7 +123,7 @@ describe('定位到某一条（右侧轨道点击还没渲染的提问）', () =
   it('目标越界时夹回合法范围', () => {
     const { visible } = visibleSlice(
       history,
-      windowAround('h1', history.length, 9999),
+      windowAround('h1', history, 9999),
       'h1'
     );
 
@@ -134,7 +135,7 @@ describe('向下补页', () => {
   const history = Array.from({ length: 120 }, (_, i) => `m${i}`);
 
   it('上沿不动，只在下面接一段，并把尾部留白吃掉', () => {
-    const jumped = windowAround('h1', history.length, 30); // 窗口 m30..m79
+    const jumped = windowAround('h1', history, 30); // 窗口 m30..m79
     const more = loadLater(jumped, 'h1'); // 再往下接一页
 
     const { visible, startIndex, endIndex, hasLater } = visibleSlice(history, more, 'h1');
@@ -149,5 +150,53 @@ describe('向下补页', () => {
   it('已经贴到最新时不动', () => {
     const w = loadLater(initialWindow(), 'h1');
     expect(windowFor(w, 'h1')).toEqual({ size: THREAD_PAGE, end: 0 });
+  });
+});
+
+describe('按体量算窗口（合并回合后一条可能很重）', () => {
+  it('一条挂了几十个工具卡的消息会挤掉前面几条', () => {
+    const all = [
+      ...Array.from({ length: 20 }, (_, i) => ({ id: i, tools: [] as unknown[] })),
+      { id: 20, tools: Array.from({ length: 60 }, () => ({})) },
+    ];
+
+    const { visible } = visibleSlice(all, initialWindow(), 'h1', messageWeight);
+
+    // 最后那条体量 61 已经超过一页（50），窗口里只剩它
+    expect(visible.map(m => m.id)).toEqual([20]);
+  });
+
+  it('附件也算体量（图片渲染更重）', () => {
+    const all = [
+      ...Array.from({ length: 20 }, (_, i) => ({ id: i, tools: [] as unknown[] })),
+      { id: 20, attachments: Array.from({ length: 60 }, () => ({})) },
+    ];
+
+    const { visible } = visibleSlice(all, initialWindow(), 'h1', messageWeight);
+
+    expect(visible.map(m => m.id)).toEqual([20]);
+  });
+
+  it('没有工具 / 附件时和按条数算完全一致', () => {
+    const all = Array.from({ length: 120 }, (_, i) => ({ id: i, tools: [] as unknown[] }));
+
+    const counted = visibleSlice(all, initialWindow(), 'h1');
+    const weighed = visibleSlice(all, initialWindow(), 'h1', messageWeight);
+
+    expect(weighed.startIndex).toBe(counted.startIndex);
+    expect(weighed.visible.length).toBe(counted.visible.length);
+  });
+
+  it('windowAround 里目标仍然是窗口第一条（不会被体量裁掉）', () => {
+    const all = Array.from({ length: 100 }, (_, i) => ({ id: i, tools: [] as unknown[] }));
+
+    const { visible } = visibleSlice(
+      all,
+      windowAround('h1', all, 10, messageWeight),
+      'h1',
+      messageWeight
+    );
+
+    expect(visible[0].id).toBe(10);
   });
 });

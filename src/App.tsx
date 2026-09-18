@@ -5,7 +5,7 @@ import { ConversationScrollRail, type RailItem } from './components/Conversation
 import { ConversationThread } from './components/ConversationThread';
 import { ExecutionDismissContext } from './components/executionDismissContext';
 import { isSidebarDismissClick } from './utils/sidebarDismiss';
-import { growWindow, initialWindow, loadLater as loadLaterPage, visibleSlice, windowAround } from './utils/threadWindow';
+import { growWindow, initialWindow, loadLater as loadLaterPage, messageWeight, visibleSlice, windowAround } from './utils/threadWindow';
 import { composerLayout } from './utils/composerLayout';
 import { contextLevel, contextLevelText } from './utils/contextUsage';
 import type { ApiProbeResult } from './types/pi';
@@ -118,7 +118,7 @@ export default function App() {
   // 换会话时窗口自动回到一页，不必额外写重置逻辑
   const historyKey = messages[0]?.id ?? '';
   const { visible: visibleMessages, startIndex, hasEarlier, hasLater } = useMemo(
-    () => visibleSlice(messages, threadWindow, historyKey),
+    () => visibleSlice(messages, threadWindow, historyKey, messageWeight),
     [messages, threadWindow, historyKey]
   );
 
@@ -140,9 +140,9 @@ export default function App() {
   // 右侧轨道点了一个还没渲染的提问：把窗口滑到它，由轨道那边接手滚动
   const ensureMessageRendered = useCallback(
     (index: number) => {
-      setThreadWindow(windowAround(historyKey, messages.length, index));
+      setThreadWindow(windowAround(historyKey, messages, index, messageWeight));
     },
-    [historyKey, messages.length]
+    [historyKey, messages]
   );
 
   // 传给消息列表的回调必须是稳定的：它一路传到每条消息上，每次 App 重渲染都换新的
@@ -190,18 +190,19 @@ export default function App() {
     setSidebarOpen(false);
   };
 
-  useEffect(() => {
+  // 贴底必须在**绘制之前**完成：切到有内容的会话时，对话区是先以 scrollTop=0
+  // 挂载的，晚一帧再贴底就会先看到会话顶部一闪（顶部有图片时最明显）。
+  // 所以用 useLayoutEffect 直接贴，不走 requestAnimationFrame。
+  useLayoutEffect(() => {
     if (!isAtBottomRef.current) return;
-    const raf = requestAnimationFrame(pinToBottom);
-    return () => cancelAnimationFrame(raf);
+    pinToBottom();
   }, [messages, pinToBottom]);
 
   // 切换完成后回到最新处：切换时内容只是被隐藏、并没有塌陷，
   // 所以滚动位置还停在旧会话那里，不重新贴底就会落在新对话中间
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (switching) return;
-    const raf = requestAnimationFrame(pinToBottom);
-    return () => cancelAnimationFrame(raf);
+    pinToBottom();
   }, [switching, pinToBottom]);
 
   const { showIcon: showOpeningIcon, stickToBottom: shouldStickBottom } = composerLayout({
