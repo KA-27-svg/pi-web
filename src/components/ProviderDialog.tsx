@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { BridgeStatus } from '../types/pi';
 import { providerLabel } from '../utils/providerLabel';
 import { Modal } from './Modal';
@@ -44,9 +44,23 @@ export function ProviderDialog({
   const [exiting, setExiting] = useState<{ id: string; setup: BridgeStatus['setup'] } | null>(null);
   const exitingId = exiting && exiting.setup === status.setup ? exiting.id : null;
 
+  /** 「已经配好的」那一块（标题 + chip）。点它以外的地方就算「完成」 */
+  const manageAreaRef = useRef<HTMLDivElement>(null);
+
+  // 管理模式下，点管理区以外的任何地方（包括表单、遮罩）就退出管理，
+  // 不用每次都专门去按那个「完成」
+  useEffect(() => {
+    if (!managing) return;
+    const onMouseDown = (event: MouseEvent) => {
+      if (!manageAreaRef.current?.contains(event.target as Node)) setManaging(false);
+    };
+    document.addEventListener('mousedown', onMouseDown);
+    return () => document.removeEventListener('mousedown', onMouseDown);
+  }, [managing]);
+
   return (
     <Modal title="模型供应商" onClose={onClose}>
-      <div className="mb-4">
+      <div className="mb-4" ref={manageAreaRef}>
         <div className="mb-1.5 flex items-center justify-between gap-2">
           <span className="text-[11px] text-muted">已经配好的</span>
           {configured.length > 0 && (

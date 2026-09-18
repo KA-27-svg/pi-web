@@ -93,6 +93,11 @@ const click = (el: Element | null | undefined) =>
     el?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
   });
 
+const mouseDown = (el: Element | null | undefined) =>
+  act(() => {
+    el?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+  });
+
 describe('ProviderDialog', () => {
   it('即使已经配过凭证也能打开——这正是它存在的理由', () => {
     // 首次运行向导只在「一个凭证都没有」时显示，配完第一个就永远消失。
@@ -213,6 +218,19 @@ describe('ProviderDialog', () => {
 
     // 删除要等桥接写盘 + 探测环境才回来，chip 当场就得给反馈
     expect(button?.closest('span')?.className).toContain('provider-chip-out');
+  });
+
+  it('只有点「管理 / 完成」那一区以外的空白才算完成，点 chip 不会退出', () => {
+    render();
+    click([...document.body.querySelectorAll('button')].find(b => b.textContent === '管理'));
+
+    // 点 chip 本身（管理区之内）不该退出
+    mouseDown(document.body.querySelector('[data-delete="anthropic"]')?.closest('span'));
+    expect(document.body.querySelectorAll('[data-delete]')).toHaveLength(2);
+
+    // 点管理区以外的空白（表单区）就算完成
+    mouseDown(document.body.querySelector('select'));
+    expect(document.body.querySelectorAll('[data-delete]')).toHaveLength(0);
   });
 
   it('只设了环境变量的供应商不给删除按钮：环境变量删不掉', () => {
