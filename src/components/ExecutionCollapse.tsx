@@ -1,7 +1,9 @@
-import { useState } from 'react';
+import { useContext, useEffect, useRef, useState } from 'react';
 import type { ToolCallState } from '../types/pi';
 import { ToolCallCard } from './ToolCallCard';
 import { reasoningParagraphs } from '../utils/format';
+import { isSidebarDismissClick } from '../utils/sidebarDismiss';
+import { ExecutionDismissContext } from './executionDismissContext';
 import { ChevronRight, Sparkles } from 'lucide-react';
 
 interface ExecutionCollapseProps {
@@ -24,6 +26,29 @@ export function ExecutionCollapse({
   const [openedPhase, setOpenedPhase] = useState<string | null>(null);
   const isOpen = openedPhase === phase;
 
+  /** 外部交互是否正占着「点空白」（侧栏开着时为真） */
+  const dismissSuspended = useContext(ExecutionDismissContext);
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  // 展开后点对话区空白处就收起。只在对话区里、且是真正的空白（不是按钮/链接、
+  // 也没在选字）才算；侧栏开着时这一下先留给它，下一次再收。
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const onDocumentClick = (event: MouseEvent) => {
+      const target = event.target;
+      if (rootRef.current?.contains(target as Node)) return;
+      if (!(target instanceof Element) || !target.closest('#conversation-scroll')) return;
+      if (dismissSuspended) return;
+      if (!isSidebarDismissClick(target, window.getSelection()?.isCollapsed ?? true)) return;
+
+      setOpenedPhase(null);
+    };
+
+    document.addEventListener('click', onDocumentClick);
+    return () => document.removeEventListener('click', onDocumentClick);
+  }, [isOpen, dismissSuspended]);
+
   const hasReasoning = !!reasoning?.trim();
   const toolCount = tools?.length || 0;
   const hasTools = toolCount > 0;
@@ -41,7 +66,7 @@ export function ExecutionCollapse({
         .join(' · ');
 
   return (
-    <div className="mb-2">
+    <div ref={rootRef} className="mb-2">
       {/* 一行灰字 —— 唯一的入口 */}
       <button
         onClick={() => setOpenedPhase(prev => (prev === phase ? null : phase))}

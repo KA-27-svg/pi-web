@@ -4,15 +4,25 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import type { ToolCallState } from '../types/pi';
 import { ExecutionCollapse } from './ExecutionCollapse';
+import { ExecutionDismissContext } from './executionDismissContext';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 let root: Root;
+/** 对话区容器：只有落在它里面的点击才算「点空白」 */
+let shell: HTMLElement;
 let host: HTMLElement;
 
-const render = (props: Partial<React.ComponentProps<typeof ExecutionCollapse>> = {}) => {
+const render = (
+  props: Partial<React.ComponentProps<typeof ExecutionCollapse>> = {},
+  options: { sidebarOpen?: boolean } = {}
+) => {
   act(() => {
-    root.render(<ExecutionCollapse reasoning="想了一想" {...props} />);
+    root.render(
+      <ExecutionDismissContext.Provider value={options.sidebarOpen ?? false}>
+        <ExecutionCollapse reasoning="想了一想" {...props} />
+      </ExecutionDismissContext.Provider>
+    );
   });
 };
 
@@ -34,15 +44,30 @@ const tool = (over: Partial<ToolCallState> = {}): ToolCallState => ({
 });
 
 beforeEach(() => {
+  shell = document.createElement('div');
+  shell.id = 'conversation-scroll';
   host = document.createElement('div');
-  document.body.appendChild(host);
+  shell.appendChild(host);
+  document.body.appendChild(shell);
   root = createRoot(host);
 });
 
 afterEach(() => {
   act(() => root.unmount());
-  host.remove();
+  shell.remove();
 });
+
+/** 点对话区里的空白处 */
+const clickBlank = () =>
+  act(() => {
+    shell.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  });
+
+/** 点对话区之外（遮罩 / 弹窗 / 侧栏等） */
+const clickOutside = () =>
+  act(() => {
+    document.body.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  });
 
 describe('执行块的收缩', () => {
   it('默认收起，点一下展开', () => {
@@ -127,6 +152,65 @@ describe('思考 + 一步操作 ×5', () => {
     expect(expanded()).toBe(true);
 
     render({ isStreaming: false, tools: fiveSteps(), reasoning: '想了五轮' });
+    expect(expanded()).toBe(false);
+  });
+});
+
+describe('点空白处收起', () => {
+  it('展开后点对话区空白处就收起', () => {
+    render();
+    click();
+    expect(expanded()).toBe(true);
+
+    clickBlank();
+
+    expect(expanded()).toBe(false);
+  });
+
+  it('点组件内部不会收起（工具卡自己处理点击）', () => {
+    render({ tools: [tool()] });
+    click();
+    const toolRow = host.querySelector('button[aria-expanded]') as HTMLButtonElement;
+
+    act(() => {
+      toolRow.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+
+    expect(expanded()).toBe(true);
+  });
+
+  it('点在交互元素（按钮 / 链接）上不算点空白', () => {
+    render();
+    click();
+    const button = document.createElement('button');
+    shell.appendChild(button);
+
+    act(() => {
+      button.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+
+    expect(expanded()).toBe(true);
+  });
+
+  it('点对话区之外（遮罩 / 弹窗 / 侧栏）不算，不收起', () => {
+    render();
+    click();
+
+    clickOutside();
+
+    expect(expanded()).toBe(true);
+  });
+
+  it('侧栏开着时这一下先留给收起侧栏，下一次空白点击才收起', () => {
+    render({}, { sidebarOpen: true });
+    click();
+
+    clickBlank();
+    expect(expanded()).toBe(true);
+
+    // 侧栏已经被那一下关掉了，再来一次
+    render({}, { sidebarOpen: false });
+    clickBlank();
     expect(expanded()).toBe(false);
   });
 });

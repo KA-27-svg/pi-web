@@ -3,6 +3,7 @@ import { usePiWebSocket } from './hooks/usePiWebSocket';
 import { useRubberBandScroll } from './hooks/useRubberBandScroll';
 import { ConversationScrollRail, type RailItem } from './components/ConversationScrollRail';
 import { ConversationThread } from './components/ConversationThread';
+import { ExecutionDismissContext } from './components/executionDismissContext';
 import { isSidebarDismissClick } from './utils/sidebarDismiss';
 import { growWindow, initialWindow, loadLater as loadLaterPage, visibleSlice, windowAround } from './utils/threadWindow';
 import { composerLayout } from './utils/composerLayout';
@@ -321,22 +322,25 @@ export default function App() {
             onClick={handleConversationClick}
             className="scrollbar-none h-full overflow-y-auto overflow-x-hidden overscroll-y-contain"
           >
+            {/* 侧栏开着时，点空白先归它（收起侧栏），执行块下一次再收 */}
             {!isEmpty && (
-              <ConversationThread
-                messages={visibleMessages}
-                startIndex={startIndex}
-                switching={switching}
-                hasEarlier={hasEarlier}
-                onLoadEarlier={loadEarlier}
-                hasLater={hasLater}
-                onLoadLater={loadLater}
-                onOpenFile={path => void openAttachment(path).catch(() => undefined)}
-                fallbackModel={status.model?.name || status.model?.id}
-                modelNames={modelNames}
-                scrollRef={scrollContainerRef}
-                contentRef={contentRef}
-                endRef={messagesEndRef}
-              />
+              <ExecutionDismissContext.Provider value={sidebarOpen}>
+                <ConversationThread
+                  messages={visibleMessages}
+                  startIndex={startIndex}
+                  switching={switching}
+                  hasEarlier={hasEarlier}
+                  onLoadEarlier={loadEarlier}
+                  hasLater={hasLater}
+                  onLoadLater={loadLater}
+                  onOpenFile={path => void openAttachment(path).catch(() => undefined)}
+                  fallbackModel={status.model?.name || status.model?.id}
+                  modelNames={modelNames}
+                  scrollRef={scrollContainerRef}
+                  contentRef={contentRef}
+                  endRef={messagesEndRef}
+                />
+              </ExecutionDismissContext.Provider>
             )}
           </main>
 
