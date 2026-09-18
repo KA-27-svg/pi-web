@@ -307,6 +307,29 @@ export async function readProviderNames(
 }
 
 /**
+ * 某个供应商当前的 API 密钥。
+ * 优先 auth.json 里的 api_key，没有再看等价的环境变量；都没有返回 null
+ * （订阅登录的 OAuth token 不走这条路）。
+ */
+export async function readApiKey(
+  provider: string,
+  agentDir: string = resolveAgentDir()
+): Promise<string | null> {
+  const auth = await readJsonObject(configPaths(agentDir).auth).catch(
+    () => ({}) as Record<string, any>
+  );
+
+  const entry = auth[provider];
+  if (entry && typeof entry === 'object' && typeof entry.key === 'string' && entry.key.trim()) {
+    return entry.key.trim();
+  }
+
+  const envVar = PROVIDER_ENV_VARS[provider];
+  const fromEnv = envVar ? process.env[envVar]?.trim() : '';
+  return fromEnv || null;
+}
+
+/**
  * auth.json 里存了凭证的供应商。
  * 与 listConfiguredProviders 不同：不含只设了环境变量的——那些删不掉（env 不归我们管），
  * 所以界面上的删除按钮只应该给这一份列表里的供应商。

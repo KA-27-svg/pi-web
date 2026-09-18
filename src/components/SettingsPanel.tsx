@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { BridgeStatus, ModelInfo, ConnectivityResult } from '../types/pi';
+import type { BridgeStatus, ModelInfo, ApiProbeResult } from '../types/pi';
 import { formatCost, formatTokens } from '../utils/format';
 import { contextLevel, type ContextLevel } from '../utils/contextUsage';
 import { providerLabel } from '../utils/providerLabel';
@@ -16,8 +16,13 @@ interface SettingsPanelProps {
   onRecheckSetup: () => void;
   /** 手动压缩上下文 */
   onCompact: () => void;
-  /** 测一组地址通不通（交给桥接发请求） */
-  onCheckConnectivity: (targets: { id: string; url: string }[]) => Promise<ConnectivityResult[]>;
+  /** 测当前模型的上游：带密钥请求模型列表，验地址 / 密钥 / 模型是否存在 */
+  onProbeApi: (input: {
+    provider: string;
+    modelId: string;
+    baseUrl: string;
+    api?: string;
+  }) => Promise<ApiProbeResult>;
 }
 
 /** 上下文占用档位 → 数值的配色 */
@@ -231,7 +236,7 @@ export function SettingsPanel({
   onSelectThinkingLevel,
   onRecheckSetup,
   onCompact,
-  onCheckConnectivity,
+  onProbeApi,
 }: SettingsPanelProps) {
   const stats = status.stats;
   const setup = status.setup;
@@ -257,27 +262,29 @@ export function SettingsPanel({
       ].join('\n')
     : undefined;
 
-  // API 上游：只测当前模型实际请求的那个地址通不通（不验 key / 模型）
+  // API 上游：带上该供应商的密钥去请求模型列表，一次验地址 / 密钥 / 模型是否存在
   const upstreamUrl = status.model?.baseUrl ?? null;
   const [upstreamState, setUpstreamState] = useState<{
     phase: 'idle' | 'pending' | 'done';
-    result?: ConnectivityResult;
+    result?: ApiProbeResult;
   }>({ phase: 'idle' });
 
   const runUpstream = () => {
-    if (!upstreamUrl) return;
+    const model = status.model;
+    if (!model?.baseUrl) return;
+
     setUpstreamState({ phase: 'pending' });
-    onCheckConnectivity([{ id: 'upstream', url: upstreamUrl }])
-      .then(results => setUpstreamState({ phase: 'done', result: results[0] }))
+    onProbeApi({
+      provider: model.provider,
+      modelId: model.id,
+      baseUrl: model.baseUrl,
+      api: model.api,
+    })
+      .then(result => setUpstreamState({ phase: 'done', result }))
       .catch((error: Error) =>
         setUpstreamState({
           phase: 'done',
-          result: {
-            id: 'upstream',
-            url: upstreamUrl,
-            ok: false,
-            error: error.message || '检测失败',
-          },
+          result: { ok: false, keyUsed: false, error: error.message || '检测失败' },
         })
       );
   };
@@ -296,13 +303,20 @@ export function SettingsPanel({
 
     const result = upstreamState.result;
     if (!result) return { text: '点「重新检测」测一下', tone: 'text-muted' };
-    if (result.ok) {
-      return {
-        text: `通${typeof result.ms === 'number' ? ` · ${result.ms} ms` : ''}`,
-        tone: 'text-emerald-600',
-      };
+
+    const ms = typeof result.ms === 'number' ? ` · ${result.ms} ms` : '';
+    if (!result.ok) {
+      // 没配密钥时 401 不代表 key 错，只是没法核对
+      if (!result.keyUsed && (result.status === 401 || result.status === 403)) {
+        return { text: '没配密钥，没法核对', tone: 'text-amber-600' };
+      }
+      return { text: `不通：${result.error ?? '未知原因'}`, tone: 'text-rose-500' };
     }
-    return { text: `不通：${result.error ?? '未知原因'}`, tone: 'text-rose-500' };
+    if (result.modelFound === true) return { text: `通 · 模型在列${ms}`, tone: 'text-emerald-600' };
+    if (result.modelFound === false) {
+      return { text: `通 · 但列表里没有「${status.model?.id ?? ''}」`, tone: 'text-amber-600' };
+    }
+    return { text: `通${ms}`, tone: 'text-emerald-600' };
   })();
 
   return (

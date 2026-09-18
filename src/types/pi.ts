@@ -34,8 +34,10 @@ export interface ModelInfo {
   name: string;
   provider: string;
   contextWindow?: number;
-  /** 该模型实际请求的地址（中转站就是中转地址）。网络自检拿它去测可达性 */
+  /** 该模型实际请求的地址（中转站就是中转地址）。上游自检拿它去测 */
   baseUrl?: string;
+  /** pi 的 api 类型（openai-completions / anthropic-messages / …）；决定探针怎么带密钥 */
+  api?: string;
 }
 
 /** 工作目录里的一个条目（桥接列目录的结果） */
@@ -103,16 +105,16 @@ export interface SessionStats {
   contextUsage?: ContextUsage;
 }
 
-/** 网络连通性检测的一项 */
-export interface ConnectivityResult {
-  id: string;
-  url: string;
+/** 上游 API 探针的结果 */
+export interface ApiProbeResult {
   ok: boolean;
-  /** 服务端回的 HTTP 状态码（通了才有） */
   status?: number;
-  /** 收到响应头的耗时（毫秒），也就是 TTFB */
+  /** 响应头到达耗时（毫秒） */
   ms?: number;
-  /** 不通时的原因 */
+  /** 列表里有没有当前这个模型；拿不到列表时为 null */
+  modelFound?: boolean | null;
+  /** 用上密钥了吗（没有就只能测地址） */
+  keyUsed: boolean;
   error?: string;
 }
 

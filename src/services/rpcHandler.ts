@@ -13,6 +13,7 @@ function toModelInfo(model: any): ModelInfo | undefined {
     provider: model.provider,
     contextWindow: model.contextWindow,
     baseUrl: typeof model.baseUrl === 'string' ? model.baseUrl : undefined,
+    api: typeof model.api === 'string' ? model.api : undefined,
   };
 }
 

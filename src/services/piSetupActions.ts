@@ -1,4 +1,4 @@
-import type { ConnectivityResult } from '../types/pi';
+import type { ApiProbeResult } from '../types/pi';
 import type { PiBridge } from './piBridge';
 
 /**
@@ -38,13 +38,24 @@ export function createSetupActions({ request, sendCommand }: PiBridge) {
     sendCommand({ type: 'delete_provider', provider });
 
   /**
-   * 测一组地址通不通。必须拿回结果，所以走 request。
-   * 浏览器直连会被 CORS 挡住，所以交给桥接在 Node 里发。
+   * 上游 API 探针：带密钥请求上游的模型列表，验地址 / 密钥 / 模型是否存在。
+   * 必须拿回结果，所以走 request。
    */
-  const checkConnectivity = (targets: { id: string; url: string }[]) =>
-    request<{ results?: ConnectivityResult[] }>('check_connectivity', { targets }).then(
-      response => response.results ?? []
+  const probeApi = (input: {
+    provider: string;
+    modelId: string;
+    baseUrl: string;
+    api?: string;
+  }) =>
+    request<{ result?: ApiProbeResult }>('probe_api', input).then(
+      response => response.result ?? { ok: false, keyUsed: false, error: '没有拿到结果' }
     );
 
-  return { requestSetupStatus, installPi, saveProviderKey, deleteProvider, checkConnectivity };
+  return {
+    requestSetupStatus,
+    installPi,
+    saveProviderKey,
+    deleteProvider,
+    probeApi,
+  };
 }

@@ -28,6 +28,7 @@ import { planToolFallback } from './toolFallback.js';
 import {
   configPaths,
   deleteProvider,
+  readApiKey,
   readAuthProviders,
   readDefaultTools,
   readProviderBaseUrls,
@@ -40,7 +41,7 @@ import {
 import { PiSupervisor } from './pi.js';
 import { watchConfigFiles } from './configWatch.js';
 import { piNotReadyReply } from './bridgeMessages.js';
-import { checkTargets, isHttpUrl } from './connectivity.js';
+import { probeApi, isHttpUrl } from './apiProbe.js';
 import {
   emptyTrash,
   listTrash,
@@ -366,23 +367,25 @@ wss.on('connection', (ws: WebSocket) => {
         return;
       }
 
-      // 网络连通性：前端把要测的地址（npm registry / pi.dev / 当前模型接口）发过来，
-      // 桥接在 Node 里逐个请求——浏览器直连会被 CORS 挡住，而且这里没有同源限制
-      if (data.type === 'check_connectivity') {
+      // 上游 API 探针：带上该供应商的密钥去请求上游的模型列表，一次验地址 / 密钥 /
+      // 模型是否存在（GET /models，不产生 token 花费）。浏览器直连会被 CORS 挡住，
+      // 而且密钥在服务端，所以必须由桥接发。
+      if (data.type === 'probe_api') {
         reply(
           ws,
-          'connectivity_checked',
+          'api_probed',
           async () => {
-            const raw = Array.isArray(data.targets) ? data.targets : [];
-            const targets = raw
-              .map((target: any) => ({
-                id: String(target?.id ?? ''),
-                url: String(target?.url ?? ''),
-              }))
-              .filter((target: { id: string; url: string }) => target.id && isHttpUrl(target.url));
-            return { results: await checkTargets(targets) };
+            const provider = String(data.provider ?? '').trim();
+            const modelId = String(data.modelId ?? '').trim();
+            const baseUrl = String(data.baseUrl ?? '').trim();
+            const api = String(data.api ?? '').trim();
+
+            if (!isHttpUrl(baseUrl)) throw new Error('上游地址不是 http/https');
+
+            const key = provider ? await readApiKey(provider) : null;
+            return { result: await probeApi({ modelId, baseUrl, api, key }) };
           },
-          value => ({ results: value.results }),
+          value => ({ result: value.result }),
           () => ({ id: data.id })
         );
         return;

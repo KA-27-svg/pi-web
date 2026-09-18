@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import type { BridgeStatus, ConnectivityResult, SetupStatus } from '../types/pi';
+import type { BridgeStatus, ApiProbeResult, SetupStatus } from '../types/pi';
 import { SettingsPanel } from './SettingsPanel';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -38,9 +38,12 @@ const render = (
   s: SetupStatus | undefined,
   onRecheckSetup = vi.fn(),
   extra: Partial<BridgeStatus> = {},
-  onCheckConnectivity: (
-    targets: { id: string; url: string }[]
-  ) => Promise<ConnectivityResult[]> = async () => []
+  onProbeApi: (input: {
+    provider: string;
+    modelId: string;
+    baseUrl: string;
+    api?: string;
+  }) => Promise<ApiProbeResult> = async () => ({ ok: false, keyUsed: false })
 ) => {
   const status: BridgeStatus = {
     connected: true,
@@ -59,7 +62,7 @@ const render = (
         onSelectThinkingLevel={vi.fn()}
         onRecheckSetup={onRecheckSetup}
         onCompact={vi.fn()}
-        onCheckConnectivity={onCheckConnectivity}
+        onProbeApi={onProbeApi}
       />
     );
   });
@@ -118,42 +121,81 @@ describe('SettingsPanel 环境自检', () => {
 
   it('点「重新检测」一把测两样：本机探测 + API 上游', async () => {
     const onRecheckSetup = vi.fn();
-    const onCheckConnectivity = vi.fn(async (targets: { id: string; url: string }[]) =>
-      targets.map(target => ({ ...target, ok: true, status: 200, ms: 123 }))
-    );
+    const onProbeApi = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      ms: 123,
+      modelFound: true,
+      keyUsed: true,
+    }));
     render(
       setup(),
       onRecheckSetup,
-      { model: { id: 'm', name: 'M', provider: 'p', baseUrl: 'https://relay.example/v1' } },
-      onCheckConnectivity
+      {
+        model: {
+          id: 'deepseek-flash',
+          name: 'DeepSeek V4.1 Flash',
+          provider: 'micuapi-deepseek',
+          baseUrl: 'https://api.deepseek.com',
+          api: 'openai-completions',
+        },
+      },
+      onProbeApi
     );
 
     click(recheckButton());
     await act(async () => {});
 
     expect(onRecheckSetup).toHaveBeenCalledTimes(1);
-    // 只测当前模型实际请求的那个地址
-    expect(onCheckConnectivity).toHaveBeenCalledWith([
-      { id: 'upstream', url: 'https://relay.example/v1' },
-    ]);
-    expect(text()).toContain('通 · 123 ms');
+    // 带上当前模型的供应商 / 模型 / 地址 / api 类型，桥接才拿得到密钥
+    expect(onProbeApi).toHaveBeenCalledWith({
+      provider: 'micuapi-deepseek',
+      modelId: 'deepseek-flash',
+      baseUrl: 'https://api.deepseek.com',
+      api: 'openai-completions',
+    });
+    expect(text()).toContain('模型在列');
   });
 
-  it('API 上游不通时说清原因，不冒充「能用」', async () => {
-    const onCheckConnectivity = vi.fn(async (targets: { id: string; url: string }[]) =>
-      targets.map(target => ({ ...target, ok: false, error: '超时（8 秒）' }))
-    );
+  it('上游鉴权失败时说清楚，不冒充「能用」', async () => {
+    const onProbeApi = vi.fn(async () => ({
+      ok: false,
+      status: 401,
+      keyUsed: true,
+      error: '鉴权失败（HTTP 401）',
+    }));
     render(
       setup(),
       vi.fn(),
       { model: { id: 'm', name: 'M', provider: 'p', baseUrl: 'https://relay.example/v1' } },
-      onCheckConnectivity
+      onProbeApi
     );
 
     click(recheckButton());
     await act(async () => {});
 
-    expect(text()).toContain('不通：超时');
+    expect(text()).toContain('鉴权失败');
+  });
+
+  it('模型不在上游列表里时提醒一句', async () => {
+    const onProbeApi = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      ms: 50,
+      modelFound: false,
+      keyUsed: true,
+    }));
+    render(
+      setup(),
+      vi.fn(),
+      { model: { id: 'nope', name: 'M', provider: 'p', baseUrl: 'https://relay.example/v1' } },
+      onProbeApi
+    );
+
+    click(recheckButton());
+    await act(async () => {});
+
+    expect(text()).toContain('列表里没有');
   });
 
   it('API 上游排在 Node 前面', () => {
@@ -161,7 +203,7 @@ describe('SettingsPanel 环境自检', () => {
       setup(),
       vi.fn(),
       { model: { id: 'm', name: 'M', provider: 'p', baseUrl: 'https://relay.example/v1' } },
-      async () => []
+      async () => ({ ok: false, keyUsed: false })
     );
 
     const body = text();
@@ -310,7 +352,7 @@ describe('SettingsPanel 重新检测的点击反馈', () => {
             onSelectThinkingLevel={vi.fn()}
             onRecheckSetup={vi.fn()}
             onCompact={vi.fn()}
-            onCheckConnectivity={async () => []}
+            onProbeApi={async () => ({ ok: false, keyUsed: false })}
           />
         );
       });
@@ -365,7 +407,7 @@ describe('上下文提示与压缩', () => {
           onSelectThinkingLevel={vi.fn()}
           onRecheckSetup={vi.fn()}
           onCompact={onCompact}
-          onCheckConnectivity={async () => []}
+          onProbeApi={async () => ({ ok: false, keyUsed: false })}
         />
       );
     });

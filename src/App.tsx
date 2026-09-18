@@ -29,7 +29,7 @@ import { ChatInput } from './components/ChatInput';
 import { Settings, PanelLeftOpen } from 'lucide-react';
 
 export default function App() {
-  const { messages, status, sendPrompt, interrupt, changeCwd, newSession, setModel, setThinkingLevel, compactContext, requestSessions, requestStats, uploadFile, listDir, readAttachment, pickFile, openAttachment, switchSession, renameSession, deleteSession, requestTrash, restoreSession, purgeSession, emptyTrash, requestSetupStatus, installPi, saveProviderKey, deleteProvider, checkConnectivity } =
+  const { messages, status, sendPrompt, interrupt, changeCwd, newSession, setModel, setThinkingLevel, compactContext, requestSessions, requestStats, uploadFile, listDir, readAttachment, pickFile, openAttachment, switchSession, renameSession, deleteSession, requestTrash, restoreSession, purgeSession, emptyTrash, requestSetupStatus, installPi, saveProviderKey, deleteProvider, probeApi } =
     usePiWebSocket();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLElement>(null);
@@ -297,7 +297,7 @@ export default function App() {
             onSelectThinkingLevel={setThinkingLevel}
             onRecheckSetup={requestSetupStatus}
             onCompact={compactContext}
-            onCheckConnectivity={checkConnectivity}
+            onProbeApi={probeApi}
           />
         )}
 
