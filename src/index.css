@@ -108,6 +108,36 @@ body {
   animation: paper-in 220ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
 }
 
+/*
+ * 删除供应商：点下当场淡出并收起。
+ * 后端要写盘 + 探测环境才广播回来（看得出卡），所以不等它——chip 立刻退场，
+ * 等真正的列表更新回来时它早就没位置了。gap 用负 margin 抵消，否则会留个空。
+ */
+@keyframes provider-chip-out {
+  from {
+    opacity: 1;
+    max-width: 100%;
+  }
+  to {
+    opacity: 0;
+    max-width: 0;
+    padding-left: 0;
+    padding-right: 0;
+    margin-right: -0.375rem;
+    transform: scale(0.9);
+  }
+}
+.provider-chip-out {
+  animation: provider-chip-out 200ms cubic-bezier(0.4, 0, 1, 1) both;
+  overflow: hidden;
+  white-space: nowrap;
+}
+@media (prefers-reduced-motion: reduce) {
+  .provider-chip-out {
+    animation-duration: 1ms;
+  }
+}
+
 /* 极淡滚动条 —— 几乎看不见，悬停才浮现 */
 ::-webkit-scrollbar {
   width: 8px;

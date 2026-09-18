@@ -36,6 +36,13 @@ export function ProviderDialog({
   /** 只有 auth.json 里的供应商能删：只设了环境变量的删不掉 */
   const deletable = new Set(status.deletableProviders ?? []);
   const [managing, setManaging] = useState(false);
+  /**
+   * 正在退场的那一个：点下先播动画，不等桥接一个来回。
+   * 记下当时的 setup 引用，新的探测结果一回来就自动作废（删失败时 chip 会重现），
+   * 所以这里不需要 effect。
+   */
+  const [exiting, setExiting] = useState<{ id: string; setup: BridgeStatus['setup'] } | null>(null);
+  const exitingId = exiting && exiting.setup === status.setup ? exiting.id : null;
 
   return (
     <Modal title="模型供应商" onClose={onClose}>
@@ -56,13 +63,18 @@ export function ProviderDialog({
             {configured.map(id => (
               <span
                 key={id}
-                className="inline-flex items-center gap-1 rounded bg-surface px-2 py-0.5 font-mono text-[11px] text-foreground/80"
+                className={`inline-flex items-center gap-1 rounded bg-surface px-2 py-0.5 font-mono text-[11px] text-foreground/80 ${
+                  exitingId === id ? 'provider-chip-out' : ''
+                }`}
               >
                 {providerLabel(status, id)}
                 {managing && deletable.has(id) && (
                   <button
                     data-delete={id}
-                    onClick={() => onDeleteProvider(id)}
+                    onClick={() => {
+                      setExiting({ id, setup: status.setup });
+                      onDeleteProvider(id);
+                    }}
                     aria-label={`删除 ${providerLabel(status, id)}`}
                     title="删除（会移除已保存的密钥）"
                     className="-mr-0.5 rounded p-0.5 text-muted transition-colors hover:text-rose-500"

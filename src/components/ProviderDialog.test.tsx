@@ -204,6 +204,17 @@ describe('ProviderDialog', () => {
     expect(onDeleteProvider).toHaveBeenCalledWith('deepseek');
   });
 
+  it('点删除时 chip 立刻进入退场动画，不等后端一个来回', () => {
+    render();
+
+    click([...document.body.querySelectorAll('button')].find(b => b.textContent === '管理'));
+    const button = document.body.querySelector('[data-delete="deepseek"]');
+    click(button);
+
+    // 删除要等桥接写盘 + 探测环境才回来，chip 当场就得给反馈
+    expect(button?.closest('span')?.className).toContain('provider-chip-out');
+  });
+
   it('只设了环境变量的供应商不给删除按钮：环境变量删不掉', () => {
     // 已配列表含环境变量来源，但只有 auth.json 里的那些能删
     render(['anthropic', 'deepseek'], vi.fn(), ['anthropic']);
