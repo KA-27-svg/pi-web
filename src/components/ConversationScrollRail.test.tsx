@@ -245,11 +245,11 @@ describe('横线数量', () => {
     expect(rail()).toBeNull();
 
     // 关键的回归场景：新对话挂载时内容很短，之后仅因为助手回复变长而超过一屏。
-    // 这里 items 没变、没有 scroll 事件、也不触发 ResizeObserver，
-    // 只有「每次渲染后测量」能发现它。
+    // 此时没有 scroll 事件、也不触发 ResizeObserver，只能靠「重渲染后测量」发现它。
+    // 助手输出时 messages 一直在变，items 会跟着换成新数组（轨道因此重渲染）。
     setScrollHeight(2000);
     act(() => {
-      root.render(<Harness />);
+      root.render(<Harness railItems={items.map(item => ({ ...item }))} />);
     });
 
     expect(rail()).not.toBeNull();

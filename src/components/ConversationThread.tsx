@@ -1,4 +1,4 @@
-import { useEffect, useRef, type RefObject } from 'react';
+import { memo, useEffect, useRef, type RefObject } from 'react';
 import type { PiMessage } from '../types/pi';
 import { PiMessageItem } from './PiMessageItem';
 
@@ -33,7 +33,7 @@ interface ConversationThreadProps {
   endRef: RefObject<HTMLDivElement | null>;
 }
 
-export function ConversationThread({
+function ConversationThreadBase({
   messages,
   startIndex = 0,
   switching = false,
@@ -113,3 +113,6 @@ export function ConversationThread({
     </div>
   );
 }
+
+/** 消息列不随「开侧栏 / 设置面板」这类无关 state 重渲染 */
+export const ConversationThread = memo(ConversationThreadBase);

@@ -145,6 +145,15 @@ export default function App() {
     [historyKey, messages.length]
   );
 
+  // 传给消息列表的回调必须是稳定的：它一路传到每条消息上，每次 App 重渲染都换新的
+  // 函数，memo 就全都失效了（开侧栏 / 设置面板会因此重渲染整个列表）
+  const handleOpenAttachment = useCallback(
+    (path: string) => {
+      void openAttachment(path).catch(() => undefined);
+    },
+    [openAttachment]
+  );
+
   useLayoutEffect(() => {
     const el = scrollContainerRef.current;
     const before = scrollAdjustRef.current;
@@ -380,7 +389,7 @@ export default function App() {
                   onLoadEarlier={loadEarlier}
                   hasLater={hasLater}
                   onLoadLater={loadLater}
-                  onOpenFile={path => void openAttachment(path).catch(() => undefined)}
+                  onOpenFile={handleOpenAttachment}
                   fallbackModel={status.model?.name || status.model?.id}
                   modelNames={modelNames}
                   scrollRef={scrollContainerRef}

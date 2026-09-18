@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { memo, useState } from 'react';
 import type { PiMessage } from '../types/pi';
 import { MarkdownView } from './MarkdownView';
 import { ExecutionCollapse } from './ExecutionCollapse';
@@ -18,7 +18,7 @@ interface PiMessageItemProps {
   modelNames?: Record<string, string>;
 }
 
-export function PiMessageItem({
+function PiMessageItemBase({
   message,
   dataIndex,
   onOpenFile,
@@ -124,3 +124,10 @@ export function PiMessageItem({
     </div>
   );
 }
+
+/**
+ * 消息多时，父组件因为别的 state（开侧栏 / 设置面板）重渲染，不该让每条消息都跟着
+ * 重新走一遍 markdown 解析与语法高亮。messages 里只有变化的那条会换新对象，
+ * 所以 memo 一加，流式输出时也只有正在生成的那条重渲染。
+ */
+export const PiMessageItem = memo(PiMessageItemBase);

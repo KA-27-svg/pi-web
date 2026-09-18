@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type RefObject } from 'react';
+import { memo, useCallback, useEffect, useRef, useState, type RefObject } from 'react';
 
 /** 轨道上下留白，必须与下方 style 中的 padding 保持一致 */
 const RAIL_PADDING_PX = 16;
@@ -46,7 +46,7 @@ const clamp = (value: number, min: number, max: number) => Math.min(max, Math.ma
  *   3. 密到画不下 → 变成一整条带滑块的滑动条。
  * 原生滚动条被 .scrollbar-none 隐藏，滚动本身仍然照常（滚轮 / 键盘 / 触控板）。
  */
-export function ConversationScrollRail({
+function ConversationScrollRailBase({
   containerRef,
   contentRef,
   items,
@@ -370,3 +370,6 @@ export function ConversationScrollRail({
     </>
   );
 }
+
+/** 轨道不随「开侧栏 / 设置面板」这类无关 state 重渲染 */
+export const ConversationScrollRail = memo(ConversationScrollRailBase);

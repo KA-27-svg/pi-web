@@ -4,6 +4,8 @@ import { act, createRef } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import type { PiMessage } from '../types/pi';
 import { ConversationThread } from './ConversationThread';
+import { PiMessageItem } from './PiMessageItem';
+import { ConversationScrollRail } from './ConversationScrollRail';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -190,5 +192,22 @@ describe('向下加载更新的消息', () => {
 
     expect(onLoadLater).not.toHaveBeenCalled();
     expect(host.textContent).not.toContain('向下滚动加载更新的消息');
+  });
+});
+
+describe('重渲染保护', () => {
+  it('消息列 / 单条消息 / 轨道都用 memo 包住', () => {
+    // 开侧栏、开设置面板会改 App 的 state；没有 memo 的话整列消息都要重新走
+    // markdown 解析与语法高亮，消息一多就卡
+    const memoType = Symbol.for('react.memo');
+    expect(
+      (ConversationThread as unknown as { $$typeof?: symbol }).$$typeof
+    ).toBe(memoType);
+    expect(
+      (PiMessageItem as unknown as { $$typeof?: symbol }).$$typeof
+    ).toBe(memoType);
+    expect(
+      (ConversationScrollRail as unknown as { $$typeof?: symbol }).$$typeof
+    ).toBe(memoType);
   });
 });
