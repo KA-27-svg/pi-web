@@ -86,7 +86,7 @@ export function ExecutionCollapse({
           {hasReasoning && (
             <div className="rounded-lg bg-surface/50 px-3.5 py-3">
               <div className="mb-2 flex items-center gap-1.5 text-[10.5px] text-muted/70">
-                <Sparkles className="w-3 h-3 shrink-0" />
+                <Sparkles className="w-3 h-3 shrink-0 text-amber-500" />
                 思考过程
               </div>
 
