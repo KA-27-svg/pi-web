@@ -38,12 +38,8 @@ const render = (
   s: SetupStatus | undefined,
   onRecheckSetup = vi.fn(),
   extra: Partial<BridgeStatus> = {},
-  onProbeApi: (input: {
-    provider: string;
-    modelId: string;
-    baseUrl: string;
-    api?: string;
-  }) => Promise<ApiProbeResult> = async () => ({ ok: false, keyUsed: false })
+  upstream: { phase: 'idle' | 'pending' | 'done'; result?: ApiProbeResult } = { phase: 'idle' },
+  onProbeUpstream = vi.fn()
 ) => {
   const status: BridgeStatus = {
     connected: true,
@@ -62,7 +58,8 @@ const render = (
         onSelectThinkingLevel={vi.fn()}
         onRecheckSetup={onRecheckSetup}
         onCompact={vi.fn()}
-        onProbeApi={onProbeApi}
+        upstream={upstream}
+        onProbeUpstream={onProbeUpstream}
       />
     );
   });
@@ -119,15 +116,9 @@ describe('SettingsPanel 环境自检', () => {
     expect(text()).not.toContain('Git Bash');
   });
 
-  it('点「重新检测」一把测两样：本机探测 + API 上游', async () => {
+  it('点「重新检测」一把测两样：本机探测 + 上游探针', async () => {
     const onRecheckSetup = vi.fn();
-    const onProbeApi = vi.fn(async () => ({
-      ok: true,
-      status: 200,
-      ms: 123,
-      modelFound: true,
-      keyUsed: true,
-    }));
+    const onProbeUpstream = vi.fn();
     render(
       setup(),
       onRecheckSetup,
@@ -140,62 +131,55 @@ describe('SettingsPanel 环境自检', () => {
           api: 'openai-completions',
         },
       },
-      onProbeApi
+      { phase: 'done', result: { ok: true, status: 200, ms: 398, keyUsed: true, modelFound: true } },
+      onProbeUpstream
     );
 
     click(recheckButton());
     await act(async () => {});
 
     expect(onRecheckSetup).toHaveBeenCalledTimes(1);
-    // 带上当前模型的供应商 / 模型 / 地址 / api 类型，桥接才拿得到密钥
-    expect(onProbeApi).toHaveBeenCalledWith({
-      provider: 'micuapi-deepseek',
-      modelId: 'deepseek-flash',
-      baseUrl: 'https://api.deepseek.com',
-      api: 'openai-completions',
-    });
-    expect(text()).toContain('模型在列');
+    expect(onProbeUpstream).toHaveBeenCalledTimes(1);
+    // 通的时候只留延迟数字（不再写「通 · 模型在列」）
+    expect(text()).toContain('398 ms');
+    expect(text()).not.toContain('模型在列');
   });
 
-  it('上游鉴权失败时说清楚，不冒充「能用」', async () => {
-    const onProbeApi = vi.fn(async () => ({
-      ok: false,
-      status: 401,
-      keyUsed: true,
-      error: '鉴权失败（HTTP 401）',
-    }));
+  it('还没测过时不摆「点重新检测测一下」这种废话', () => {
+    render(setup(), vi.fn(), {
+      model: { id: 'm', name: 'M', provider: 'p', baseUrl: 'https://relay.example/v1' },
+    });
+
+    expect(text()).not.toContain('点「重新检测」测一下');
+  });
+
+  it('上游鉴权失败时说清楚，不冒充「能用」', () => {
     render(
       setup(),
       vi.fn(),
       { model: { id: 'm', name: 'M', provider: 'p', baseUrl: 'https://relay.example/v1' } },
-      onProbeApi
+      {
+        phase: 'done',
+        result: { ok: false, status: 401, keyUsed: true, error: '鉴权失败（HTTP 401）' },
+      }
     );
-
-    click(recheckButton());
-    await act(async () => {});
 
     expect(text()).toContain('鉴权失败');
   });
 
-  it('模型不在上游列表里时提醒一句', async () => {
-    const onProbeApi = vi.fn(async () => ({
-      ok: true,
-      status: 200,
-      ms: 50,
-      modelFound: false,
-      keyUsed: true,
-    }));
+  it('模型不在上游列表里时：数字照给，用 tooltip 提醒', () => {
     render(
       setup(),
       vi.fn(),
       { model: { id: 'nope', name: 'M', provider: 'p', baseUrl: 'https://relay.example/v1' } },
-      onProbeApi
+      {
+        phase: 'done',
+        result: { ok: true, status: 200, ms: 50, keyUsed: true, modelFound: false },
+      }
     );
 
-    click(recheckButton());
-    await act(async () => {});
-
-    expect(text()).toContain('列表里没有');
+    expect(text()).toContain('50 ms');
+    expect(host.querySelector('[title*="列表里没有"]')).toBeTruthy();
   });
 
   it('API 上游排在 Node 前面', () => {
@@ -203,7 +187,7 @@ describe('SettingsPanel 环境自检', () => {
       setup(),
       vi.fn(),
       { model: { id: 'm', name: 'M', provider: 'p', baseUrl: 'https://relay.example/v1' } },
-      async () => ({ ok: false, keyUsed: false })
+      { phase: 'idle' }
     );
 
     const body = text();
@@ -352,7 +336,8 @@ describe('SettingsPanel 重新检测的点击反馈', () => {
             onSelectThinkingLevel={vi.fn()}
             onRecheckSetup={vi.fn()}
             onCompact={vi.fn()}
-            onProbeApi={async () => ({ ok: false, keyUsed: false })}
+            upstream={{ phase: 'idle' }}
+            onProbeUpstream={vi.fn()}
           />
         );
       });
@@ -407,7 +392,8 @@ describe('上下文提示与压缩', () => {
           onSelectThinkingLevel={vi.fn()}
           onRecheckSetup={vi.fn()}
           onCompact={onCompact}
-          onProbeApi={async () => ({ ok: false, keyUsed: false })}
+          upstream={{ phase: 'idle' }}
+          onProbeUpstream={vi.fn()}
         />
       );
     });
@@ -447,21 +433,16 @@ describe('上下文提示与压缩', () => {
 });
 
 describe('桥接是旧进程时不甩英文', () => {
-  it('Unknown command 提示重启，而不是把英文原样丢出来', async () => {
-    const onProbeApi = vi.fn(async () => ({
-      ok: false,
-      keyUsed: true,
-      error: 'Unknown command: probe_api',
-    }));
+  it('Unknown command 提示重启，而不是把英文原样丢出来', () => {
     render(
       setup(),
       vi.fn(),
       { model: { id: 'm', name: 'M', provider: 'p', baseUrl: 'https://relay.example/v1' } },
-      onProbeApi
+      {
+        phase: 'done',
+        result: { ok: false, keyUsed: true, error: 'Unknown command: probe_api' },
+      }
     );
-
-    click(recheckButton());
-    await act(async () => {});
 
     expect(text()).toContain('桥接是旧进程，重启一下再试');
     expect(text()).not.toContain('Unknown command');

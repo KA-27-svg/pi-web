@@ -17,12 +17,12 @@ interface SettingsPanelProps {
   /** 手动压缩上下文 */
   onCompact: () => void;
   /** 测当前模型的上游：带密钥请求模型列表，验地址 / 密钥 / 模型是否存在 */
-  onProbeApi: (input: {
-    provider: string;
-    modelId: string;
-    baseUrl: string;
-    api?: string;
-  }) => Promise<ApiProbeResult>;
+  upstream: {
+    phase: 'idle' | 'pending' | 'done';
+    result?: ApiProbeResult;
+  };
+  /** 让上层去跑一次上游探针（结果由上层持有，面板关了再开还在） */
+  onProbeUpstream: () => void;
 }
 
 /** 上下文占用档位 → 数值的配色 */
@@ -236,7 +236,8 @@ export function SettingsPanel({
   onSelectThinkingLevel,
   onRecheckSetup,
   onCompact,
-  onProbeApi,
+  upstream,
+  onProbeUpstream,
 }: SettingsPanelProps) {
   const stats = status.stats;
   const setup = status.setup;
@@ -262,66 +263,45 @@ export function SettingsPanel({
       ].join('\n')
     : undefined;
 
-  // API 上游：带上该供应商的密钥去请求模型列表，一次验地址 / 密钥 / 模型是否存在
-  const upstreamUrl = status.model?.baseUrl ?? null;
-  const [upstreamState, setUpstreamState] = useState<{
-    phase: 'idle' | 'pending' | 'done';
-    result?: ApiProbeResult;
-  }>({ phase: 'idle' });
-
-  const runUpstream = () => {
-    const model = status.model;
-    if (!model?.baseUrl) return;
-
-    setUpstreamState({ phase: 'pending' });
-    onProbeApi({
-      provider: model.provider,
-      modelId: model.id,
-      baseUrl: model.baseUrl,
-      api: model.api,
-    })
-      .then(result => setUpstreamState({ phase: 'done', result }))
-      .catch((error: Error) =>
-        setUpstreamState({
-          phase: 'done',
-          result: { ok: false, keyUsed: false, error: error.message || '检测失败' },
-        })
-      );
-  };
-
-  // 一个按钮把两边都测了：本机探测 + 上游连通
+  // 一个按钮把两边都测了：本机探测 + 上游探针
   const runRecheck = () => {
     recheck.trigger(onRecheckSetup);
-    runUpstream();
+    onProbeUpstream();
   };
 
-  const checking = recheck.phase === 'pending' || upstreamState.phase === 'pending';
+  const checking = recheck.phase === 'pending' || upstream.phase === 'pending';
 
-  const upstream = (() => {
-    if (!upstreamUrl) return { text: '未配置模型', tone: 'text-muted' };
-    if (upstreamState.phase === 'pending') return { text: '检测中…', tone: 'text-muted' };
+  // 上游那一行只显示延迟数字；出问题时才换成原因
+  const upstreamView = (() => {
+    const url = status.model?.baseUrl ?? undefined;
+    if (upstream.phase === 'pending') return { text: '检测中…', tone: 'text-muted', title: url };
 
-    const result = upstreamState.result;
-    if (!result) return { text: '点「重新检测」测一下', tone: 'text-muted' };
+    const result = upstream.result;
+    if (!result) return { text: '—', tone: 'text-muted', title: url };
 
-    const ms = typeof result.ms === 'number' ? ` · ${result.ms} ms` : '';
     if (!result.ok) {
       const error = result.error ?? '未知原因';
       // 跑着的桥接是改动之前的进程，不认识这条新指令——提示重启，而不是甩一句英文
       if (/unknown command/i.test(error)) {
-        return { text: '桥接是旧进程，重启一下再试', tone: 'text-amber-600' };
+        return { text: '桥接是旧进程，重启一下再试', tone: 'text-amber-600', title: url };
       }
       // 没配密钥时 401 不代表 key 错，只是没法核对
       if (!result.keyUsed && (result.status === 401 || result.status === 403)) {
-        return { text: '没配密钥，没法核对', tone: 'text-amber-600' };
+        return { text: '没配密钥，没法核对', tone: 'text-amber-600', title: url };
       }
-      return { text: `不通：${error}`, tone: 'text-rose-500' };
+      return { text: `不通：${error}`, tone: 'text-rose-500', title: url };
     }
-    if (result.modelFound === true) return { text: `通 · 模型在列${ms}`, tone: 'text-emerald-600' };
+
+    const ms = typeof result.ms === 'number' ? `${result.ms} ms` : '通';
+    // 「模型不在上游列表里」不用文字啰喈，用颜色和一个 tooltip 带过
     if (result.modelFound === false) {
-      return { text: `通 · 但列表里没有「${status.model?.id ?? ''}」`, tone: 'text-amber-600' };
+      return {
+        text: ms,
+        tone: 'text-amber-600',
+        title: `上游模型列表里没有「${status.model?.id ?? ''}」`,
+      };
     }
-    return { text: `通${ms}`, tone: 'text-emerald-600' };
+    return { text: ms, tone: 'text-emerald-600', title: url };
   })();
 
   return (
@@ -417,8 +397,8 @@ export function SettingsPanel({
               {/* API 上游：当前模型实际请求的那个地址通不通（不验 key / 模型，
                   所以不会被网关的鉴权拦截误判） */}
               <Row label="API 上游">
-                <span className={upstream.tone} title={upstreamUrl ?? undefined}>
-                  {upstream.text}
+                <span className={upstreamView.tone} title={upstreamView.title}>
+                  {upstreamView.text}
                 </span>
               </Row>
               <Row label="Node">

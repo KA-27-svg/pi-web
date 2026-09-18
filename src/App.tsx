@@ -8,6 +8,7 @@ import { isSidebarDismissClick } from './utils/sidebarDismiss';
 import { growWindow, initialWindow, loadLater as loadLaterPage, visibleSlice, windowAround } from './utils/threadWindow';
 import { composerLayout } from './utils/composerLayout';
 import { contextLevel, contextLevelText } from './utils/contextUsage';
+import type { ApiProbeResult } from './types/pi';
 
 /** 与 Tailwind 的 sm 断点一致：窄屏时侧栏是覆盖层，而不是并排的一栏 */
 const NARROW_VIEWPORT = '(max-width: 640px)';
@@ -30,8 +31,7 @@ import { Settings, PanelLeftOpen } from 'lucide-react';
 
 export default function App() {
   const { messages, status, sendPrompt, interrupt, changeCwd, newSession, setModel, setThinkingLevel, compactContext, requestSessions, requestStats, uploadFile, listDir, readAttachment, pickFile, openAttachment, switchSession, renameSession, deleteSession, requestTrash, restoreSession, purgeSession, emptyTrash, requestSetupStatus, installPi, saveProviderKey, deleteProvider, probeApi } =
-    usePiWebSocket();
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+    usePiWebSocket();  const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const isAtBottomRef = useRef(true);
@@ -81,6 +81,36 @@ export default function App() {
   const context = status.stats?.contextUsage;
   const ctxLevel = contextLevel(context?.percent);
   const ctxText = contextLevelText(ctxLevel, context?.percent);
+
+  // 上游探针的结果放在这里而不是设置面板里：面板关了再开数字还在，
+  // 只有下一次「重新检测」才会刷新。
+  const [upstream, setUpstream] = useState<{
+    phase: 'idle' | 'pending' | 'done';
+    result?: ApiProbeResult;
+  }>({ phase: 'idle' });
+
+  const probeUpstream = useCallback(() => {
+    const model = status.model;
+    if (!model?.baseUrl) {
+      setUpstream({ phase: 'idle' });
+      return;
+    }
+
+    setUpstream({ phase: 'pending' });
+    probeApi({
+      provider: model.provider,
+      modelId: model.id,
+      baseUrl: model.baseUrl,
+      api: model.api,
+    })
+      .then(result => setUpstream({ phase: 'done', result }))
+      .catch((error: Error) =>
+        setUpstream({
+          phase: 'done',
+          result: { ok: false, keyUsed: false, error: error.message || '检测失败' },
+        })
+      );
+  }, [status.model, probeApi]);
 
   // 只渲染最近一段消息（参考官方 pi-web：一次渲染整段历史会卡）
   const [threadWindow, setThreadWindow] = useState(initialWindow);
@@ -297,7 +327,8 @@ export default function App() {
             onSelectThinkingLevel={setThinkingLevel}
             onRecheckSetup={requestSetupStatus}
             onCompact={compactContext}
-            onProbeApi={probeApi}
+            upstream={upstream}
+            onProbeUpstream={probeUpstream}
           />
         )}
 
