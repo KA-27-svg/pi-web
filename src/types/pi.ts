@@ -34,6 +34,8 @@ export interface ModelInfo {
   name: string;
   provider: string;
   contextWindow?: number;
+  /** 该模型实际请求的地址（中转站就是中转地址）。网络自检拿它去测可达性 */
+  baseUrl?: string;
 }
 
 /** 工作目录里的一个条目（桥接列目录的结果） */
@@ -99,6 +101,17 @@ export interface SessionStats {
   cost: number;
   tokens: TokenUsage;
   contextUsage?: ContextUsage;
+}
+
+/** 网络连通性检测的一项 */
+export interface ConnectivityResult {
+  id: string;
+  url: string;
+  ok: boolean;
+  /** 服务端回的 HTTP 状态码（通了才有） */
+  status?: number;
+  /** 不通时的原因 */
+  error?: string;
 }
 
 export interface SessionSummary {

@@ -1,10 +1,11 @@
 import { useState } from 'react';
-import type { BridgeStatus, ModelInfo } from '../types/pi';
+import type { BridgeStatus, ModelInfo, ConnectivityResult } from '../types/pi';
 import { formatCost, formatTokens } from '../utils/format';
 import { contextLevel, type ContextLevel } from '../utils/contextUsage';
 import { providerLabel } from '../utils/providerLabel';
 import { useRefreshFeedback } from '../hooks/useRefreshFeedback';
 import { useHiddenModels } from '../hooks/useHiddenModels';
+import { NetworkCheck } from './NetworkCheck';
 import { X, ChevronDown, RefreshCw, RotateCcw } from 'lucide-react';
 
 interface SettingsPanelProps {
@@ -16,6 +17,8 @@ interface SettingsPanelProps {
   onRecheckSetup: () => void;
   /** 手动压缩上下文 */
   onCompact: () => void;
+  /** 测一组地址通不通（交给桥接发请求） */
+  onCheckConnectivity: (targets: { id: string; url: string }[]) => Promise<ConnectivityResult[]>;
 }
 
 /** 上下文占用档位 → 数值的配色 */
@@ -229,6 +232,7 @@ export function SettingsPanel({
   onSelectThinkingLevel,
   onRecheckSetup,
   onCompact,
+  onCheckConnectivity,
 }: SettingsPanelProps) {
   const stats = status.stats;
   const setup = status.setup;
@@ -253,6 +257,15 @@ export function SettingsPanel({
         '按 models.json 里的单价估算，与供应商账单可能有出入',
       ].join('\n')
     : undefined;
+
+  // 要测的几个地址：装依赖、装 pi、以及当前模型实际请求的那个地址
+  const networkTargets = [
+    { id: 'npm', label: 'npm registry', url: 'https://registry.npmjs.org/' },
+    { id: 'pi', label: 'pi.dev（装 pi 用）', url: 'https://pi.dev/' },
+    ...(status.model?.baseUrl
+      ? [{ id: 'model', label: '模型接口', url: status.model.baseUrl }]
+      : []),
+  ];
 
   return (
     <>
@@ -363,11 +376,12 @@ export function SettingsPanel({
             </div>
 
             {/*
-              说清楚边界：这里只查本机配置。真能不能连上模型，
-              得发一条消息（会产生真实调用与费用）才知道，不适合自动跑。
+              上面那些只查本机。网络单独测：不向模型发真实请求，只看地址通不通，
+              所以不会产生调用费用。
             */}
+            <NetworkCheck targets={networkTargets} onCheck={onCheckConnectivity} />
             <p className="mt-2 text-[10.5px] leading-[1.6] text-muted/80">
-              只检查本机配置，不测网络连通性。
+              自检只看本机配置；网络单独测，不会真的向模型发请求。
             </p>
           </div>
         )}

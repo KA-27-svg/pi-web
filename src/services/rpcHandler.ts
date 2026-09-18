@@ -12,6 +12,7 @@ function toModelInfo(model: any): ModelInfo | undefined {
     name: model.name,
     provider: model.provider,
     contextWindow: model.contextWindow,
+    baseUrl: typeof model.baseUrl === 'string' ? model.baseUrl : undefined,
   };
 }
 

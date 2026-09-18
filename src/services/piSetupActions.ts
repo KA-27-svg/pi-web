@@ -1,3 +1,4 @@
+import type { ConnectivityResult } from '../types/pi';
 import type { PiBridge } from './piBridge';
 
 /**
@@ -6,7 +7,7 @@ import type { PiBridge } from './piBridge';
  * 安装 pi 与写模型配置在同一支线上（后续切片补充），与另外三个领域动作模块
  * （对话 / 会话 / 附件）同构。
  */
-export function createSetupActions({ sendCommand }: PiBridge) {
+export function createSetupActions({ request, sendCommand }: PiBridge) {
   const requestSetupStatus = () => sendCommand({ type: 'get_setup_status' });
 
   /**
@@ -36,5 +37,14 @@ export function createSetupActions({ sendCommand }: PiBridge) {
   const deleteProvider = (provider: string) =>
     sendCommand({ type: 'delete_provider', provider });
 
-  return { requestSetupStatus, installPi, saveProviderKey, deleteProvider };
+  /**
+   * 测一组地址通不通。必须拿回结果，所以走 request。
+   * 浏览器直连会被 CORS 挡住，所以交给桥接在 Node 里发。
+   */
+  const checkConnectivity = (targets: { id: string; url: string }[]) =>
+    request<{ results?: ConnectivityResult[] }>('check_connectivity', { targets }).then(
+      response => response.results ?? []
+    );
+
+  return { requestSetupStatus, installPi, saveProviderKey, deleteProvider, checkConnectivity };
 }

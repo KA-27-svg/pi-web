@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import type { BridgeStatus, SetupStatus } from '../types/pi';
+import type { BridgeStatus, ConnectivityResult, SetupStatus } from '../types/pi';
 import { SettingsPanel } from './SettingsPanel';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -37,7 +37,10 @@ const setup = (over: Partial<SetupStatus> = {}): SetupStatus => ({
 const render = (
   s: SetupStatus | undefined,
   onRecheckSetup = vi.fn(),
-  extra: Partial<BridgeStatus> = {}
+  extra: Partial<BridgeStatus> = {},
+  onCheckConnectivity: (
+    targets: { id: string; url: string }[]
+  ) => Promise<ConnectivityResult[]> = async () => []
 ) => {
   const status: BridgeStatus = {
     connected: true,
@@ -56,6 +59,7 @@ const render = (
         onSelectThinkingLevel={vi.fn()}
         onRecheckSetup={onRecheckSetup}
         onCompact={vi.fn()}
+        onCheckConnectivity={onCheckConnectivity}
       />
     );
   });
@@ -112,11 +116,29 @@ describe('SettingsPanel 环境自检', () => {
     expect(text()).not.toContain('Git Bash');
   });
 
-  it('说明只查本机配置，不冒充连通性检测', () => {
-    // 真测连通性要发一条会产生真实费用的请求，不该悄悄跑
+  it('说明自检只看本机，网络另外单独测', () => {
     render(setup());
 
-    expect(text()).toContain('不测网络连通性');
+    expect(text()).toContain('自检只看本机配置');
+    expect(text()).toContain('网络单独测');
+  });
+
+  it('「测试网络」把要测的地址交给上层，并把结果显示出来', async () => {
+    const onCheckConnectivity = vi.fn(async (targets: { id: string; url: string }[]) =>
+      targets.map(target => ({ ...target, ok: target.id === 'npm', status: 200, error: '连接超时' }))
+    );
+    render(setup(), vi.fn(), { model: { id: 'm', name: 'M', provider: 'p', baseUrl: 'https://relay.example/v1' } }, onCheckConnectivity);
+
+    // 当前模型接口也要在要测的名单里
+    click([...host.querySelectorAll('button')].find(b => b.textContent?.includes('测试网络')));
+    await act(async () => {});
+
+    expect(onCheckConnectivity).toHaveBeenCalledTimes(1);
+    const targets = onCheckConnectivity.mock.calls[0][0] as { id: string }[];
+    expect(targets.map(t => t.id)).toContain('model');
+
+    expect(text()).toContain('通（HTTP 200）');
+    expect(text()).toContain('不通');
   });
 
   it('还没拿到探测结果时整段不显示', () => {
@@ -260,6 +282,7 @@ describe('SettingsPanel 重新检测的点击反馈', () => {
             onSelectThinkingLevel={vi.fn()}
             onRecheckSetup={vi.fn()}
             onCompact={vi.fn()}
+            onCheckConnectivity={async () => []}
           />
         );
       });
@@ -314,6 +337,7 @@ describe('上下文提示与压缩', () => {
           onSelectThinkingLevel={vi.fn()}
           onRecheckSetup={vi.fn()}
           onCompact={onCompact}
+          onCheckConnectivity={async () => []}
         />
       );
     });

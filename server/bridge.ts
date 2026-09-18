@@ -40,6 +40,7 @@ import {
 import { PiSupervisor } from './pi.js';
 import { watchConfigFiles } from './configWatch.js';
 import { piNotReadyReply } from './bridgeMessages.js';
+import { checkTargets, isHttpUrl } from './connectivity.js';
 import {
   emptyTrash,
   listTrash,
@@ -362,6 +363,28 @@ wss.on('connection', (ws: WebSocket) => {
               }));
             }
           });
+        return;
+      }
+
+      // 网络连通性：前端把要测的地址（npm registry / pi.dev / 当前模型接口）发过来，
+      // 桥接在 Node 里逐个请求——浏览器直连会被 CORS 挡住，而且这里没有同源限制
+      if (data.type === 'check_connectivity') {
+        reply(
+          ws,
+          'connectivity_checked',
+          async () => {
+            const raw = Array.isArray(data.targets) ? data.targets : [];
+            const targets = raw
+              .map((target: any) => ({
+                id: String(target?.id ?? ''),
+                url: String(target?.url ?? ''),
+              }))
+              .filter((target: { id: string; url: string }) => target.id && isHttpUrl(target.url));
+            return { results: await checkTargets(targets) };
+          },
+          value => ({ results: value.results }),
+          () => ({ id: data.id })
+        );
         return;
       }
 
