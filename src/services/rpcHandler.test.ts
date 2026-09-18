@@ -1050,6 +1050,33 @@ describe('供应商配置事件', () => {
     expect(h.status().providerBaseUrls).toEqual({ deepseek: 'https://relay.example/v1' });
   });
 
+  it('setup_status 记下哪些供应商能删（auth.json 里的那些）', () => {
+    const h = createHarness();
+
+    h.handler.handleEvent(
+      {
+        type: 'setup_status',
+        success: true,
+        setup: { ready: true, issues: [] },
+        deletableProviders: ['deepseek'],
+      },
+      h.ws
+    );
+
+    expect(h.status().deletableProviders).toEqual(['deepseek']);
+  });
+
+  it('删除供应商失败时留下原因', () => {
+    const h = createHarness();
+
+    h.handler.handleEvent(
+      { type: 'provider_deleted', success: false, error: 'auth.json 不是合法的 JSON' },
+      h.ws
+    );
+
+    expect(h.status().setupNotice).toContain('auth.json');
+  });
+
   it('后续 setup_status 没带 providerNames 时保留上一次的', () => {
     const h = createHarness();
 

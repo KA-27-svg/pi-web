@@ -29,5 +29,12 @@ export function createSetupActions({ sendCommand }: PiBridge) {
       name: name ?? '',
     });
 
-  return { requestSetupStatus, installPi, saveProviderKey };
+  /**
+   * 删掉一个已配供应商的凭证（写 auth.json）。
+   * 结果由桥接广播回来（provider_deleted → setup_status）。
+   */
+  const deleteProvider = (provider: string) =>
+    sendCommand({ type: 'delete_provider', provider });
+
+  return { requestSetupStatus, installPi, saveProviderKey, deleteProvider };
 }

@@ -4,7 +4,9 @@ import * as path from 'path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   configPaths,
+  deleteProvider,
   listConfiguredProviders,
+  readAuthProviders,
   readJsonObject,
   readProviderBaseUrls,
   readProviderNames,
@@ -12,11 +14,13 @@ import {
   saveDefaultModel,
   saveProviderConfig,
   saveProviderKey,
+  saveProviderName,
   writeJsonObject,
 } from './setupConfig';
 
 let dir: string;
 let originalAgentDir: string | undefined;
+const models = () => path.join(dir, 'models.json');
 const auth = () => path.join(dir, 'auth.json');
 const settings = () => path.join(dir, 'settings.json');
 const read = async (file: string) => JSON.parse(await fs.readFile(file, 'utf-8'));
@@ -242,6 +246,81 @@ describe('readProviderBaseUrls', () => {
 
     await fs.writeFile(auth(), '坏');
     expect(await readProviderBaseUrls(dir)).toEqual({});
+  });
+});
+
+describe('deleteProvider', () => {
+  it('删掉 auth.json 里那一条，保留别的', async () => {
+    await fs.writeFile(
+      auth(),
+      JSON.stringify({
+        anthropic: { type: 'oauth', refresh: 'r' },
+        deepseek: { type: 'api_key', key: 'sk-1' },
+      })
+    );
+
+    await deleteProvider('deepseek', dir);
+
+    expect(await read(auth())).toEqual({ anthropic: { type: 'oauth', refresh: 'r' } });
+  });
+
+  it('顺手清掉显示名（空条目也删掉）', async () => {
+    await fs.writeFile(auth(), JSON.stringify({ deepseek: { type: 'api_key', key: 'sk-1' } }));
+    await fs.writeFile(models(), JSON.stringify({ providers: { deepseek: { name: '我的中转站' } } }));
+
+    await deleteProvider('deepseek', dir);
+
+    expect(await readProviderNames(dir)).toEqual({});
+  });
+
+  it('没配过的供应商：什么都不动，也不报错', async () => {
+    await fs.writeFile(auth(), JSON.stringify({ anthropic: { type: 'api_key', key: 'k' } }));
+
+    await deleteProvider('deepseek', dir);
+
+    expect(await read(auth())).toEqual({ anthropic: { type: 'api_key', key: 'k' } });
+  });
+
+  it('auth.json 损坏时拒绝写入，且原文件一字不动', async () => {
+    await fs.writeFile(auth(), '{ 坏掉的');
+
+    await expect(deleteProvider('deepseek', dir)).rejects.toThrow();
+    expect(await fs.readFile(auth(), 'utf-8')).toBe('{ 坏掉的');
+  });
+});
+
+describe('readAuthProviders', () => {
+  it('只报 auth.json 里存了凭证的，不含只设了环境变量的', async () => {
+    // 环境变量删不掉，所以删除按钮只应该给这条列表里的供应商
+    await fs.writeFile(auth(), JSON.stringify({ deepseek: { type: 'api_key', key: 'k' } }));
+
+    expect(await readAuthProviders(dir)).toEqual(['deepseek']);
+  });
+
+  it('文件不存在或坏掉时返回空数组', async () => {
+    expect(await readAuthProviders(dir)).toEqual([]);
+
+    await fs.writeFile(auth(), '坏');
+    expect(await readAuthProviders(dir)).toEqual([]);
+  });
+});
+
+describe('saveProviderName', () => {
+  it('清空名字时要真的写回文件，不能因为结果为空就跳过', async () => {
+    await fs.writeFile(models(), JSON.stringify({ providers: { deepseek: { name: '我的中转站' } } }));
+
+    await saveProviderName('deepseek', '', dir);
+
+    expect(JSON.parse(await fs.readFile(models(), 'utf-8'))).toEqual({});
+  });
+
+  it('名字没变就不动文件', async () => {
+    await fs.writeFile(models(), JSON.stringify({ providers: { deepseek: { name: '甲' } } }));
+    const before = (await fs.stat(models())).mtimeMs;
+
+    await saveProviderName('deepseek', '甲', dir);
+
+    expect((await fs.stat(models())).mtimeMs).toBe(before);
   });
 });
 

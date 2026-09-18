@@ -255,13 +255,14 @@ export class RpcEventHandler {
         providers: data.providers ?? prev.providers,
         providerNames: data.providerNames ?? prev.providerNames,
         providerBaseUrls: data.providerBaseUrls ?? prev.providerBaseUrls,
+        deletableProviders: data.deletableProviders ?? prev.deletableProviders,
         subscriptions: data.subscriptions ?? prev.subscriptions,
       }));
       return;
     }
 
     // 写入配置的结果。失败必须说出来，否则用户点了「保存」不知道到底成没成。
-    if (data.type === 'provider_saved') {
+    if (data.type === 'provider_saved' || data.type === 'provider_deleted') {
       if (!data.success) {
         this.setStatus((prev: BridgeStatus) => ({
           ...prev,

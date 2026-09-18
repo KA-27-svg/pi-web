@@ -1,12 +1,16 @@
+import { useState } from 'react';
 import type { BridgeStatus } from '../types/pi';
 import { providerLabel } from '../utils/providerLabel';
 import { Modal } from './Modal';
 import { ProviderSetup } from './ProviderSetup';
+import { X } from 'lucide-react';
 
 interface ProviderDialogProps {
   status: BridgeStatus;
   onClose: () => void;
   onSaveProvider: (provider: string, key: string, baseUrl?: string) => void;
+  /** 删除一个已配供应商的凭证 */
+  onDeleteProvider: (provider: string) => void;
   /** 存好了：关掉弹窗并报一声成功 */
   onSaved: () => void;
 }
@@ -25,22 +29,47 @@ export function ProviderDialog({
   status,
   onClose,
   onSaveProvider,
+  onDeleteProvider,
   onSaved,
 }: ProviderDialogProps) {
   const configured = status.setup?.credentials.providers ?? [];
+  /** 只有 auth.json 里的供应商能删：只设了环境变量的删不掉 */
+  const deletable = new Set(status.deletableProviders ?? []);
+  const [managing, setManaging] = useState(false);
 
   return (
     <Modal title="模型供应商" onClose={onClose}>
       <div className="mb-4">
-        <div className="mb-1.5 text-[11px] text-muted">已经配好的</div>
+        <div className="mb-1.5 flex items-center justify-between gap-2">
+          <span className="text-[11px] text-muted">已经配好的</span>
+          {configured.length > 0 && (
+            <button
+              onClick={() => setManaging(m => !m)}
+              className="text-[11px] text-muted transition-colors hover:text-foreground"
+            >
+              {managing ? '完成' : '管理'}
+            </button>
+          )}
+        </div>
         {configured.length > 0 ? (
           <div className="flex flex-wrap gap-1.5">
             {configured.map(id => (
               <span
                 key={id}
-                className="rounded bg-surface px-2 py-0.5 font-mono text-[11px] text-foreground/80"
+                className="inline-flex items-center gap-1 rounded bg-surface px-2 py-0.5 font-mono text-[11px] text-foreground/80"
               >
                 {providerLabel(status, id)}
+                {managing && deletable.has(id) && (
+                  <button
+                    data-delete={id}
+                    onClick={() => onDeleteProvider(id)}
+                    aria-label={`删除 ${providerLabel(status, id)}`}
+                    title="删除（会移除已保存的密钥）"
+                    className="-mr-0.5 rounded p-0.5 text-muted transition-colors hover:text-rose-500"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                )}
               </span>
             ))}
           </div>

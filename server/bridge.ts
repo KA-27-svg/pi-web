@@ -27,6 +27,8 @@ import { findGitBash } from './gitBash.js';
 import { planToolFallback } from './toolFallback.js';
 import {
   configPaths,
+  deleteProvider,
+  readAuthProviders,
   readDefaultTools,
   readProviderBaseUrls,
   readProviderNames,
@@ -288,6 +290,8 @@ async function setupPayloadFrom(setup: SetupStatus) {
     providerNames: await readProviderNames(),
     // 已配的中转地址。表单回显用，不然只换 key 会把地址覆盖掉
     providerBaseUrls: await readProviderBaseUrls(),
+    // 哪些供应商能删：auth.json 里的那些（只设了环境变量的删不掉）
+    deletableProviders: await readAuthProviders(),
   };
 }
 
@@ -413,6 +417,30 @@ wss.on('connection', (ws: WebSocket) => {
           () => ({ provider: data.provider, modelId: data.modelId }),
           () => ({ id: data.id })
         );
+        return;
+      }
+
+      // 删除一个供应商的凭证。
+      if (data.type === 'delete_provider') {
+        const saved = reply(
+          ws,
+          'provider_deleted',
+          async () => {
+            const provider = String(data.provider ?? '').trim();
+            if (!provider) throw new Error('缺少供应商标识');
+            await deleteProvider(provider);
+            return { provider };
+          },
+          value => ({ provider: value.provider }),
+          () => ({ id: data.id })
+        );
+
+        // 和保存一样：落盘后再让 pi 重读
+        void saved.then(() => {
+          void broadcastSetupStatus();
+          pi.send({ type: 'get_available_models' });
+          pi.send({ type: 'get_state' });
+        });
         return;
       }
 

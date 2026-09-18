@@ -19,7 +19,7 @@ import { ChatInput } from './components/ChatInput';
 import { Settings, PanelLeftOpen } from 'lucide-react';
 
 export default function App() {
-  const { messages, status, sendPrompt, interrupt, changeCwd, newSession, setModel, setThinkingLevel, requestSessions, requestStats, uploadFile, listDir, readAttachment, pickFile, openAttachment, switchSession, renameSession, deleteSession, requestTrash, restoreSession, purgeSession, emptyTrash, requestSetupStatus, installPi, saveProviderKey } =
+  const { messages, status, sendPrompt, interrupt, changeCwd, newSession, setModel, setThinkingLevel, requestSessions, requestStats, uploadFile, listDir, readAttachment, pickFile, openAttachment, switchSession, renameSession, deleteSession, requestTrash, restoreSession, purgeSession, emptyTrash, requestSetupStatus, installPi, saveProviderKey, deleteProvider } =
     usePiWebSocket();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLElement>(null);
@@ -275,6 +275,7 @@ export default function App() {
             status={status}
             onClose={() => setDialog(null)}
             onSaveProvider={saveProviderKey}
+            onDeleteProvider={deleteProvider}
             onSaved={() => {
               // 直接转回对话，并在上面报一声——不然用户不知道配完没、下一步干什么
               setDialog(null);

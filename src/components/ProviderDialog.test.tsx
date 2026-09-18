@@ -15,6 +15,7 @@ beforeEach(() => {
   document.body.appendChild(host);
   root = createRoot(host);
   onSaveProvider = vi.fn();
+  onDeleteProvider = vi.fn();
 });
 
 afterEach(() => {
@@ -30,16 +31,19 @@ const PROVIDERS: ProviderPreset[] = [
 // 显式写成目标签名，别用 ReturnType<typeof vi.fn>：那个类型太宽（带构造签名），
 // 传给组件 props 时 tsc 不认
 let onSaveProvider: (provider: string, key: string, baseUrl?: string) => void;
+let onDeleteProvider: (provider: string) => void;
 
 const render = (
   configured: string[] = ['anthropic', 'deepseek'],
-  onClose = vi.fn()
+  onClose = vi.fn(),
+  deletable: string[] = configured
 ) => {
   const status: BridgeStatus = {
     connected: true,
     cwd: '/demo',
     isStreaming: false,
     providers: PROVIDERS,
+    deletableProviders: deletable,
     setup: {
       platform: 'win32',
       node: { version: 'v22.23.2', ok: true, minimum: '22.19.0' },
@@ -58,6 +62,7 @@ const render = (
         status={status}
         onClose={onClose}
         onSaveProvider={onSaveProvider}
+        onDeleteProvider={onDeleteProvider}
         onSaved={vi.fn()}
       />
     );
@@ -179,5 +184,33 @@ describe('ProviderDialog', () => {
     });
 
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('默认不显示删除按钮，点「管理」才出来', () => {
+    render();
+    expect(document.body.querySelectorAll('[data-delete]')).toHaveLength(0);
+
+    click([...document.body.querySelectorAll('button')].find(b => b.textContent === '管理'));
+
+    expect(document.body.querySelectorAll('[data-delete]')).toHaveLength(2);
+  });
+
+  it('管理模式下点 × 删掉那个供应商', () => {
+    render();
+
+    click([...document.body.querySelectorAll('button')].find(b => b.textContent === '管理'));
+    click(document.body.querySelector('[data-delete="deepseek"]'));
+
+    expect(onDeleteProvider).toHaveBeenCalledWith('deepseek');
+  });
+
+  it('只设了环境变量的供应商不给删除按钮：环境变量删不掉', () => {
+    // 已配列表含环境变量来源，但只有 auth.json 里的那些能删
+    render(['anthropic', 'deepseek'], vi.fn(), ['anthropic']);
+
+    click([...document.body.querySelectorAll('button')].find(b => b.textContent === '管理'));
+
+    expect(document.body.querySelector('[data-delete="anthropic"]')).toBeTruthy();
+    expect(document.body.querySelector('[data-delete="deepseek"]')).toBeNull();
   });
 });

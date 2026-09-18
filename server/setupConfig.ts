@@ -278,9 +278,9 @@ export async function saveProviderName(
   if (Object.keys(providers).length === 0) delete existing.providers;
   else existing.providers = providers;
 
-  // 整份文件还是一片空白就别凭空创建它
-  if (Object.keys(existing).length === 0) return;
-
+  // 走到这里说明名字确实变了（没变在上面就 return 了）。即使结果是一片空白也要写：
+  // 那是「把最后一条名字清掉」，不写的话旧名字会留在盘上。
+  // （文件本来就不存在时 current === next === ''，上面已经返回过，不会来这儿凭空建文件）
   await writeJsonObject(models, existing, { mode: 0o600 });
 }
 
@@ -304,6 +304,42 @@ export async function readProviderNames(
     if (typeof name === 'string' && name.trim()) names[id] = name.trim();
   }
   return names;
+}
+
+/**
+ * auth.json 里存了凭证的供应商。
+ * 与 listConfiguredProviders 不同：不含只设了环境变量的——那些删不掉（env 不归我们管），
+ * 所以界面上的删除按钮只应该给这一份列表里的供应商。
+ */
+export async function readAuthProviders(
+  agentDir: string = resolveAgentDir()
+): Promise<string[]> {
+  const auth = await readJsonObject(configPaths(agentDir).auth).catch(
+    () => ({}) as Record<string, any>
+  );
+  return Object.keys(auth);
+}
+
+/**
+ * 删掉一个供应商的凭证，并清掉它在 models.json 里的显示名。
+ *
+ * 只碰 auth.json 里的这一条和 models.json 里的 `name`：models.json 里可能躺着
+ * 用户手写的 models / cost 等等，不能整条拿掉。文件坏掉时 readJsonObject 会抛错，
+ * 拒绝写入。
+ */
+export async function deleteProvider(
+  provider: string,
+  agentDir: string = resolveAgentDir()
+): Promise<void> {
+  const { auth } = configPaths(agentDir);
+  const existing = await readJsonObject(auth);
+  if (!(provider in existing)) return;
+
+  delete existing[provider];
+  await writeJsonObject(auth, existing, { mode: 0o600 });
+
+  // 显示名一并清掉（只碰 name；清完变空条目会被 saveProviderName 删掉）
+  await saveProviderName(provider, '', agentDir);
 }
 
 /**

@@ -221,6 +221,11 @@ export interface BridgeStatus {
    * 表单回显用：不回显的话，用户只换 key 就会把地址覆盖掉。
    */
   providerBaseUrls?: Record<string, string>;
+  /**
+   * 可以删除凭证的供应商（auth.json 里的那些）。
+   * 只设了环境变量的不在里面——环境变量删不掉。
+   */
+  deletableProviders?: string[];
   /** 支持订阅登录（OAuth）的供应商，只能在终端跑 /login */
   subscriptions?: { id: string; label: string }[];
   /** 正在代跑安装器 */
