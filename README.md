@@ -36,6 +36,16 @@ git clone https://github.com/KA-27-svg/pi-web.git
 
 ### 2. 双击 `start.bat`
 
+> **需要联网。** 首次运行要把这些东西从网上拉下来，网络不通时会在某一步卡住：
+> - **Node**（约 34 MB）——从 `nodejs.org` 下载
+> - **pi 与项目依赖**——从 npm registry 拉，国内直连可能很慢，可以先换成镜像：
+>   ```bash
+>   npm config set registry https://registry.npmmirror.com
+>   ```
+> - **向导装 pi**——会访问 `pi.dev` 的官方安装脚本
+>
+> 注意换 npm 镜像只解决 npm 那两步，`nodejs.org` 和 `pi.dev` 仍然要能连上。
+
 Windows 上双击它，会弹出一个黑窗口，它自己按顺序把该装的都装上，每步报一行结果和用时：
 
 ```
@@ -57,7 +67,7 @@ Windows 上双击它，会弹出一个黑窗口，它自己按顺序把该装的
 服务就在跑，关掉它就停。
 
 > macOS / Linux 上暂时要自己来：装好 Node 22.19.0 或更新版本，然后
-> `npm install && npm start`，再打开 <http://127.0.0.1:3001>。
+> `npm install && npm start`（同样需要联网，见上面的提醒），再打开 <http://127.0.0.1:3001>。
 
 ### 3. 填一个 API key
 
