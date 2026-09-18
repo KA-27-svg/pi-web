@@ -21,6 +21,8 @@ export interface ConnectivityResult {
   ok: boolean;
   /** 服务端回的 HTTP 状态码（通了才有） */
   status?: number;
+  /** 收到响应头的耗时（毫秒），也就是 TTFB */
+  ms?: number;
   /** 不通时的原因（连不上 / 超时） */
   error?: string;
 }
@@ -50,6 +52,7 @@ export async function checkUrl(
   const fetchLike = options.fetchLike ?? ((input, init) => fetch(input, init));
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+  const startedAt = Date.now();
 
   try {
     const response = await fetchLike(url, {
@@ -57,7 +60,8 @@ export async function checkUrl(
       redirect: 'follow',
       signal: controller.signal,
     });
-    return { url, ok: true, status: response.status };
+    // fetch 在收到响应头时就 resolve，所以这个差值天然就是 TTFB
+    return { url, ok: true, status: response.status, ms: Date.now() - startedAt };
   } catch (err) {
     return {
       url,

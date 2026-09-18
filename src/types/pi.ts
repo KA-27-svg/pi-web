@@ -110,6 +110,8 @@ export interface ConnectivityResult {
   ok: boolean;
   /** 服务端回的 HTTP 状态码（通了才有） */
   status?: number;
+  /** 收到响应头的耗时（毫秒），也就是 TTFB */
+  ms?: number;
   /** 不通时的原因 */
   error?: string;
 }

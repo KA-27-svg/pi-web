@@ -17,7 +17,7 @@ describe('checkUrl', () => {
   it('服务端回了任何 HTTP 状态都算通（401 / 404 也算）', async () => {
     const fetchLike = vi.fn(async () => response(401));
 
-    await expect(checkUrl('https://api.example.com/v1', { fetchLike })).resolves.toEqual({
+    await expect(checkUrl('https://api.example.com/v1', { fetchLike })).resolves.toMatchObject({
       url: 'https://api.example.com/v1',
       ok: true,
       status: 401,
@@ -62,7 +62,7 @@ describe('checkTargets', () => {
       { fetchLike }
     );
 
-    expect(results).toEqual([
+    expect(results).toMatchObject([
       { id: 'npm', url: 'https://registry.npmjs.org/', ok: true, status: 200 },
       { id: 'bad', url: 'file:///etc/passwd', ok: false, error: '地址不是 http/https' },
     ]);

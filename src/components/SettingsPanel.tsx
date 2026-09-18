@@ -5,7 +5,6 @@ import { contextLevel, type ContextLevel } from '../utils/contextUsage';
 import { providerLabel } from '../utils/providerLabel';
 import { useRefreshFeedback } from '../hooks/useRefreshFeedback';
 import { useHiddenModels } from '../hooks/useHiddenModels';
-import { NetworkCheck } from './NetworkCheck';
 import { X, ChevronDown, RefreshCw, RotateCcw } from 'lucide-react';
 
 interface SettingsPanelProps {
@@ -258,14 +257,53 @@ export function SettingsPanel({
       ].join('\n')
     : undefined;
 
-  // 要测的几个地址：装依赖、装 pi、以及当前模型实际请求的那个地址
-  const networkTargets = [
-    { id: 'npm', label: 'npm registry', url: 'https://registry.npmjs.org/' },
-    { id: 'pi', label: 'pi.dev（装 pi 用）', url: 'https://pi.dev/' },
-    ...(status.model?.baseUrl
-      ? [{ id: 'model', label: '模型接口', url: status.model.baseUrl }]
-      : []),
-  ];
+  // API 上游：只测当前模型实际请求的那个地址通不通（不验 key / 模型）
+  const upstreamUrl = status.model?.baseUrl ?? null;
+  const [upstreamState, setUpstreamState] = useState<{
+    phase: 'idle' | 'pending' | 'done';
+    result?: ConnectivityResult;
+  }>({ phase: 'idle' });
+
+  const runUpstream = () => {
+    if (!upstreamUrl) return;
+    setUpstreamState({ phase: 'pending' });
+    onCheckConnectivity([{ id: 'upstream', url: upstreamUrl }])
+      .then(results => setUpstreamState({ phase: 'done', result: results[0] }))
+      .catch((error: Error) =>
+        setUpstreamState({
+          phase: 'done',
+          result: {
+            id: 'upstream',
+            url: upstreamUrl,
+            ok: false,
+            error: error.message || '检测失败',
+          },
+        })
+      );
+  };
+
+  // 一个按钮把两边都测了：本机探测 + 上游连通
+  const runRecheck = () => {
+    recheck.trigger(onRecheckSetup);
+    runUpstream();
+  };
+
+  const checking = recheck.phase === 'pending' || upstreamState.phase === 'pending';
+
+  const upstream = (() => {
+    if (!upstreamUrl) return { text: '未配置模型', tone: 'text-muted' };
+    if (upstreamState.phase === 'pending') return { text: '检测中…', tone: 'text-muted' };
+
+    const result = upstreamState.result;
+    if (!result) return { text: '点「重新检测」测一下', tone: 'text-muted' };
+    if (result.ok) {
+      return {
+        text: `通${typeof result.ms === 'number' ? ` · ${result.ms} ms` : ''}`,
+        tone: 'text-emerald-600',
+      };
+    }
+    return { text: `不通：${result.error ?? '未知原因'}`, tone: 'text-rose-500' };
+  })();
 
   return (
     <>
@@ -343,20 +381,27 @@ export function SettingsPanel({
             <div className="mb-2 flex items-center justify-between gap-2">
               <span className="text-[11px] text-muted">环境自检</span>
               <button
-                onClick={() => recheck.trigger(onRecheckSetup)}
-                disabled={recheck.phase === 'pending'}
+                onClick={runRecheck}
+                disabled={checking}
                 className="flex items-center gap-1 text-[11px] text-muted transition-colors hover:text-foreground disabled:cursor-default"
               >
                 <RefreshCw
-                  className={`w-3 h-3 ${recheck.phase === 'pending' ? 'animate-spin' : ''} ${
-                    recheck.phase === 'done' ? 'text-emerald-600' : ''
+                  className={`w-3 h-3 ${checking ? 'animate-spin' : ''} ${
+                    !checking && recheck.phase === 'done' ? 'text-emerald-600' : ''
                   }`}
                 />
-                {recheck.phase === 'pending' ? '检测中…' : recheck.phase === 'done' ? '已刷新' : '重新检测'}
+                {checking ? '检测中…' : recheck.phase === 'done' ? '已刷新' : '重新检测'}
               </button>
             </div>
 
             <div className="divide-y divide-border/70">
+              {/* API 上游：当前模型实际请求的那个地址通不通（不验 key / 模型，
+                  所以不会被网关的鉴权拦截误判） */}
+              <Row label="API 上游">
+                <span className={upstream.tone} title={upstreamUrl ?? undefined}>
+                  {upstream.text}
+                </span>
+              </Row>
               <Row label="Node">
                 {setup.node.version ?? '未找到'}
                 {!setup.node.ok && <span className="text-amber-600"> · 需要 ≥ {setup.node.minimum}</span>}
@@ -374,15 +419,6 @@ export function SettingsPanel({
                 </Row>
               )}
             </div>
-
-            {/*
-              上面那些只查本机。网络单独测：不向模型发真实请求，只看地址通不通，
-              所以不会产生调用费用。
-            */}
-            <NetworkCheck targets={networkTargets} onCheck={onCheckConnectivity} />
-            <p className="mt-2 text-[10.5px] leading-[1.6] text-muted/80">
-              自检只看本机配置；网络单独测，不会真的向模型发请求。
-            </p>
           </div>
         )}
       </div>

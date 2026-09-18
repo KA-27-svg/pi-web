@@ -116,29 +116,57 @@ describe('SettingsPanel 环境自检', () => {
     expect(text()).not.toContain('Git Bash');
   });
 
-  it('说明自检只看本机，网络另外单独测', () => {
-    render(setup());
-
-    expect(text()).toContain('自检只看本机配置');
-    expect(text()).toContain('网络单独测');
-  });
-
-  it('「测试网络」把要测的地址交给上层，并把结果显示出来', async () => {
+  it('点「重新检测」一把测两样：本机探测 + API 上游', async () => {
+    const onRecheckSetup = vi.fn();
     const onCheckConnectivity = vi.fn(async (targets: { id: string; url: string }[]) =>
-      targets.map(target => ({ ...target, ok: target.id === 'npm', status: 200, error: '连接超时' }))
+      targets.map(target => ({ ...target, ok: true, status: 200, ms: 123 }))
     );
-    render(setup(), vi.fn(), { model: { id: 'm', name: 'M', provider: 'p', baseUrl: 'https://relay.example/v1' } }, onCheckConnectivity);
+    render(
+      setup(),
+      onRecheckSetup,
+      { model: { id: 'm', name: 'M', provider: 'p', baseUrl: 'https://relay.example/v1' } },
+      onCheckConnectivity
+    );
 
-    // 当前模型接口也要在要测的名单里
-    click([...host.querySelectorAll('button')].find(b => b.textContent?.includes('测试网络')));
+    click(recheckButton());
     await act(async () => {});
 
-    expect(onCheckConnectivity).toHaveBeenCalledTimes(1);
-    const targets = onCheckConnectivity.mock.calls[0][0] as { id: string }[];
-    expect(targets.map(t => t.id)).toContain('model');
+    expect(onRecheckSetup).toHaveBeenCalledTimes(1);
+    // 只测当前模型实际请求的那个地址
+    expect(onCheckConnectivity).toHaveBeenCalledWith([
+      { id: 'upstream', url: 'https://relay.example/v1' },
+    ]);
+    expect(text()).toContain('通 · 123 ms');
+  });
 
-    expect(text()).toContain('通（HTTP 200）');
-    expect(text()).toContain('不通');
+  it('API 上游不通时说清原因，不冒充「能用」', async () => {
+    const onCheckConnectivity = vi.fn(async (targets: { id: string; url: string }[]) =>
+      targets.map(target => ({ ...target, ok: false, error: '超时（8 秒）' }))
+    );
+    render(
+      setup(),
+      vi.fn(),
+      { model: { id: 'm', name: 'M', provider: 'p', baseUrl: 'https://relay.example/v1' } },
+      onCheckConnectivity
+    );
+
+    click(recheckButton());
+    await act(async () => {});
+
+    expect(text()).toContain('不通：超时');
+  });
+
+  it('API 上游排在 Node 前面', () => {
+    render(
+      setup(),
+      vi.fn(),
+      { model: { id: 'm', name: 'M', provider: 'p', baseUrl: 'https://relay.example/v1' } },
+      async () => []
+    );
+
+    const body = text();
+    expect(body.indexOf('API 上游')).toBeGreaterThan(-1);
+    expect(body.indexOf('API 上游')).toBeLessThan(body.indexOf('Node'));
   });
 
   it('还没拿到探测结果时整段不显示', () => {
