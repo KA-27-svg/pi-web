@@ -45,15 +45,6 @@
   cursor: pointer;
 }
 
-/*
- * 切会话时不要任何形变 / 过渡：那一帧正在渲染新会话的历史，
- * 动画每帧都会带着整列内容重新布局，必卡。切会话本来也不是「开场」。
- */
-.pi-stage[data-no-transition] .pi-composer,
-.pi-stage[data-no-transition] .pi-composer * {
-  transition: none !important;
-}
-
 .pi-composer.is-icon:hover {
   transform: translate(-50%, -50%) scale(1.035);
 }

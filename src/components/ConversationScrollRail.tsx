@@ -170,7 +170,11 @@ function ConversationScrollRailBase({
         container.scrollTop = anchor;
       }
     }
-  }, [containerRef, contentRef, items, windowKey, metrics.scrollHeight, metrics.clientHeight]);
+    // 依赖里**不能**放 metrics.clientHeight：锚点是相对内容的偏移，跟容器高度无关。
+    // 而 composer 的开场形变 / 切会话过渡会每帧改容器高度，只要 clientHeight 在依赖里，
+    // 这段就会每帧跑一次 querySelectorAll + 逐个 getBoundingClientRect（强制布局）——
+    // 以前轨道只映射当前窗口的几条提问看不出，改成索引整段会话后就明显卡了。
+  }, [containerRef, contentRef, items, windowKey, metrics.scrollHeight]);
 
   /** 指针落在轨道上的比例。两种形态的轨道都带同样的上下留白，所以共用一套换算 */
   const fractionFromClientY = (clientY: number) => {

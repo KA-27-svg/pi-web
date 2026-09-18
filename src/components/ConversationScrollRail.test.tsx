@@ -513,3 +513,36 @@ describe('跳到还没渲染的提问（窗口可滑动）', () => {
     expect(container.scrollTop).toBe(5 * MESSAGE_STEP);
   });
 });
+
+describe('锚点不该每帧重算', () => {
+  it('只改容器高度时（composer 形变 / 切会话过渡每帧都在改它）不重新量锚点', () => {
+    mount();
+
+    const content = host.querySelector('[data-testid="content"]') as HTMLElement;
+    const first = content.children[0] as HTMLElement;
+
+    let reads = 0;
+    const original = first.getBoundingClientRect.bind(first);
+    first.getBoundingClientRect = () => {
+      reads += 1;
+      return original();
+    };
+
+    // 先把基线跑出来：改 scrollHeight（内容尺寸变了）会让锚点必须重算一次
+    setScrollHeight(SCROLL_HEIGHT + 50);
+    resize();
+
+    const before = reads;
+    expect(before).toBeGreaterThan(0);
+
+    // 只改高度：这正是开场形变 / 切会话过渡时每帧发生的事。
+    // 锚点是相对内容的偏移，跟容器高度无关，不该因此重算。
+    Object.defineProperty(container, 'clientHeight', {
+      configurable: true,
+      value: CLIENT_HEIGHT - 120,
+    });
+    resize();
+
+    expect(reads).toBe(before);
+  });
+});

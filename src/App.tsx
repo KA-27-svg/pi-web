@@ -413,11 +413,7 @@ export default function App() {
 
         {/* 输入区：开场图标态与展开态是同一个元素，原地形变，无交接 */}
         <footer
-          className={`w-full flex-shrink-0 ${
-            // 切会话时不做 padding 过渡：它会改变对话区高度，动画每一帧都要
-            // 带着刚渲染出来的整列消息重新布局，就是那个「切会话卡一下」
-            switching ? '' : 'transition-[padding] duration-500 ease-out'
-          } ${
+          className={`w-full flex-shrink-0 transition-[padding] duration-500 ease-out ${
             shouldStickBottom
               ? 'pb-0'
               : 'pb-[calc(50vh-50.5px)] sm:pb-[calc(50vh-58.5px)]'
@@ -471,7 +467,6 @@ export default function App() {
             }}
             autoFocus={false}
             showIcon={showOpeningIcon}
-            skipMorph={switching}
             onActivate={() => setOpeningIcon(false)}
             onResize={handleComposerResize}
             restoredDraft={status.restoredDraft}
