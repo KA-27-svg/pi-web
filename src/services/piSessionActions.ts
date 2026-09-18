@@ -7,7 +7,13 @@ import type { PiBridge } from './piBridge';
  * 直接操作会话文件（见 server/sessions.ts、server/trash.ts），前端只管发指令。
  */
 export function createSessionActions({ handler, sendCommand }: PiBridge) {
-  const requestSessions = () => sendCommand({ type: 'list_sessions' });
+  /**
+   * 拉历史会话列表。
+   * `scope: 'advisor'` 列的是顾问自己的目录（侧栏的顾问分组用）。
+   * 这个动作挂在执行窗口那条连接上也能调：侧栏要展示两个列表。
+   */
+  const requestSessions = (scope?: 'advisor') =>
+    sendCommand({ type: 'list_sessions', ...(scope ? { scope } : {}) });
   const requestStats = () => sendCommand({ type: 'get_session_stats' });
 
   const switchSession = (sessionPath: string) => {
@@ -15,6 +21,16 @@ export function createSessionActions({ handler, sendCommand }: PiBridge) {
     handler.beginSwitch();
     sendCommand({ type: 'switch_session', sessionPath });
   };
+
+  /**
+   * 替顾问窗口切换它的历史会话（侧栏的顾问分组用）。
+   *
+   * 与 switchSession 的差别：**本地不进「切换中」**。那条指令会被桥接路由到
+   * 顾问的 pi，回包（以及重拉的历史）都只回顾问那边；执行窗口要是也把自己
+   * 置成切换中，就永远等不到自己的回包，界面会卡在空白上。
+   */
+  const switchAdvisorSession = (sessionPath: string) =>
+    sendCommand({ type: 'switch_session', sessionPath, scope: 'advisor' });
 
   const renameSession = (sessionPath: string, name: string) =>
     sendCommand({ type: 'rename_session', sessionPath, name });
@@ -34,6 +50,7 @@ export function createSessionActions({ handler, sendCommand }: PiBridge) {
     requestSessions,
     requestStats,
     switchSession,
+    switchAdvisorSession,
     renameSession,
     deleteSession,
     requestTrash,

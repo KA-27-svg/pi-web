@@ -50,9 +50,11 @@ const mount = (count: number, overrides: Partial<React.ComponentProps<typeof Sid
         onOpenProviders={noop}
         onOpenCwd={noop}
         onSwitchSession={noop}
+        onSwitchAdvisorSession={noop}
         onRenameSession={noop}
         onDeleteSession={noop}
         onRefreshSessions={noop}
+        onRequestAdvisorSessions={noop}
         {...trashProps}
         {...overrides}
       />
@@ -151,6 +153,8 @@ describe('历史对话侧栏', () => {
           onRenameSession={noop}
           onDeleteSession={noop}
           onRefreshSessions={noop}
+          onSwitchAdvisorSession={vi.fn()}
+          onRequestAdvisorSessions={vi.fn()}
           {...trashProps}
         />
       );
@@ -491,5 +495,110 @@ describe('侧栏刷新按钮的点击反馈', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe('侧栏的顾问分组', () => {
+  const advisorSession = (index: number): SessionSummary => ({
+    path: `/tmp/adv/session-${index}.jsonl`,
+    id: `adv-id-${index}`,
+    preview: `顾问的讨论 ${index}`,
+    updatedAt: Date.now(),
+  });
+
+  const mountAdvisor = (over: Partial<React.ComponentProps<typeof Sidebar>> = {}) => {
+    const props = {
+      advisorAvailable: true,
+      status: status(1, {
+        advisorSessions: [advisorSession(0), advisorSession(1)],
+        advisorSessionsTotal: 2,
+      }),
+      advisorSessionId: 'adv-id-1',
+      onSwitchSession: vi.fn(),
+      onSwitchAdvisorSession: vi.fn(),
+      onRequestAdvisorSessions: vi.fn(),
+      onDeleteSession: vi.fn(),
+      ...over,
+    };
+    mount(1, props);
+    return props;
+  };
+
+  const tab = (label: string) =>
+    [...host.querySelectorAll('[role="tab"]')].find(
+      button => (button.textContent ?? '') === label
+    ) as HTMLButtonElement | undefined;
+
+  const rows = () => [...host.querySelectorAll('ul li button')];
+
+  it('助手模式关着时不显示范围切换', () => {
+    mount(1, { advisorAvailable: false });
+
+    expect(host.querySelectorAll('[role="tab"]')).toHaveLength(0);
+  });
+
+  it('开着时才有「项目 / 顾问」，点顾问会去拉顾问的历史', () => {
+    const props = mountAdvisor();
+
+    expect(tab('项目')).toBeDefined();
+    expect(tab('顾问')).toBeDefined();
+
+    act(() => {
+      tab('顾问')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+
+    expect(props.onRequestAdvisorSessions).toHaveBeenCalled();
+  });
+
+  it('顾问列表用顾问自己的「当前会话」高亮，打开走顾问那条路', () => {
+    const props = mountAdvisor();
+
+    act(() => {
+      tab('顾问')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+
+    const active = rows().filter(row => row.getAttribute('aria-current') === 'true');
+    expect(active).toHaveLength(1);
+    expect(active[0].textContent).toContain('顾问的讨论 1');
+
+    act(() => {
+      active[0].dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    expect(props.onSwitchAdvisorSession).toHaveBeenCalledWith('/tmp/adv/session-1.jsonl');
+    expect(props.onSwitchSession).not.toHaveBeenCalled();
+  });
+
+  it('删顾问会话时不给「撤销」——它不进回收箱', () => {
+    vi.useFakeTimers();
+    const props = mountAdvisor();
+
+    act(() => {
+      tab('顾问')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    const deleteButton = [...host.querySelectorAll('button')].find(
+      button => button.getAttribute('aria-label') === '删除'
+    ) as HTMLButtonElement;
+    act(() => {
+      deleteButton.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+
+    expect(props.onDeleteSession).toHaveBeenCalledWith('/tmp/adv/session-0.jsonl');
+    expect((host.textContent ?? '')).toContain('顾问对话已删除');
+    expect((host.textContent ?? '')).not.toContain('撤销');
+  });
+
+  it('项目会话的删除照旧有撤销', () => {
+    vi.useFakeTimers();
+    const props = mountAdvisor();
+
+    const deleteButton = [...host.querySelectorAll('button')].find(
+      button => button.getAttribute('aria-label') === '删除'
+    ) as HTMLButtonElement;
+    act(() => {
+      deleteButton.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+
+    expect(props.onDeleteSession).toHaveBeenCalledWith('/tmp/proj/session-0.jsonl');
+    expect((host.textContent ?? '')).toContain('撤销');
   });
 });

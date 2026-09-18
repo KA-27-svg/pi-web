@@ -1,4 +1,5 @@
 import type { HandoffMode } from '../types/pi';
+import { useEffect } from 'react';
 import { ADVISOR_LANE } from '../services/piBridge';
 import { usePiWebSocket } from '../hooks/usePiWebSocket';
 import { ConversationPane } from './ConversationPane';
@@ -6,6 +7,11 @@ import { ConversationPane } from './ConversationPane';
 interface AdvisorPaneProps {
   /** 把结论交给执行窗口。由 App 用**执行窗口**那套动作实现 */
   onHandoff: (text: string, mode: HandoffMode) => Promise<string>;
+  /**
+   * 顾问当前停在哪个会话（侧栏的顾问分组靠它高亮）。
+   * 侧栏长在执行窗口那条连接上，拿不到这条 lane 的状态，只能让它自己报。
+   */
+  onSessionIdChange?: (sessionId: string | undefined) => void;
 }
 
 /**
@@ -17,10 +23,15 @@ interface AdvisorPaneProps {
  * 这个组件只有在助手模式打开时才会被挂载——它就是「多一个 pi 进程」的开关，
  * 关着时不该有第二个进程常驻。
  */
-export function AdvisorPane({ onHandoff }: AdvisorPaneProps) {
+export function AdvisorPane({ onHandoff, onSessionIdChange }: AdvisorPaneProps) {
   const session = usePiWebSocket({ lane: ADVISOR_LANE });
   const models = session.status.availableModels ?? [];
   const current = session.status.model;
+  const sessionId = session.status.sessionId;
+
+  useEffect(() => {
+    onSessionIdChange?.(sessionId);
+  }, [sessionId, onSessionIdChange]);
   // 换过模型但列表里没有（比如列表还没刷新）时，把当前模型补进去，
   // 否则 select 的 value 对不上任何 option，浏览器会把第一项显示成选中
   const options = current && !models.some(model => model.id === current.id) ? [current, ...models] : models;

@@ -26,10 +26,21 @@ interface SidebarProps {
   /** 打开工作目录弹窗 */
   onOpenCwd: () => void;
   onSwitchSession: (sessionPath: string) => void;
+  /**
+   * 替顾问窗口切它自己的历史（顾问分组用）。
+   * 与 onSwitchSession 的差别：路由到顾问的 pi，本地不进「切换中」。
+   */
+  onSwitchAdvisorSession: (sessionPath: string) => void;
   onRenameSession: (sessionPath: string, name: string) => void;
-  /** 删除 = 移入回收箱 */
+  /** 删除 = 移入回收箱（顾问会话则直接删，由桥接按路径区分） */
   onDeleteSession: (sessionPath: string) => void;
   onRefreshSessions: () => void;
+  /** 拉顾问的历史列表（侧栏的顾问分组） */
+  onRequestAdvisorSessions: () => void;
+  /** 助手模式开着才显示顾问分组：关着时顾问进程都不在，切了也没人接 */
+  advisorAvailable?: boolean;
+  /** 顾问当前停在哪个会话（高亮用）。由顾问窗口上报 */
+  advisorSessionId?: string;
   onRequestTrash: () => void;
   onRestoreSession: (sessionPath: string) => void;
   onPurgeSession: (sessionPath: string) => void;
@@ -37,6 +48,9 @@ interface SidebarProps {
 }
 
 type View = 'history' | 'trash';
+
+/** 历史视图里看哪个范围的会话 */
+type ListScope = 'project' | 'advisor';
 
 interface Toast {
   text: string;
@@ -86,9 +100,13 @@ export function Sidebar({
   onOpenProviders,
   onOpenCwd,
   onSwitchSession,
+  onSwitchAdvisorSession,
   onRenameSession,
   onDeleteSession,
   onRefreshSessions,
+  onRequestAdvisorSessions,
+  advisorAvailable = false,
+  advisorSessionId,
   onRequestTrash,
   onRestoreSession,
   onPurgeSession,
@@ -97,31 +115,45 @@ export function Sidebar({
   // 用 useMemo 稳住引用：status.sessions 缺失时 `?? []` 会每渲染产生新数组，
   // 让下面的 useMemo / useLayoutEffect 每次都白跑
   const sessions = useMemo(() => status.sessions ?? [], [status.sessions]);
+  const advisorSessions = useMemo(
+    () => status.advisorSessions ?? [],
+    [status.advisorSessions]
+  );
   const trashed = useMemo(() => status.trashed ?? [], [status.trashed]);
 
   const [view, setView] = useState<View>('history');
+  const [scope, setScope] = useState<ListScope>('project');
   const [query, setQuery] = useState('');
   const [toast, setToast] = useState<Toast | null>(null);
   const [dismissedNotice, setDismissedNotice] = useState<string | undefined>();
 
-  /**
-   * 刷新按钮的点击反馈。看的是「这一次刷新要等的那个值」：历史视图等 sessions，
-   * 回收箱等 trashed。
-   */
-  const refresh = useRefreshFeedback(view === 'history' ? sessions : trashed);
+/** 助手模式关着时顾问分组不存在，一律看项目列表（state 不动，开回来时还记得上次在哪） */
+const listScope: ListScope = advisorAvailable ? scope : 'project';
 
-  /** 当前视图该刷哪个：历史列表和回收箱是两个不同的请求 */
+
+  /** 当前在看的那份列表：回收箱 / 项目历史 / 顾问历史 */
+  const scopedSessions = listScope === 'advisor' ? advisorSessions : sessions;
+
+  /**
+   * 刷新按钮的点击反馈。看的是「这一次刷新要等的那个值」：历史视图等当前
+   * 范围的列表，回收箱等 trashed。
+   */
+  const refresh = useRefreshFeedback(view === 'history' ? scopedSessions : trashed);
+
+  /** 当前视图该刷哪个：两个历史范围和回收箱是三个不同的请求 */
   const refreshCurrentView = () => {
-    if (view === 'history') onRefreshSessions();
-    else onRequestTrash();
+    if (view === 'trash') onRequestTrash();
+    else if (scope === 'advisor') onRequestAdvisorSessions();
+    else onRefreshSessions();
   };
 
   const scrollRef = useRef<HTMLElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const toastTimerRef = useRef<number | undefined>(undefined);
-  /** 每个视图各记一份滚动位置 */
-  const scrollMemoryRef = useRef<Record<View, number>>({ history: 0, trash: 0 });
+  /** 每个视图 / 范围各记一份滚动位置 */
+  const scrollMemoryRef = useRef<Record<string, number>>({});
+  const listKey = view === 'trash' ? 'trash' : `history:${listScope}`;
 
   const showToast = (next: Toast, autoHideMs?: number) => {
     window.clearTimeout(toastTimerRef.current);
@@ -133,30 +165,31 @@ export function Sidebar({
 
   const normalizedQuery = query.trim().toLowerCase();
   const visibleSessions = useMemo(() => {
-    if (!normalizedQuery) return sessions;
-    return sessions.filter(session => {
+    if (!normalizedQuery) return scopedSessions;
+    return scopedSessions.filter(session => {
       const haystack = `${session.name ?? ''} ${session.preview} ${session.cwd ?? ''}`;
       return haystack.toLowerCase().includes(normalizedQuery);
     });
-  }, [sessions, normalizedQuery]);
+  }, [scopedSessions, normalizedQuery]);
 
   const listCount = view === 'history' ? visibleSessions.length : trashed.length;
 
   // 到底/到顶后继续滚轮可以再拉出一段阻尼位移，松手回弹；拖滚动条不触发
   useRubberBandScroll(scrollRef, listRef, { enabled: listCount > 0 });
 
-  // 收起再展开、切换视图、刷新列表之后回到原来的位置
+  // 收起再展开、切换视图 / 范围、刷新列表之后回到原来的位置
   useLayoutEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
-    const remembered = scrollMemoryRef.current[view];
+    const remembered = scrollMemoryRef.current[listKey];
     if (el.scrollTop !== remembered) el.scrollTop = remembered;
-  }, [view, sessions, trashed, query]);
+  }, [listKey, sessions, advisorSessions, trashed, query]);
 
   const handleScroll = () => {
     const el = scrollRef.current;
-    if (el) scrollMemoryRef.current[view] = el.scrollTop;
+    if (el) scrollMemoryRef.current[listKey] = el.scrollTop;
   };
+
 
   // `/` 或 Ctrl/Cmd+K 聚焦搜索，选输入框或正文时让开
   useLayoutEffect(() => {
@@ -176,12 +209,27 @@ export function Sidebar({
   const handleQueryChange = (value: string) => {
     setQuery(value);
     // 搜索改变的是列表语义，从顶部重新看
-    scrollMemoryRef.current.history = 0;
+    scrollMemoryRef.current[listKey] = 0;
   };
 
   const handleDelete = (sessionPath: string) => {
+    const advisorSession = listScope === 'advisor';
     onDeleteSession(sessionPath);
-    showToast({ text: '已移入回收箱 · 保留 30 天', tone: 'info', undoPath: sessionPath }, UNDO_VISIBLE_MS);
+    // 顾问会话不进回收箱（直接删），所以没有「撤销」可给
+    showToast(
+      advisorSession
+        ? { text: '顾问对话已删除', tone: 'info' }
+        : { text: '已移入回收箱 · 保留 30 天', tone: 'info', undoPath: sessionPath },
+      UNDO_VISIBLE_MS
+    );
+  };
+
+  const switchScope = (next: ListScope) => {
+    if (next === listScope) return;
+    setScope(next);
+    // 两个范围是两次独立的请求，切过去就刷一次，保证看到的是最新的
+    if (next === 'advisor') onRequestAdvisorSessions();
+    else onRefreshSessions();
   };
 
   const switchToTrash = () => {
@@ -269,22 +317,52 @@ export function Sidebar({
           <span className="text-[11.5px] text-muted">
             {view === 'history' ? '历史对话' : '回收箱'}
           </span>
-          <button
-            onClick={() => refresh.trigger(refreshCurrentView)}
-            disabled={refresh.phase === 'pending'}
-            className="-mr-1 rounded-md p-1 text-muted transition-colors hover:text-foreground disabled:cursor-default"
-            aria-label={view === 'history' ? '刷新历史对话' : '刷新回收箱'}
-            title={refresh.phase === 'done' ? '已刷新' : '刷新'}
-          >
-            {/* 点下去就转，数据回来换成对勾停一下——否则列表没变的话，点了跟没点一个样 */}
-            {refresh.phase === 'pending' ? (
-              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-            ) : refresh.phase === 'done' ? (
-              <Check className="w-3.5 h-3.5 text-emerald-600" />
-            ) : (
-              <RefreshCw className="w-3.5 h-3.5" />
+          <div className="flex items-center gap-1">
+            {view === 'history' && advisorAvailable && (
+              <div
+                role="tablist"
+                aria-label="会话范围"
+                className="flex items-center rounded-md bg-surface p-0.5"
+              >
+                {(
+                  [
+                    ['project', '项目'],
+                    ['advisor', '顾问'],
+                  ] as const
+                ).map(([value, label]) => (
+                  <button
+                    key={value}
+                    role="tab"
+                    aria-selected={listScope === value}
+                    onClick={() => switchScope(value)}
+                    className={`rounded px-2 py-0.5 text-[11px] transition-colors ${
+                      listScope === value
+                        ? 'bg-background text-foreground'
+                        : 'text-muted hover:text-foreground'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
             )}
-          </button>
+            <button
+              onClick={() => refresh.trigger(refreshCurrentView)}
+              disabled={refresh.phase === 'pending'}
+              className="-mr-1 rounded-md p-1 text-muted transition-colors hover:text-foreground disabled:cursor-default"
+              aria-label={view === 'history' ? '刷新历史对话' : '刷新回收箱'}
+              title={refresh.phase === 'done' ? '已刷新' : '刷新'}
+            >
+              {/* 点下去就转，数据回来换成对勾停一下——否则列表没变的话，点了跟没点一个样 */}
+              {refresh.phase === 'pending' ? (
+                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+              ) : refresh.phase === 'done' ? (
+                <Check className="w-3.5 h-3.5 text-emerald-600" />
+              ) : (
+                <RefreshCw className="w-3.5 h-3.5" />
+              )}
+            </button>
+          </div>
         </div>
 
         <nav
@@ -305,8 +383,10 @@ export function Sidebar({
               />
             ) : visibleSessions.length === 0 ? (
               <p className="px-2 py-3 text-[12px] text-muted">
-                {sessions.length === 0
-                  ? '暂无历史对话'
+                {scopedSessions.length === 0
+                  ? scope === 'advisor'
+                    ? '顾问还没有历史对话'
+                    : '暂无历史对话'
                   : `没有匹配「${query.trim()}」的对话`}
               </p>
             ) : (
@@ -315,8 +395,14 @@ export function Sidebar({
                   <SessionRow
                     key={session.path}
                     session={session}
-                    active={session.id === status.sessionId}
-                    onOpen={() => onSwitchSession(session.path)}
+                    active={
+                      session.id === (listScope === 'advisor' ? advisorSessionId : status.sessionId)
+                    }
+                    onOpen={() =>
+                      listScope === 'advisor'
+                        ? onSwitchAdvisorSession(session.path)
+                        : onSwitchSession(session.path)
+                    }
                     onRename={name => onRenameSession(session.path, name)}
                     onDelete={() => handleDelete(session.path)}
                   />
@@ -324,9 +410,15 @@ export function Sidebar({
               </ul>
             )}
 
-            {view === 'history' && sessions.length > 0 && sessions.length < (status.sessionsTotal ?? 0) && (
+            {view === 'history' &&
+              scopedSessions.length > 0 &&
+              scopedSessions.length <
+                (listScope === 'advisor'
+                  ? (status.advisorSessionsTotal ?? 0)
+                  : (status.sessionsTotal ?? 0)) && (
               <p className="px-2 py-2 text-[11.5px] leading-[1.6] text-muted">
-                只显示最近 {sessions.length} 条，共 {status.sessionsTotal} 条
+                只显示最近 {scopedSessions.length} 条，共{' '}
+                {listScope === 'advisor' ? status.advisorSessionsTotal : status.sessionsTotal} 条
               </p>
             )}
           </div>

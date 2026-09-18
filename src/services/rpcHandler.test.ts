@@ -1188,3 +1188,54 @@ describe('上下文压缩', () => {
     expect(h.status().compacting).toBe(true);
   });
 });
+
+describe('顾问的历史', () => {
+  it('scope=advisor 的列表写进 advisorSessions，不碰项目列表', () => {
+    const h = createHarness();
+
+    h.handler.handleEvent(
+      { type: 'sessions_list', scope: 'advisor', sessions: [{ path: '/adv/a.jsonl', id: 'adv' }], total: 2 },
+      h.ws
+    );
+
+    const state = h.status();
+    expect(state.advisorSessions).toHaveLength(1);
+    expect(state.advisorSessionsTotal).toBe(2);
+    expect(state.sessions).toBeUndefined();
+  });
+
+  it('不带 scope 的照旧写项目列表', () => {
+    const h = createHarness();
+    h.handler.handleEvent({ type: 'sessions_list', sessions: [{ path: '/a.jsonl', id: 'a' }] }, h.ws);
+
+    const state = h.status();
+    expect(state.sessions).toHaveLength(1);
+    expect(state.advisorSessions).toBeUndefined();
+  });
+
+  it('替另一条 lane 切会话：这边要进入「切换中」，否则不会换上新历史', () => {
+    const h = createHarness();
+
+    h.handler.handleEvent({ type: 'session_switching' }, h.ws);
+
+    expect(h.status().switching).toBe(true);
+  });
+
+  it('删顾问会话后刷的是顾问的列表，而且不去刷回收箱（它不进回收箱）', () => {
+    const h = createHarness();
+
+    h.handler.handleEvent({ type: 'session_trashed', success: true, scope: 'advisor' }, h.ws);
+
+    expect(h.ws.sent).toContain(JSON.stringify({ type: 'list_sessions', scope: 'advisor' }));
+    expect(h.ws.sent).not.toContain(JSON.stringify({ type: 'list_trash' }));
+  });
+
+  it('项目会话的增删改仍刷项目列表与回收箱', () => {
+    const h = createHarness();
+
+    h.handler.handleEvent({ type: 'session_trashed', success: true }, h.ws);
+
+    expect(h.ws.sent).toContain(JSON.stringify({ type: 'list_sessions' }));
+    expect(h.ws.sent).toContain(JSON.stringify({ type: 'list_trash' }));
+  });
+});

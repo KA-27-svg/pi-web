@@ -3,7 +3,14 @@ import * as http from 'http';
 import * as path from 'path';
 import * as fs from 'fs/promises';
 import * as fsSync from 'fs';
-import { listSessions, readSessionCwdSync, renameSession } from './sessions.js';
+import {
+  listSessions,
+  readSessionCwdSync,
+  renameSession,
+  deleteSession,
+  sessionsRoot,
+  SESSION_LIST_LIMIT,
+} from './sessions.js';
 import { saveUpload } from './uploads.js';
 import { listDirectory } from './browse.js';
 import { pickFiles } from './fileDialog.js';
@@ -241,6 +248,23 @@ function claimAttachments(line: string) {
   } catch {
     // 不是完整 JSON，忽略
   }
+}
+
+/**
+ * 会话路径的归属：顾问目录下的归顾问，其余是项目会话。
+ *
+ * 侧栏长在执行窗口那条连接上，但它也要能列 / 开 / 改 / 删顾问的会话——
+ * 所以这些操作不能按「哪条连接发来的」路由，得按「文件在哪个目录」。
+ * 这也顺带保证了：项目侧的操作永远碰不到顾问目录里的文件（路径守卫会拒）。
+ */
+function isAdvisorSessionPath(sessionPath: string): boolean {
+  const advisorRoot = path.resolve(ADVISOR_SESSION_DIR) + path.sep;
+  return path.resolve(sessionPath).startsWith(advisorRoot);
+}
+
+/** 列某个范围的会话。advisor = 顾问自己的目录（平铺，不是默认的项目布局） */
+function sessionRootForScope(scope: unknown): string {
+  return scope === ADVISOR_LANE ? ADVISOR_SESSION_DIR : sessionsRoot();
 }
 
 /**
@@ -671,19 +695,22 @@ wss.on('connection', (ws: WebSocket) => {
         return;
       }
 
-      // 历史会话列表：pi 的 RPC 没有列举接口，由桥接扫描会话目录
+      // 历史会话列表：pi 的 RPC 没有列举接口，由桥接扫描会话目录。
+      // scope=advisor 时列的是顾问自己的目录（侧栏的顾问分组用），
+      // 回包带同一个 scope，前端才知道该填哪个列表。
       if (data.type === 'list_sessions') {
-        listSessions()
+        const scope = data.scope === ADVISOR_LANE ? ADVISOR_LANE : undefined;
+        listSessions(SESSION_LIST_LIMIT, sessionRootForScope(scope))
           .then(({ sessions, total }) => {
             if (ws.readyState === WebSocket.OPEN) {
-              ws.send(JSON.stringify({ type: 'sessions_list', sessions, total }));
+              ws.send(JSON.stringify({ type: 'sessions_list', scope, sessions, total }));
             }
           })
           .catch(err => {
             console.error('[Pi Bridge] Failed to list sessions:', err);
             if (ws.readyState === WebSocket.OPEN) {
               ws.send(
-                JSON.stringify({ type: 'sessions_list', sessions: [], total: 0, error: String(err?.message ?? err) })
+                JSON.stringify({ type: 'sessions_list', scope, sessions: [], total: 0, error: String(err?.message ?? err) })
               );
             }
           });
@@ -691,23 +718,50 @@ wss.on('connection', (ws: WebSocket) => {
       }
 
       // 切换会话：pi 会把工作目录换成会话里记的 cwd，桥接必须跟着换，
-      // 否则设置面板显示的是旧目录，pi 崩溃自愈重启也会在错的目录里拉起
+      // 否则设置面板显示的是旧目录，pi 崩溃自愈重启也会在错的目录里拉起。
+      // 顾问目录下的会话归顾问那条 lane：侧栏长在执行窗口的连接上，但点顾问的
+      // 历史要切的是顾问那边的 pi，回包也只回顾问那边（发送方本地不进「切换中」）。
       if (data.type === 'switch_session' && typeof data.sessionPath === 'string') {
-        lanes.lane(lane).pendingSwitchCwd = readSessionCwdSync(data.sessionPath);
-        sendToPi(ws, lane, data);
+        const advisorSession = isAdvisorSessionPath(data.sessionPath);
+        const target = advisorSession ? ADVISOR_LANE : lane;
+        // 替另一条 lane 切会话时，得让那条 lane 也进「切换中」，
+        // 否则它不会把新历史换上去，界面会停在旧会话上
+        if (target !== lane) {
+          sendToLane(target, JSON.stringify({ type: 'session_switching', lane: target }));
+        }
+        lanes.lane(target).pendingSwitchCwd = readSessionCwdSync(
+          data.sessionPath,
+          advisorSession ? ADVISOR_SESSION_DIR : sessionsRoot()
+        );
+        sendToPi(ws, target, data);
         return;
       }
 
-      // 历史会话的增删改：pi 的 RPC 只认当前会话，这些都得桥接直接操作文件
+      // 历史会话的增删改：pi 的 RPC 只认当前会话，这些都得桥接直接操作文件。
+      // 根目录按文件在哪来：顾问目录下的归顾问（项目侧的操作碰不到它）。
       if (data.type === 'rename_session') {
-        reply(ws, 'session_renamed', () => renameSession(data.sessionPath, String(data.name ?? '').trim()), () => ({
-          sessionPath: data.sessionPath,
-        }));
+        const root = isAdvisorSessionPath(data.sessionPath) ? ADVISOR_SESSION_DIR : sessionsRoot();
+        reply(
+          ws,
+          'session_renamed',
+          () => renameSession(data.sessionPath, String(data.name ?? '').trim(), root),
+          () => ({ sessionPath: data.sessionPath, scope: isAdvisorSessionPath(data.sessionPath) ? ADVISOR_LANE : undefined })
+        );
         return;
       }
 
-      // 删除 = 移入回收箱（保留 30 天），所以可以一步到位、不需要二次确认
+      // 删除：项目会话进回收箱（保留 30 天）；顾问会话直接删——
+      // 它的沉淀物在 docs/plans/ 里，会话文件本身没什么可后悔的
       if (data.type === 'trash_session') {
+        if (isAdvisorSessionPath(data.sessionPath)) {
+          reply(
+            ws,
+            'session_trashed',
+            () => deleteSession(data.sessionPath, ADVISOR_SESSION_DIR),
+            () => ({ sessionPath: data.sessionPath, scope: ADVISOR_LANE })
+          );
+          return;
+        }
         reply(ws, 'session_trashed', () => trashSession(data.sessionPath), () => ({
           sessionPath: data.sessionPath,
         }));

@@ -23,7 +23,7 @@ export default function App() {
    * 这里只留外壳（侧栏 / 设置 / 向导 / 提示）。
    */
   const session = usePiWebSocket();
-  const { status, switchSession, renameSession, deleteSession, requestSessions, requestTrash, restoreSession, purgeSession, emptyTrash, newSession, setModel, setThinkingLevel, compactContext, requestStats, requestSetupStatus, installPi, saveProviderKey, deleteProvider, probeApi, sendPrompt, savePlanFile } =
+  const { status, switchSession, switchAdvisorSession, renameSession, deleteSession, requestSessions, requestTrash, restoreSession, purgeSession, emptyTrash, newSession, setModel, setThinkingLevel, compactContext, requestStats, requestSetupStatus, installPi, saveProviderKey, deleteProvider, probeApi, sendPrompt, savePlanFile } =
     session;
 
   const [panelOpen, setPanelOpen] = useState(false);
@@ -39,6 +39,8 @@ export default function App() {
    * 那些状态归 pane 所有，外壳碰不到，所以用信号通知而不是直接调它的 setter。
    */
   const [paneReset, setPaneReset] = useState(0);
+  /** 顾问当前停在哪个会话（侧栏的顾问分组高亮用），由顾问窗口上报 */
+  const [advisorSessionId, setAdvisorSessionId] = useState<string | undefined>(undefined);
 
   /**
    * 环境从「没就绪」变成「就绪」时说一声。
@@ -129,7 +131,21 @@ export default function App() {
     requestSessions();
     // 回收箱数量显示在侧栏底部，一并拉一下
     requestTrash();
-  }, [sidebarOpen, requestSessions, requestTrash]);
+    // 助手模式开着时，侧栏里的顾问分组也一起刷
+    if (assistantMode) requestSessions('advisor');
+  }, [sidebarOpen, assistantMode, requestSessions, requestTrash]);
+
+  // 打开助手模式时拉一次顾问历史，让侧栏分组有内容可看
+  useEffect(() => {
+    if (!assistantMode) return;
+    requestSessions('advisor');
+  }, [assistantMode, requestSessions]);
+
+  const handleToggleAssistantMode = () => {
+    toggleAssistantMode();
+    // 关掉时顾问窗口整个卸载，它上报的「当前会话」也就不作数了
+    setAdvisorSessionId(undefined);
+  };
 
   // 打开设置面板时拉一次用量，保证花费是刚发生的（而不是上次收尾时的）
   useEffect(() => {
@@ -174,6 +190,14 @@ export default function App() {
           // 但窄屏时它是覆盖层，不收起来会挡住刚打开的对话
           if (isOverlaySidebar()) setSidebarOpen(false);
         }}
+        onSwitchAdvisorSession={sessionPath => {
+          // 顾问的历史在另一条 lane 上：路由由桥接按路径决定，
+          // 回包也只回顾问那边，所以这里不用收起侧栏也不用进切换中
+          switchAdvisorSession(sessionPath);
+        }}
+        onRequestAdvisorSessions={() => requestSessions('advisor')}
+        advisorAvailable={assistantMode}
+        advisorSessionId={advisorSessionId}
         onRenameSession={renameSession}
         onDeleteSession={deleteSession}
         onRefreshSessions={requestSessions}
@@ -208,7 +232,7 @@ export default function App() {
 
         {/* 助手模式开关：左下是执行、右下是顾问。关着时连顾问进程都不会起 */}
         <button
-          onClick={toggleAssistantMode}
+          onClick={handleToggleAssistantMode}
           aria-pressed={assistantMode}
           className={`absolute right-14 top-3 z-[110] rounded-full p-2 transition-colors duration-200 ${
             assistantMode
@@ -274,7 +298,11 @@ export default function App() {
             />
           }
           // 关闭时不挂载：顾问是一个独立 pi 进程，开关没开就不该平白多一个
-          advisor={assistantMode ? <AdvisorPane onHandoff={deliverHandoff} /> : undefined}
+          advisor={
+            assistantMode ? (
+              <AdvisorPane onHandoff={deliverHandoff} onSessionIdChange={setAdvisorSessionId} />
+            ) : undefined
+          }
         />
       </div>
     </div>

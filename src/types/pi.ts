@@ -206,6 +206,12 @@ export interface BridgeStatus {
   sessions?: SessionSummary[];
   /** 磁盘上的会话总数；比 sessions.length 大说明列表被截断 */
   sessionsTotal?: number;
+  /**
+   * 顾问窗口自己的历史（存在 pi-web-advisor-sessions，不与项目会话混在一起）。
+   * 由执行窗口那条连接代为拉取：侧栏长在它上面，但它要能展示两个列表。
+   */
+  advisorSessions?: SessionSummary[];
+  advisorSessionsTotal?: number;
   trashed?: TrashedSession[];
   /** 需要告知用户的一次性提示（切换会话失败等） */
   notice?: string;

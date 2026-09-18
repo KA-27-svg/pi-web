@@ -2,7 +2,7 @@
 
 > 依据 [SPEC-assistant-lanes.md](./SPEC-assistant-lanes.md)。按依赖顺序排列，不按重要性。
 > **全部完成**（每个切片收尾都跑过 `npm run lint && npm test && npm run build`）。
-> 收尾状态：`tsc OK · lint OK · 963 tests passed / 3 skipped · build OK`。
+> 收尾状态：`tsc OK · lint OK · 978 tests passed / 3 skipped · build OK`（含顾问历史切片的 15 项）。
 
 ## Slice 0：先验证假设（不写产品代码）✅
 
@@ -88,6 +88,22 @@
   - Verify: `piHandoffActions.test.ts`（7 项）+ 真机冒烟（文件逐字一致、相对路径正确）
   - Files: `src/services/piHandoffActions.ts`, `src/App.tsx`
   - 注：投递本身抽成了与 React 无关的 `createHandoffDelivery`，所以能单测
+
+## Slice 5：顾问历史进侧栏（追加）✅
+
+- [x] Task 5.1：`sessions.ts` 支持自定义根目录 + 识别平铺布局
+  - Acceptance: `listSessions` / `renameSession` / `deleteSession` / `readSessionCwdSync` 都可传根目录；平铺在根目录的 `.jsonl` 也算数；别的目录的文件依旧拒
+  - Verify: `server/sessions.test.ts`（新增 4 项，含路径守卫）
+  - Files: `server/sessions.ts`, `server/sessions.test.ts`
+  - 注：先实测了 `--session-dir` 的布局——**平铺**，不是默认的按项目分子目录
+- [x] Task 5.2：桥接按路径路由顾问会话操作
+  - Acceptance: 顾问目录下的切换 / 改名 / 删除路由到顾问 lane 与顾问目录；删除直接删不进回收箱；跨 lane 切换先给那边发 `session_switching`
+  - Verify: 真机冒烟（pi 接受切到 `--session-dir` 里的会话，重拉历史读到内容；执行 lane 全程没收到顾问内容）
+  - Files: `server/bridge.ts`
+- [x] Task 5.3：前端 —— 侧栏「项目 / 顾问」范围切换
+  - Acceptance: 只有助手模式开着才出现；搜索 / 刷新 / 滚动记忆各自独立；顾问行用顾问上报的当前会话高亮、打开走顾问那条路；删顾问会话不给「撤销」
+  - Verify: `Sidebar.test.tsx`（5 项）+ `rpcHandler.test.ts`（5 项）+ `piSessionActions.test.ts`（1 项）
+  - Files: `src/components/Sidebar.tsx`, `src/services/piSessionActions.ts`, `src/services/rpcHandler.ts`, `src/types/pi.ts`, `src/App.tsx`, `src/components/AdvisorPane.tsx`
 
 ## 收尾
 

@@ -59,4 +59,19 @@ describe('session 动作', () => {
       { type: 'empty_trash' },
     ]);
   });
+
+  it('拉顾问的历史带 scope；替顾问切会话不进「切换中」', () => {
+    const { actions, sent, beginSwitch } = harness();
+
+    actions.requestSessions('advisor');
+    actions.switchAdvisorSession('C:/adv/a.jsonl');
+
+    expect(sent).toEqual([
+      { type: 'list_sessions', scope: 'advisor' },
+      { type: 'switch_session', sessionPath: 'C:/adv/a.jsonl', scope: 'advisor' },
+    ]);
+    // 切的是顾问那边的会话，回包也只回顾问那边；
+    // 执行窗口要是也把自己置成切换中，就永远等不到自己的回包
+    expect(beginSwitch).not.toHaveBeenCalled();
+  });
 });

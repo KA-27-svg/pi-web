@@ -250,3 +250,52 @@ describe('路径穿越防护', () => {
     await reject(`${tempHome}-evil${path.sep}x.jsonl`);
   });
 });
+
+describe('自定义会话目录（顾问的会话不在默认布局里）', () => {
+  let advisorRoot: string;
+  let flatFile: string;
+
+  beforeEach(async () => {
+    // pi 的 --session-dir 是**平铺**的：.jsonl 直接躺在给的那个目录里，没有项目子目录
+    advisorRoot = path.join(tempHome, 'pi-web-advisor-sessions');
+    await fs.mkdir(advisorRoot, { recursive: true });
+    flatFile = path.join(advisorRoot, '2026-02-02T00-00-00-000Z_bbb.jsonl');
+    await writeLines(flatFile, [header(), userMessage('顾问的讨论')]);
+  });
+
+  it('listSessions 能读到平铺在根目录的会话文件', async () => {
+    const { sessions } = await readSessions(undefined, advisorRoot);
+
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0]).toMatchObject({ path: flatFile, preview: '顾问的讨论' });
+  });
+
+  it('同一个目录里平铺和分子目录的都算数', async () => {
+    const nested = path.join(advisorRoot, 'nested');
+    await fs.mkdir(nested, { recursive: true });
+    await writeLines(path.join(nested, 'ccc.jsonl'), [header(), userMessage('子目录里的')]);
+
+    const { sessions } = await readSessions(undefined, advisorRoot);
+
+    expect(sessions).toHaveLength(2);
+  });
+
+  it('renameSession / deleteSession / readSessionCwdSync 都认自定义目录', async () => {
+    await renameSession(flatFile, '想了很久的一段', advisorRoot);
+    const { sessions: afterRename } = await readSessions(undefined, advisorRoot);
+    expect(afterRename[0].name).toBe('想了很久的一段');
+
+    expect(readSessionCwdSync(flatFile, advisorRoot)).toBe('C:\\demo');
+
+    await deleteSession(flatFile, advisorRoot);
+    expect((await readSessions(undefined, advisorRoot)).sessions).toHaveLength(0);
+  });
+
+  it('别的目录里的文件传进来仍然拒绝（ advisor 会话不能被项目侧的操作碰到）', async () => {
+    const elsewhere = path.join(tempHome, 'elsewhere.jsonl');
+    await writeLines(elsewhere, [header()]);
+
+    await expect(renameSession(elsewhere, 'x', advisorRoot)).rejects.toThrow('invalid session path');
+    await expect(deleteSession(elsewhere, advisorRoot)).rejects.toThrow('invalid session path');
+  });
+});

@@ -23,11 +23,14 @@ export interface SessionSummary {
   cwd?: string;
 }
 
-/** 只允许操作会话目录内的文件，避免路径穿越 */
-function resolveSessionPath(sessionPath: string): string {
-  const root = path.resolve(sessionsRoot()) + path.sep;
+/** 只允许操作会话目录内的文件，避免路径穿越。顾问的会话在另一个目录，所以 root 可传 */
+function resolveSessionPath(
+  sessionPath: string,
+  root: string = sessionsRoot()
+): string {
+  const base = path.resolve(root) + path.sep;
   const resolved = path.resolve(sessionPath);
-  if (!resolved.startsWith(root) || !resolved.endsWith('.jsonl')) {
+  if (!resolved.startsWith(base) || !resolved.endsWith('.jsonl')) {
     throw new Error('invalid session path');
   }
   return resolved;
@@ -42,8 +45,12 @@ function randomEntryId(): string {
  * 因此沿用它的存储方式，在 JSONL 末尾追加一条 session_info，
  * parentId 指向最后一条 entry 以保证树链完整。
  */
-export async function renameSession(sessionPath: string, name: string): Promise<void> {
-  const target = resolveSessionPath(sessionPath);
+export async function renameSession(
+  sessionPath: string,
+  name: string,
+  root: string = sessionsRoot()
+): Promise<void> {
+  const target = resolveSessionPath(sessionPath, root);
   const raw = await fs.readFile(target, 'utf-8');
 
   let parentId: string | null = null;
@@ -74,8 +81,17 @@ export async function renameSession(sessionPath: string, name: string): Promise<
 }
 
 /** 删除会话。仅用于彻底删除（回收箱清空 / 过期清理）；普通删除走 trash.ts */
-export async function deleteSession(sessionPath: string): Promise<void> {
-  await fs.unlink(resolveSessionPath(sessionPath));
+/**
+ * 直接删除一个会话文件。
+ *
+ * 项目会话走回收箱（trash.ts），这里只给顾问会话用：顾问讨论的沉淀物在
+ * docs/plans/ 里，会话文件本身没什么可后悔的。
+ */
+export async function deleteSession(
+  sessionPath: string,
+  root: string = sessionsRoot()
+): Promise<void> {
+  await fs.unlink(resolveSessionPath(sessionPath, root));
 }
 
 // 会话文件可能有几十 MB。列表只需要三样东西：会话头（id/cwd）、首条真实用户消息（标题）、
@@ -243,10 +259,13 @@ export interface SessionList {
  * 切换会话时必须立刻知道，不能等异步读文件与 pi 的回包抢时序，所以用同步读。
  * 只读头部一小段，不会把整个会话文件读进来。
  */
-export function readSessionCwdSync(sessionPath: string): string | null {
+export function readSessionCwdSync(
+  sessionPath: string,
+  root: string = sessionsRoot()
+): string | null {
   let fd: number | undefined;
   try {
-    fd = fsSync.openSync(resolveSessionPath(sessionPath), 'r');
+    fd = fsSync.openSync(resolveSessionPath(sessionPath, root), 'r');
     const buffer = Buffer.alloc(4096);
     const read = fsSync.readSync(fd, buffer, 0, buffer.length, 0);
     const firstLine = buffer.subarray(0, read).toString('utf-8').split('\n')[0];
@@ -263,20 +282,41 @@ export function readSessionCwdSync(sessionPath: string): string | null {
  * 会话按工作目录分目录存放。侧栏像 Codex 一样展示全部历史，
  * 因此扫全部子目录后按修改时间取最近的若干条。
  */
-export async function listSessions(limit = SESSION_LIST_LIMIT): Promise<SessionList> {
-  const root = sessionsRoot();
-  let dirs: string[];
+/**
+ * 列出某个会话目录下的历史。
+ *
+ * 会话文件两种摆法都要认：默认布局按项目分子目录，而 pi 的 `--session-dir`
+ * 是直接平铺在给的那个目录里（顾问会话就是这种）。
+ */
+export async function listSessions(
+  limit = SESSION_LIST_LIMIT,
+  root: string = sessionsRoot()
+): Promise<SessionList> {
+  let topEntries: import('fs').Dirent[];
   try {
-    const entries = await fs.readdir(root, { withFileTypes: true });
-    dirs = entries
-      .filter(entry => entry.isDirectory())
-      .map(entry => path.join(root, entry.name));
+    topEntries = await fs.readdir(root, { withFileTypes: true });
   } catch {
     return { sessions: [], total: 0 };
   }
 
   const candidates: { full: string; mtimeMs: number }[] = [];
-  for (const dir of dirs) {
+
+  // 平铺在根目录的
+  for (const entry of topEntries) {
+    if (!entry.isFile() || !entry.name.endsWith('.jsonl')) continue;
+    const full = path.join(root, entry.name);
+    try {
+      const stat = await fs.stat(full);
+      candidates.push({ full, mtimeMs: stat.mtimeMs });
+    } catch {
+      // 忽略无法 stat 的文件
+    }
+  }
+
+  // 按项目分子目录的
+  for (const entry of topEntries) {
+    if (!entry.isDirectory()) continue;
+    const dir = path.join(root, entry.name);
     let names: string[];
     try {
       names = await fs.readdir(dir);

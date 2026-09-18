@@ -379,14 +379,31 @@ export class RpcEventHandler {
       return;
     }
 
-    // 6. 桥接扫描会话目录的结果
+    // 6. 桥接扫描会话目录的结果。scope 区分项目会话与顾问自己的历史
     if (data.type === 'sessions_list') {
+      if (data.scope === 'advisor') {
+        this.setStatus((prev: BridgeStatus) => ({
+          ...prev,
+          advisorSessions: data.sessions ?? [],
+          advisorSessionsTotal:
+            typeof data.total === 'number' ? data.total : (data.sessions ?? []).length,
+        }));
+        return;
+      }
+
       this.setStatus((prev: BridgeStatus) => ({
         ...prev,
         sessions: data.sessions ?? [],
         sessionsTotal:
           typeof data.total === 'number' ? data.total : (data.sessions ?? []).length,
       }));
+      return;
+    }
+
+    // 6.5 替另一条 lane 切会话：桥接转发了指令，但回包只到那条 lane。
+    // 得让那边也进「切换中」，否则它不会把新历史换上去，界面会停在旧会话上
+    if (data.type === 'session_switching') {
+      this.beginSwitch();
       return;
     }
 
@@ -408,9 +425,12 @@ export class RpcEventHandler {
         return;
       }
 
-      // 两个列表都可能变了：会话列表多/少一条，回收箱少/多一条
-      ws.send(JSON.stringify({ type: 'list_sessions' }));
-      if (data.type !== 'session_renamed') {
+      // 哪个范围变了就刷哪个：顾问会话不进回收箱，也别去刷项目的列表
+      const advisorScope = data.scope === 'advisor';
+      ws.send(
+        JSON.stringify({ type: 'list_sessions', ...(advisorScope ? { scope: 'advisor' } : {}) })
+      );
+      if (data.type !== 'session_renamed' && !advisorScope) {
         ws.send(JSON.stringify({ type: 'list_trash' }));
       }
       return;

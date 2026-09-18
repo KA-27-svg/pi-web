@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import type { BridgeStatus, PiMessage } from '../types/pi';
 import { RpcEventHandler } from '../services/rpcHandler';
-import { DEFAULT_LANE, type PiBridge } from '../services/piBridge';
+import { ADVISOR_LANE, DEFAULT_LANE, type PiBridge } from '../services/piBridge';
 import { createStreamingActions } from '../services/piStreamingActions';
 import { createSessionActions } from '../services/piSessionActions';
 import { createAttachmentActions } from '../services/piAttachmentActions';
@@ -60,8 +60,16 @@ export function usePiWebSocket(options: { lane?: string } = {}) {
       ws.send(JSON.stringify({ type: 'get_session_stats', lane }));
       // 环境探测：未就绪时界面要进向导，不能等用户发完消息才发现没回复
       ws.send(JSON.stringify({ type: 'get_setup_status', lane }));
-      // 连接建立后再拉历史会话，否则首屏调用时连接尚未就绪
-      ws.send(JSON.stringify({ type: 'list_sessions', lane }));
+      // 连接建立后再拉历史会话，否则首屏调用时连接尚未就绪。
+      // 顾问那条连接拉它自己的历史（这个列表它自己不用，但保持各 lane 的状态
+      // 各自完整，以后要在顾问栏里做别的也不用再接一次线）
+      ws.send(
+        JSON.stringify({
+          type: 'list_sessions',
+          lane,
+          ...(lane === ADVISOR_LANE ? { scope: 'advisor' } : {}),
+        })
+      );
     },
     [lane]
   );
