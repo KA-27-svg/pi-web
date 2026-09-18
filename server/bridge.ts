@@ -38,7 +38,16 @@ import {
   saveDefaultTools,
   saveProviderConfig,
 } from './setupConfig.js';
-import { PiSupervisor } from './pi.js';
+import { LaneRegistry, DEFAULT_LANE } from './lanes.js';
+import {
+  ADVISOR_LANE,
+  advisorPersonaPath,
+  advisorPiArgs,
+  advisorSessionDir,
+  ensureAdvisorPersona,
+  hasAdvisorSessions,
+} from './advisor.js';
+import { savePlan } from './planFile.js';
 import { watchConfigFiles } from './configWatch.js';
 import { piNotReadyReply } from './bridgeMessages.js';
 import { probeApi, isHttpUrl } from './apiProbe.js';
@@ -51,7 +60,11 @@ import {
   trashSession,
 } from './trash.js';
 
-const PORT = 3001;
+/**
+ * 桥接端口。默认 3001。
+ * 前端认的是 3001，所以这个环境变量只在调试 / 想同时跑第二个实例时用。
+ */
+const PORT = Number(process.env.PI_BRIDGE_PORT || 3001);
 /** 收到这几条就把正在跑的那一轮打断或重启 pi：单独打日志，便于事后定位 */
 const WATCHED_COMMANDS = new Set([
   'abort',
@@ -133,21 +146,77 @@ const server = http.createServer((req, res) => {
 const wss = new WebSocketServer({ noServer: true });
 attachOriginGuard(server, wss, parseAllowedOrigins());
 
-let currentCwd = process.cwd();/**
- * 刚请求切换到的会话的工作目录。
- * pi 的 switch_session 会连带把工作目录换掉，但那个 cwd 只存在会话文件里，
- * RPC 的 get_state 也不返回它，所以桥接自己在转发前读出来，等 pi 确认成功后再应用。
- */
-let pendingSwitchCwd: string | null = null;
+/** 执行窗口（main lane）的工作目录。只有它能改目录，其它 lane 跟着它走 */
+let currentCwd = process.cwd();
+
+/** pi 可执行文件。解析出绝对路径后换成它，之后每个 lane 都按这个拉起 */
+let piCommand = 'pi';
+
+/** 顾问窗口选的模型（只存内存、只作用于顾问进程，绝不写全局默认模型） */
+const laneModels = new Map<string, string>();
 
 /** 用户亲手选过的文件路径（工作目录之外的只允许读/打开这些） */
 const picked = new PickedFiles(pickedFilesStorePath());
 
+/**
+ * 顾问的会话目录与人格文件。都在 `~/.pi/agent/` 下，与 pi-web 自己的持久化文件放在一起。
+ * 会话目录必须独立：两个 pi 进程 append 同一份转录会毁掉历史。
+ */
+const ADVISOR_SESSION_DIR = advisorSessionDir();
+const ADVISOR_PERSONA_FILE = advisorPersonaPath();
+
+/**
+ * 每个连接属于哪个 lane。
+ * 没登记过的一律算 `main`：不带 lane 的旧页面、再开的标签页仍然镜像同一个会话，
+ * 这是改造前就有的语义，不能破。
+ */
+const connLanes = new WeakMap<WebSocket, string>();
+
+function laneOf(ws: WebSocket): string {
+  return connLanes.get(ws) ?? DEFAULT_LANE;
+}
+
+/** 全局事实（环境探测、安装输出、配置变更）发给所有客户端 */
 function broadcast(msg: string) {
   wss.clients.forEach(client => {
     if (client.readyState === WebSocket.OPEN) {
       client.send(msg);
     }
+  });
+}
+
+/**
+ * 某个 lane 的对话输出只发给这个 lane 的客户端。
+ *
+ * 这是 lane 化的硬要求：lane A 的 `get_messages` / `get_state` / `get_available_models`
+ * 回包如果广播出去，lane B 的处理器会当成自己的状态更新，界面就会用错的历史与模型。
+ */
+function sendToLane(lane: string, msg: string) {
+  wss.clients.forEach(client => {
+    if (client.readyState === WebSocket.OPEN && laneOf(client) === lane) {
+      client.send(msg);
+    }
+  });
+}
+
+/** 这个 lane 的工作目录。只有 main 能改，所以其它 lane 跟着 main 走 */
+function cwdForLane(lane: string): string {
+  return lanes.get(lane)?.cwd ?? currentCwd;
+}
+
+/**
+ * 顾问进程的附加参数。
+ *
+ * 人格文件必须**先落盘**：pi 的 `--system-prompt` 只把「存在的路径」当文件读，
+ * 少了这个文件它会把路径本身当成系统提示词。
+ */
+function advisorArgs(): string[] {
+  ensureAdvisorPersona(ADVISOR_PERSONA_FILE);
+  return advisorPiArgs({
+    personaPath: ADVISOR_PERSONA_FILE,
+    sessionDir: ADVISOR_SESSION_DIR,
+    resume: hasAdvisorSessions(ADVISOR_SESSION_DIR),
+    model: laneModels.get(ADVISOR_LANE),
   });
 }
 
@@ -175,11 +244,12 @@ function claimAttachments(line: string) {
 }
 
 /**
- * pi 确认会话切换成功后，把桥接的 currentCwd 一并换掉。
+ * pi 确认会话切换成功后，把这个 lane 的工作目录一并换掉。
  * 失败或被扩展取消时 pi 的工作目录没变，必须保持原样。
  */
-function applyPendingSwitch(line: string) {
-  if (!pendingSwitchCwd || !line.includes('switch_session')) return;
+function applyPendingSwitch(laneId: string, line: string) {
+  const lane = lanes.get(laneId);
+  if (!lane || !lane.pendingSwitchCwd || !line.includes('switch_session')) return;
 
   let message: any;
   try {
@@ -190,41 +260,57 @@ function applyPendingSwitch(line: string) {
   if (message?.type !== 'response' || message.command !== 'switch_session') return;
 
   if (!message.success || message.data?.cancelled) {
-    pendingSwitchCwd = null;
+    lane.pendingSwitchCwd = null;
     return;
   }
 
-  currentCwd = pendingSwitchCwd;
-  pendingSwitchCwd = null;
-  console.log(`[Pi Bridge] Session switch moved cwd to: ${currentCwd}`);
-  broadcast(JSON.stringify({ type: 'cwd_changed', cwd: currentCwd }));
+  const next = lane.pendingSwitchCwd;
+  lane.pendingSwitchCwd = null;
+  if (!next) return;
+
+  lane.cwd = next;
+  // 只有执行窗口的目录会牵动整个桥接（上传、列目录都用它）
+  if (laneId === DEFAULT_LANE) currentCwd = next;
+  console.log(`[Pi Bridge] Session switch moved cwd to: ${next} (lane: ${laneId})`);
+  sendToLane(laneId, JSON.stringify({ type: 'cwd_changed', cwd: next, lane: laneId }));
 }
 
 /**
  * pi 子进程的持有者。句柄归属、自愈重启与按行解码都在 PiSupervisor 里，
- * 这里只把它的回调翻译成广播。
+ * 这里只把它的回调翻译成「只发给这个 lane」。
+ *
+ * 进程按 lane 惰性创建：没开助手模式的人不会平白多一个 pi 进程。
  */
-const pi = new PiSupervisor(
+const lanes = new LaneRegistry(
   {
-    onLine: line => {
+    onLine: (lane, line) => {
       claimAttachments(line);
-      applyPendingSwitch(line);
-      broadcast(line);
+      applyPendingSwitch(lane, line);
+      sendToLane(lane, line);
     },
-    onStderr: message => {
-      console.error(`[Pi STDERR]: ${message}`);
-      broadcast(JSON.stringify({ type: 'pi_stderr', message }));
+    onStderr: (lane, message) => {
+      console.error(`[Pi STDERR][${lane}]: ${message}`);
+      sendToLane(lane, JSON.stringify({ type: 'pi_stderr', message, lane }));
     },
-    onExit: code => {
-      console.log(`[Pi Bridge] Pi process exited with code ${code}`);
-      broadcast(JSON.stringify({ type: 'pi_process_exit', code }));
+    onExit: (lane, code) => {
+      console.log(`[Pi Bridge] Pi process exited with code ${code} (lane: ${lane})`);
+      sendToLane(lane, JSON.stringify({ type: 'pi_process_exit', code, lane }));
     },
-    onError: message => {
-      console.error('[Pi Bridge] Process error:', message);
-      broadcast(JSON.stringify({ type: 'pi_process_error', error: message }));
+    onError: (lane, message) => {
+      console.error(`[Pi Bridge] Process error [${lane}]:`, message);
+      sendToLane(lane, JSON.stringify({ type: 'pi_process_error', error: message, lane }));
     },
   },
-  currentCwd
+  {
+    initialCwd: currentCwd,
+    command: piCommand,
+    // 白名单：不在里面的 laneId 一律落到 main（旧页面兼容）
+    allowed: [DEFAULT_LANE, ADVISOR_LANE],
+    specs: {
+      // 顾问：没有工具、独立会话目录、独立人格，而且不参与切工作目录
+      [ADVISOR_LANE]: { extraArgs: advisorArgs(), allowCwdChange: false },
+    },
+  }
 );
 
 /**
@@ -246,8 +332,9 @@ const piLocator = createPiLocator(defaultRunCommand);
 async function locatePi(force = false): Promise<string | null> {
   const resolved = force ? await piLocator.refresh() : await piLocator.locate();
 
-  if (resolved && pi.currentCommand !== resolved) {
-    pi.setCommand(resolved);
+  if (resolved && piCommand !== resolved) {
+    piCommand = resolved;
+    lanes.setCommand(resolved);
     console.log(`[Pi Bridge] Resolved pi at: ${resolved}`);
   }
 
@@ -312,7 +399,7 @@ async function setupPayload() {
   // 工具集回退会改 settings.json，而 mode 从那里读——必须等它写完
   await toolFallbackReady;
   return setupPayloadFrom(
-    await probeEnvironment(defaultRunCommand, { piCommand: pi.currentCommand })
+    await probeEnvironment(defaultRunCommand, { piCommand })
   );
 }
 
@@ -325,11 +412,11 @@ async function broadcastSetupStatus() {
  * 把指令写给 pi。写不进去时必须报错：
  * 静默丢弃会让前端永远等不到回包（例如切会话后对话区一直空着）。
  */
-function sendToPi(ws: WebSocket, command: object): boolean {
-  if (pi.send(command)) return true;
+function sendToPi(ws: WebSocket, lane: string, command: object): boolean {
+  if (lanes.send(lane, command)) return true;
 
   const type = (command as { type?: string }).type ?? 'unknown';
-  console.warn(`[Pi Bridge] Pi process not ready, dropped command: ${type}`);
+  console.warn(`[Pi Bridge] Pi process not ready, dropped command: ${type} (lane: ${lane})`);
   if (ws.readyState === WebSocket.OPEN) {
     ws.send(piNotReadyReply(command));
   }
@@ -339,35 +426,66 @@ function sendToPi(ws: WebSocket, command: object): boolean {
 wss.on('connection', (ws: WebSocket) => {
   console.log('[Pi Bridge] Client connected via WebSocket');
 
-  // 保证 Pi 运行时已拉起
-  pi.ensure(currentCwd);
+  // 保证执行窗口的 Pi 运行时已拉起（打开页面就会起，与改造前一致）
+  lanes.ensure(DEFAULT_LANE, currentCwd);
 
   // 发送初始桥接状态
   ws.send(JSON.stringify({
     type: 'bridge_status',
     cwd: currentCwd,
-    running: pi.running,
+    running: lanes.running(DEFAULT_LANE),
   }));
 
   ws.on('message', (message: string) => {
     try {
       const data = JSON.parse(message.toString());
 
+      // lane 是**连接属性**：登记一次，这条连接的所有输出都按它路由。
+      // 客户端每条指令都带 lane，所以即使 register_lane 丢了（旧版桥接转发了它）
+      // 也能按第一条带 lane 的指令自愈。
+      if (data.type === 'register_lane') {
+        const target = lanes.normalize(data.lane);
+        connLanes.set(ws, target);
+        lanes.ensure(target, target === DEFAULT_LANE ? currentCwd : cwdForLane(DEFAULT_LANE));
+        console.log(`[Pi Bridge] 客户端登记 lane: ${target}`);
+        void reply(
+          ws,
+          'lane_registered',
+          async () => ({ lane: target, cwd: cwdForLane(target), running: lanes.running(target) }),
+          value => ({ ...value }),
+          () => ({ id: data.id })
+        );
+        return;
+      }
+
+      if (!connLanes.has(ws) && typeof data.lane === 'string') {
+        connLanes.set(ws, lanes.normalize(data.lane));
+      }
+      const lane = laneOf(ws);
+
       // 这几条会把正在跑的那一轮打断（abort / 新建 / 切会话）或重启 pi
       // （change_cwd / 装 pi）。打一行日志，下次「对话自己暂停了」时有据可查。
+      // lane 必须带上：两个窗口都在跑，只写指令名分不清是哪一个被断了。
       if (WATCHED_COMMANDS.has(data.type)) {
-        console.log(`[Pi Bridge] 收到指令 ${data.type}`);
+        console.log(`[Pi Bridge] 收到指令 ${data.type} (lane: ${lane})`);
       }
 
       // 切换工作目录：只接受真实存在的目录，否则 pi 会以无效 cwd 启动失败
       if (data.type === 'change_cwd') {
+        // 顾问窗口不参与切目录：它没有工具，切了也没意义，
+        // 而且会把执行窗口的目录一起带跑
+        if (lanes.lane(lane).spec.allowCwdChange === false) {
+          ws.send(JSON.stringify({ type: 'bridge_error', error: '这个窗口不能切换工作目录' }));
+          return;
+        }
+
         const target = path.resolve(String(data.cwd ?? ''));
         fs.stat(target)
           .then(stat => {
             if (!stat.isDirectory()) throw new Error('not a directory');
             currentCwd = target;
-            pi.restart(currentCwd);
-            broadcast(JSON.stringify({ type: 'cwd_changed', cwd: currentCwd }));
+            lanes.restart(DEFAULT_LANE, currentCwd);
+            sendToLane(DEFAULT_LANE, JSON.stringify({ type: 'cwd_changed', cwd: currentCwd }));
           })
           .catch(err => {
             console.error('[Pi Bridge] Rejected cwd:', target, err?.message ?? err);
@@ -442,8 +560,8 @@ wss.on('connection', (ws: WebSocket) => {
         // 表现成「配了第二个模型，第一个才出现」这种差一的怪现象。
         void saved.then(() => {
           void broadcastSetupStatus();
-          pi.send({ type: 'get_available_models' });
-          pi.send({ type: 'get_state' });
+          lanes.sendToAll({ type: 'get_available_models' });
+          lanes.sendToAll({ type: 'get_state' });
         });
         return;
       }
@@ -478,8 +596,8 @@ wss.on('connection', (ws: WebSocket) => {
         // 和保存一样：落盘后再让 pi 重读
         void saved.then(() => {
           void broadcastSetupStatus();
-          pi.send({ type: 'get_available_models' });
-          pi.send({ type: 'get_state' });
+          lanes.sendToAll({ type: 'get_available_models' });
+          lanes.sendToAll({ type: 'get_state' });
         });
         return;
       }
@@ -494,7 +612,7 @@ wss.on('connection', (ws: WebSocket) => {
         void (async () => {
           // 重新探一次：用户可能在向导打开期间自己装好了 Node
           const before = await probeEnvironment(defaultRunCommand, {
-            piCommand: pi.currentCommand,
+            piCommand,
           });
           const preflight = installPreflight(before);
           if (!preflight.allowed) {
@@ -516,7 +634,7 @@ wss.on('connection', (ws: WebSocket) => {
             // 以「pi 到底能不能跑」为准，而不是安装器的退出码：
             // 它的收尾步骤失败会把「装好了」误报成「装失败了」
             const after = await probeEnvironment(defaultRunCommand, {
-              piCommand: pi.currentCommand,
+              piCommand,
             });
             const outcome = classifyInstallOutcome(result, after.pi.installed);
 
@@ -538,9 +656,9 @@ wss.on('connection', (ws: WebSocket) => {
               })
             );
 
-            // 用新装的 pi 重新拉起。失败时不动：让用户自己重试，
+            // 用新装的 pi 重新拉起每个 lane。失败时不动：让用户自己重试，
             // 而不是把一个起不来的进程换成另一个。
-            if (outcome.ok) pi.restart(currentCwd);
+            if (outcome.ok) lanes.restartAll(currentCwd);
           } catch (err) {
             console.error('[Pi Bridge] Install failed:', err);
             broadcast(
@@ -575,8 +693,8 @@ wss.on('connection', (ws: WebSocket) => {
       // 切换会话：pi 会把工作目录换成会话里记的 cwd，桥接必须跟着换，
       // 否则设置面板显示的是旧目录，pi 崩溃自愈重启也会在错的目录里拉起
       if (data.type === 'switch_session' && typeof data.sessionPath === 'string') {
-        pendingSwitchCwd = readSessionCwdSync(data.sessionPath);
-        sendToPi(ws, data);
+        lanes.lane(lane).pendingSwitchCwd = readSessionCwdSync(data.sessionPath);
+        sendToPi(ws, lane, data);
         return;
       }
 
@@ -697,8 +815,55 @@ wss.on('connection', (ws: WebSocket) => {
         return;
       }
 
+      // 顾问窗口换模型。
+      //
+      // **不能**走 set_model / set_default_model：那条路会把默认模型写进
+      // settings.json，执行窗口的默认模型也跟着变了。这里只在内存里记着，
+      // 重启顾问进程时用 `--model` 传进去，全局配置一个字节都不动。
+      if (data.type === 'set_lane_model') {
+        if (lane === DEFAULT_LANE) {
+          ws.send(
+            JSON.stringify({ type: 'bridge_error', error: '执行窗口换模型请走 set_model' })
+          );
+          return;
+        }
+
+        const model = String(data.model ?? '').trim();
+        if (model) laneModels.set(lane, model);
+        else laneModels.delete(lane);
+
+        const target = lanes.lane(lane);
+        target.setExtraArgs(advisorArgs());
+        target.restart(cwdForLane(DEFAULT_LANE));
+        // 让前端拿到「实际生效」的模型，而不是它自己以为的那个
+        lanes.send(lane, { type: 'get_state' });
+
+        void reply(
+          ws,
+          'lane_model_set',
+          async () => ({ lane, model }),
+          value => ({ ...value }),
+          () => ({ id: data.id })
+        );
+        return;
+      }
+
+      // 把顾问的结论落成计划文件。
+      // 落文件而不是直接贴给执行窗口：执行方用工具读全文，推理链不丢，
+      // 而且这份计划能回看、能改、能多轮迭代（与仓库里 AGENTS.md 的 plan 约定一致）。
+      if (data.type === 'save_plan_file') {
+        reply(
+          ws,
+          'plan_file_saved',
+          async () => savePlan(currentCwd, { text: String(data.text ?? '') }),
+          value => ({ relative: value.relative, absolute: value.absolute }),
+          () => ({ id: data.id })
+        );
+        return;
+      }
+
       // 转发指令给 Pi (prompt, abort, new_session, get_state, get_messages 等)
-      sendToPi(ws, data);
+      sendToPi(ws, lane, data);
     } catch (err: any) {
       console.error('[Pi Bridge] Error handling client message:', err);
       ws.send(JSON.stringify({
@@ -756,8 +921,9 @@ server.listen(PORT, HOST, () => {
     onChange: () => {
       console.log('[Pi Bridge] Config files changed, refreshing models');
       void broadcastSetupStatus();
-      pi.send({ type: 'get_available_models' });
-      pi.send({ type: 'get_state' });
+      // 配置是全局的：每个已经起来的 lane 都重读一次
+      lanes.sendToAll({ type: 'get_available_models' });
+      lanes.sendToAll({ type: 'get_state' });
     },
   });
 });

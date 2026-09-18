@@ -228,7 +228,7 @@ describe('PiSupervisor 可执行文件路径', () => {
     const h = createHarness();
     h.supervisor.ensure();
 
-    expect(h.spawnPi).toHaveBeenCalledWith('C:/demo', 'pi');
+    expect(h.spawnPi).toHaveBeenCalledWith('C:/demo', 'pi', []);
   });
 
   it('setCommand 后改用解析出的绝对路径', () => {
@@ -237,7 +237,7 @@ describe('PiSupervisor 可执行文件路径', () => {
     h.supervisor.setCommand('C:/Users/u/AppData/Roaming/npm/pi.cmd');
     h.supervisor.ensure();
 
-    expect(h.spawnPi).toHaveBeenCalledWith('C:/demo', 'C:/Users/u/AppData/Roaming/npm/pi.cmd');
+    expect(h.spawnPi).toHaveBeenCalledWith('C:/demo', 'C:/Users/u/AppData/Roaming/npm/pi.cmd', []);
     expect(h.supervisor.currentCommand).toBe('C:/Users/u/AppData/Roaming/npm/pi.cmd');
   });
 
@@ -252,7 +252,7 @@ describe('PiSupervisor 可执行文件路径', () => {
 
     // 换新命令后重启才生效
     h.supervisor.restart();
-    expect(h.spawnPi).toHaveBeenLastCalledWith('C:/demo', '/usr/local/bin/pi');
+    expect(h.spawnPi).toHaveBeenLastCalledWith('C:/demo', '/usr/local/bin/pi', []);
   });
 });
 
@@ -263,7 +263,7 @@ describe('defaultSpawnPi', () => {
     // 实测：不加引号时 spawn 出来的进程直接以退出码 1 结束，
     // 报错信息只说「Command failed」，看不出真正原因是路径被拆开了
     vi.mocked(spawn).mockClear();
-    defaultSpawnPi('C:/demo', withSpace);
+    defaultSpawnPi('C:/demo', withSpace, []);
 
     expect(spawn).toHaveBeenCalledWith(
       `"${withSpace}" --mode rpc`,
@@ -273,14 +273,14 @@ describe('defaultSpawnPi', () => {
 
   it('没有空格时原样传，不凭空多一层引号', () => {
     vi.mocked(spawn).mockClear();
-    defaultSpawnPi('C:/demo', 'pi');
+    defaultSpawnPi('C:/demo', 'pi', []);
 
     expect(spawn).toHaveBeenCalledWith('pi --mode rpc', expect.anything());
   });
 
   it('整条命令当一个字符串传，不把参数数组交给 shell（否则 Node 打 DEP0190）', () => {
     vi.mocked(spawn).mockClear();
-    defaultSpawnPi('C:/demo', 'pi');
+    defaultSpawnPi('C:/demo', 'pi', []);
 
     const args = vi.mocked(spawn).mock.calls.at(-1);
     // 第二参是 options，不是 args 数组
@@ -294,6 +294,12 @@ describe('piCommandLine', () => {
     expect(piCommandLine('C:/Program Files/pi/pi.cmd')).toBe(
       '"C:/Program Files/pi/pi.cmd" --mode rpc'
     );
+  });
+
+  it('附加参数逐个过引号：顾问那条命令行里有带空格的路径', () => {
+    expect(
+      piCommandLine('pi', ['--no-tools', '--system-prompt', 'C:/Users/John Doe/persona.md'])
+    ).toBe('pi --mode rpc --no-tools --system-prompt "C:/Users/John Doe/persona.md"');
   });
 });
 

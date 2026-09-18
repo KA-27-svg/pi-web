@@ -12,7 +12,11 @@ export interface PiSupervisorCallbacks {
   onError: (message: string) => void;
 }
 
-export type SpawnPi = (cwd: string, command: string) => ChildProcessWithoutNullStreams;
+export type SpawnPi = (
+  cwd: string,
+  command: string,
+  extraArgs: string[]
+) => ChildProcessWithoutNullStreams;
 
 /**
  * 拉起 pi 的完整命令行。
@@ -20,9 +24,13 @@ export type SpawnPi = (cwd: string, command: string) => ChildProcessWithoutNullS
  * 拼成一个字符串而不是「命令 + args 数组」：数组形式配 shell: true 会触发
  * Node 的 DEP0190（args 不转义、只拼接）。参数是静态字面量，命令名过
  * quoteIfNeeded，所以拼起来没有注入面。
+ *
+ * extraArgs 给各个 lane 用（顾问要 --no-tools / --session-dir 之类）。
+ * **必须是桥接里的静态字面量**：用户输入一旦进到这里，就会直接进 shell。
  */
-export function piCommandLine(command: string): string {
-  return `${quoteIfNeeded(command)} --mode rpc`;
+export function piCommandLine(command: string, extraArgs: string[] = []): string {
+  const args = ['--mode', 'rpc', ...extraArgs];
+  return `${quoteIfNeeded(command)} ${args.map(quoteIfNeeded).join(' ')}`;
 }
 
 /**
@@ -37,11 +45,11 @@ export function describeSpawnError(error: Error, command: string): string {
   return error.message;
 }
 
-export const defaultSpawnPi: SpawnPi = (cwd, command) => {
+export const defaultSpawnPi: SpawnPi = (cwd, command, extraArgs) => {
   // 必须加引号：command 可能是 resolvePiCommand 解析出的绝对路径，而 shell: true
   // 是把它拼进命令行交给 cmd 的，路径带空格（用户目录叫 `John Doe` 这类）会被
   // 从空格处断开，表现成「pi 明明在、就是起不来」。
-  const line = piCommandLine(command);
+  const line = piCommandLine(command, extraArgs);
   console.log(`[Pi Bridge] Spawning ${line} in: ${cwd}`);
   return spawn(line, {
     cwd,
@@ -70,17 +78,21 @@ export class PiSupervisor {
   private command: string;
   private callbacks: PiSupervisorCallbacks;
   private spawnPi: SpawnPi;
+  /** 这个 lane 专属的附加参数（顾问的 --no-tools 等） */
+  private extraArgs: string[];
 
   constructor(
     callbacks: PiSupervisorCallbacks,
     initialCwd: string,
     spawnPi: SpawnPi = defaultSpawnPi,
-    command = 'pi'
+    command = 'pi',
+    extraArgs: string[] = []
   ) {
     this.callbacks = callbacks;
     this.cwd = initialCwd;
     this.spawnPi = spawnPi;
     this.command = command;
+    this.extraArgs = extraArgs;
   }
 
   get running(): boolean {
@@ -111,7 +123,7 @@ export class PiSupervisor {
     if (this.isAlive(this.proc)) return;
 
     this.cwd = cwd;
-    const proc = this.spawnPi(cwd, this.command);
+    const proc = this.spawnPi(cwd, this.command, this.extraArgs);
     this.proc = proc;
     const decoder = new LineDecoder();
     // stderr 不是按行协议的，但也得避免把多字节字符从中间劈开
@@ -167,6 +179,14 @@ export class PiSupervisor {
       }
     }
     this.ensure(cwd);
+  }
+
+  /**
+   * 换掉附加参数。下一次拉起（restart）才生效。
+   * 顾问窗口换模型走的就是它：不写全局配置，只改这个 lane 的命令行。
+   */
+  setExtraArgs(extraArgs: string[]): void {
+    this.extraArgs = extraArgs;
   }
 
   /** 写一条指令。进程不可用或写不进去时返回 false，由调用方决定怎么报错。 */
