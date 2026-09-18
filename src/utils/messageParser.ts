@@ -18,6 +18,8 @@ export class MessageParser {
     // 工具输出在 pi 的历史里是独立的 toolResult 消息，按 toolCallId 挂回对应的工具；
     // 不接住的话，刷新 / 切会话后工具卡片展开就是空的
     const toolsById = new Map<string, ToolCallState>();
+    /** 当前回合正在累加的那条 assistant 消息；遇到 user 就断开 */
+    let currentAssistant: PiMessage | null = null;
 
     const toolResultText = (content: unknown): string =>
       Array.isArray(content)
@@ -42,6 +44,8 @@ export class MessageParser {
       }
 
       if (rm.role === 'user') {
+        // 新回合开始，后面连着来的 assistant 不该再并进上一条
+        currentAssistant = null;
         const blocks = Array.isArray(rm.content) ? rm.content : null;
         const rawText = blocks
           ? blocks
@@ -113,20 +117,46 @@ export class MessageParser {
           content = rm.content;
         }
 
-        restored.push({
-          id: id('asst'),
-          role: 'assistant',
-          content,
-          reasoning,
-          tools: tools.length > 0 ? tools : undefined,
-          // pi 的 assistant 消息带 model，历史里就靠它知道这条是谁答的
-          model: typeof rm.model === 'string' && rm.model ? rm.model : undefined,
-          timestamp: rm.timestamp || 0,
-          status: 'done',
-          fromHistory: true,
-        });
+        // pi 是「一次 LLM 响应 = 一条 assistant 消息」：同一回合里连着来的要并成
+        // 一条（实时视图本来就是这样），否则刷新后整轮会被拆成一堆「N 步操作」。
+        if (!currentAssistant) {
+          currentAssistant = {
+            id: id('asst'),
+            role: 'assistant',
+            content: '',
+            reasoning: '',
+            timestamp: rm.timestamp || 0,
+            status: 'done',
+            fromHistory: true,
+          };
+          restored.push(currentAssistant);
+        }
+
+        const target = currentAssistant;
+        if (reasoning) {
+          target.reasoning = target.reasoning
+            ? `${target.reasoning}\n\n${reasoning}`
+            : reasoning;
+        }
+        if (content) {
+          target.content = target.content ? `${target.content}\n\n${content}` : content;
+        }
+        if (tools.length > 0) {
+          target.tools = [...(target.tools ?? []), ...tools];
+        }
+        // pi 的 assistant 消息带 model，历史里就靠它知道这条是谁答的。
+        // 合并后取最后一次（真正作答的那次）的 model 与时间
+        if (typeof rm.model === 'string' && rm.model) target.model = rm.model;
+        if (rm.timestamp) target.timestamp = rm.timestamp;
       }
     });
+
+    // 没有工具的就不要挂一个空数组（保持输出形状干净）
+    for (const message of restored) {
+      if (message.role === 'assistant' && message.tools && message.tools.length === 0) {
+        delete message.tools;
+      }
+    }
 
     return restored;
   }

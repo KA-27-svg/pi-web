@@ -259,3 +259,61 @@ describe('模型还原', () => {
     expect(parsed[0].model).toBeUndefined();
   });
 });
+
+describe('同一回合的消息合并（实时是这样，历史不能拆成一堆）', () => {
+  it('多条 assistant 合成一条：正文、思考、工具都累加，toolResult 照样挂回', () => {
+    const parsed = MessageParser.parseHistory([
+      user('问题'),
+      {
+        role: 'assistant',
+        timestamp: 2000,
+        content: [
+          { type: 'thinking', thinking: '先想' },
+          { type: 'toolCall', id: 'c1', name: 'bash', arguments: { command: 'ls' } },
+        ],
+      },
+      { role: 'toolResult', toolCallId: 'c1', content: [{ type: 'text', text: 'a.ts' }], timestamp: 2100 },
+      {
+        role: 'assistant',
+        timestamp: 2200,
+        content: [{ type: 'toolCall', id: 'c2', name: 'read', arguments: { path: 'a.ts' } }],
+      },
+      { role: 'toolResult', toolCallId: 'c2', content: [{ type: 'text', text: '文件内容' }], timestamp: 2300 },
+      { role: 'assistant', timestamp: 2400, model: 'deepseek', content: [{ type: 'text', text: '好了' }] },
+    ]);
+
+    // user + 一条合并后的 assistant
+    expect(parsed).toHaveLength(2);
+    expect(parsed[1].content).toBe('好了');
+    expect(parsed[1].reasoning).toBe('先想');
+    expect(parsed[1].tools?.map(t => t.id)).toEqual(['c1', 'c2']);
+    expect(parsed[1].tools?.[0].result).toBe('a.ts');
+    expect(parsed[1].tools?.[1].result).toBe('文件内容');
+    expect(parsed[1].model).toBe('deepseek');
+    expect(parsed[1].timestamp).toBe(2400);
+  });
+
+  it('用户消息断开回合，不跨回合合并', () => {
+    const parsed = MessageParser.parseHistory([
+      user('一'),
+      { role: 'assistant', content: 'a1', timestamp: 1 },
+      { role: 'assistant', content: 'a2', timestamp: 2 },
+      user('二'),
+      { role: 'assistant', content: 'b1', timestamp: 3 },
+    ]);
+
+    expect(parsed.map(m => m.role)).toEqual(['user', 'assistant', 'user', 'assistant']);
+    expect(parsed[1].content).toBe('a1\n\na2');
+    expect(parsed[3].content).toBe('b1');
+  });
+
+  it('只有一步操作时也还是原来的样子', () => {
+    const parsed = MessageParser.parseHistory([
+      user('问题'),
+      { role: 'assistant', content: '答', timestamp: 5 },
+    ]);
+
+    expect(parsed).toHaveLength(2);
+    expect(parsed[1].content).toBe('答');
+  });
+});
