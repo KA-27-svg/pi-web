@@ -74,14 +74,15 @@ export function ConversationThread({
         </div>
       )}
 
-      {messages.map(message => (
-        <PiMessageItem
-          key={message.id}
-          message={message}
-          onOpenFile={onOpenFile}
-          fallbackModel={fallbackModel}
-          modelNames={modelNames}
-        />
+      {messages.map((message, index) => (
+        <div key={message.id} data-message-index={index}>
+          <PiMessageItem
+            message={message}
+            onOpenFile={onOpenFile}
+            fallbackModel={fallbackModel}
+            modelNames={modelNames}
+          />
+        </div>
       ))}
       <div ref={endRef} className="h-1" />
     </div>

@@ -137,7 +137,12 @@ export function ConversationScrollRail({
     const base = container.getBoundingClientRect().top - container.scrollTop;
     setAnchors(
       items.map(item => {
-        const child = content.children[item.index] as HTMLElement | undefined;
+        // 按 data 属性找，而不是 content.children[item.index]：content 里除了消息
+        // 还有「向上滚动加载更早的消息」那个哨兵 div，用下标会整体差一条，
+        // 表现成点一次提问却跳到上一个回答
+        const child = content.querySelector<HTMLElement>(
+          `[data-message-index="${item.index}"]`
+        );
         return child ? child.getBoundingClientRect().top - base : 0;
       })
     );

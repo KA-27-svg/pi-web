@@ -19,7 +19,7 @@ const items: RailItem[] = USER_MESSAGE_INDICES.map((index, i) => ({
   text: `提问 ${i}`,
 }));
 
-function Harness({ railItems = items }: { railItems?: RailItem[] }) {
+function Harness({ railItems = items, sentinel = false }: { railItems?: RailItem[]; sentinel?: boolean }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const childCount = Math.max(MESSAGE_COUNT, ...railItems.map(item => item.index + 1));
@@ -27,8 +27,12 @@ function Harness({ railItems = items }: { railItems?: RailItem[] }) {
     <>
       <div ref={containerRef} data-testid="container">
         <div ref={contentRef} data-testid="content">
+          {/* 真实内容里，历史还有更早的一页时，消息前面会多一个哨兵 div */}
+          {sentinel && <div>向上滚动加载更早的消息</div>}
           {Array.from({ length: childCount }, (_, i) => (
-            <div key={i}>消息 {i}</div>
+            <div key={i} data-message-index={i}>
+              消息 {i}
+            </div>
           ))}
         </div>
       </div>
@@ -115,9 +119,9 @@ const fractionY = (fraction: number) =>
 const manyItems = (n: number): RailItem[] =>
   Array.from({ length: n }, (_, i) => ({ index: i, text: `提问 ${i}` }));
 
-const mount = (railItems: RailItem[] = items) => {
+const mount = (railItems: RailItem[] = items, sentinel = false) => {
   act(() => {
-    root.render(<Harness railItems={railItems} />);
+    root.render(<Harness railItems={railItems} sentinel={sentinel} />);
   });
 
   container = host.querySelector('[data-testid="container"]') as HTMLElement;
@@ -283,6 +287,20 @@ describe('跳转', () => {
     });
     // 提问 2 是第 8 条消息，每条 100px
     expect(container.scrollTop).toBe(800);
+  });
+
+  it('历史还有更早一页（消息前面多了哨兵 div）时，也不会差一条跳到上一个回答', () => {
+    // 重新挂载，让几何测量从头来一遍（否则第二次渲染时 metrics 没变，锚点不会重算）
+    act(() => root.unmount());
+    root = createRoot(host);
+    mount(items, true);
+
+    act(() => {
+      rail()!.dispatchEvent(pointer('pointerdown', dashY(2)));
+    });
+
+    // 提问 2 是第 8 条消息；哨兵在它前面，所以 top 是 (8+1)*100
+    expect(container.scrollTop).toBe(900);
   });
 
   it('点击第一条回到起点', () => {
