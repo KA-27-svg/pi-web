@@ -39,7 +39,8 @@ describe('setup 动作', () => {
     ]);
   });
 
-  it('走中转站时把 baseUrl 带上；名字总是发（空串 = 退回官方名）', () => {
+  it('走中转站时带上 baseUrl 与 newEndpoint；名字总是发（空串 = 退回官方名）', () => {
+    // baseUrl 现在的语义是「独立端点」：新的供应商 id，不动官方条目
     const { actions, sent } = harness();
 
     actions.saveProviderKey('deepseek', 'sk-1', 'https://relay.example/v1', '我的中转站');
@@ -50,8 +51,19 @@ describe('setup 动作', () => {
         provider: 'deepseek',
         key: 'sk-1',
         baseUrl: 'https://relay.example/v1',
+        newEndpoint: true,
         name: '我的中转站',
       },
+    ]);
+  });
+
+  it('地址留空时不带 baseUrl / newEndpoint（配的是官方入口）', () => {
+    const { actions, sent } = harness();
+
+    actions.saveProviderKey('deepseek', 'sk-1', undefined, '');
+
+    expect(sent).toEqual([
+      { type: 'save_provider_key', provider: 'deepseek', key: 'sk-1', name: '' },
     ]);
   });
 });

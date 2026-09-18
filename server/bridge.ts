@@ -55,6 +55,13 @@ import {
   hasAdvisorSessions,
 } from './advisor.js';
 import { savePlan } from './planFile.js';
+import {
+  assertModelsUsable,
+  catalogModelsFor,
+  isPresetProvider,
+  presetLabel,
+} from './providerEndpoints.js';
+import { createProviderEndpoint } from './setupConfig.js';
 import { watchConfigFiles } from './configWatch.js';
 import { piNotReadyReply } from './bridgeMessages.js';
 import { probeApi, isHttpUrl } from './apiProbe.js';
@@ -179,6 +186,9 @@ const ADVISOR_PERSONA_FILE = advisorPersonaPath();
  */
 const connLanes = new WeakMap<WebSocket, string>();
 
+/** 等回包的 pi 请求（见 requestFromPi） */
+const pendingPiRequests = new Map<string, (value: unknown) => void>();
+
 function laneOf(ws: WebSocket): string {
   return connLanes.get(ws) ?? DEFAULT_LANE;
 }
@@ -209,6 +219,48 @@ function sendToLane(lane: string, msg: string) {
 /** 这个 lane 的工作目录。只有 main 能改，所以其它 lane 跟着 main 走 */
 function cwdForLane(lane: string): string {
   return lanes.get(lane)?.cwd ?? currentCwd;
+}
+
+/** pi 的某条输出是不是我们要等的回包；是就兑现并返回 true */
+function settlePiRequest(line: string): boolean {
+  if (!line.includes('"id":"bridge-req-')) return false;
+  try {
+    const message = JSON.parse(line);
+    const waiter = typeof message?.id === 'string' ? pendingPiRequests.get(message.id) : undefined;
+    if (!waiter) return false;
+    pendingPiRequests.delete(message.id);
+    waiter(message);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * 向 pi 发一条指令并等它的回包（按 id 配对）。
+ *
+ * 目前只有「拿内置目录的模型清单」用得上：保存中转端点时要把官方那套模型定义
+ * 原样复制给新 id。回包照常广播给前端，多刷一次模型列表无害。
+ */
+function requestFromPi<T = any>(command: object, timeoutMs = 20_000): Promise<T> {
+  const id = `bridge-req-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      pendingPiRequests.delete(id);
+      reject(new Error('pi 没有响应（超时）'));
+    }, timeoutMs);
+
+    pendingPiRequests.set(id, value => {
+      clearTimeout(timer);
+      resolve(value as T);
+    });
+
+    if (!lanes.send(DEFAULT_LANE, { ...command, id })) {
+      clearTimeout(timer);
+      pendingPiRequests.delete(id);
+      reject(new Error('pi 还没就绪，稍后再试'));
+    }
+  });
 }
 
 /**
@@ -310,6 +362,7 @@ const lanes = new LaneRegistry(
     onLine: (lane, line) => {
       claimAttachments(line);
       applyPendingSwitch(lane, line);
+      settlePiRequest(line);
       sendToLane(lane, line);
     },
     onStderr: (lane, message) => {
@@ -568,6 +621,43 @@ wss.on('connection', (ws: WebSocket) => {
             const baseUrl = typeof data.baseUrl === 'string' ? data.baseUrl.trim() : '';
             const name = typeof data.name === 'string' ? data.name.trim() : '';
 
+            // 填了中转地址 = 要一个**独立端点**：新的供应商 id + 自己的密钥地址 +
+            // 从 pi 内置目录复制的模型清单。官方条目不动（残留的旧地址会被迁走）。
+            // 不这么做的话，中转地址会写进官方那一条，把官方入口覆盖掉——
+            // 用户配完中转就发现「官方的没了」，而界面上看起来还是官方那个。
+            if (baseUrl && data.newEndpoint === true) {
+              if (!isPresetProvider(provider)) {
+                throw new Error('只有内置目录里的供应商才能另开中转端点');
+              }
+              lanes.ensure(DEFAULT_LANE, currentCwd);
+              const response = await requestFromPi<{ data?: { models?: unknown[] } }>({
+                type: 'get_available_models',
+              });
+              const models = catalogModelsFor(response?.data?.models, provider);
+              assertModelsUsable(models);
+
+              const created = await createProviderEndpoint({
+                provider,
+                name: name || `${presetLabel(provider) ?? provider} 中转`,
+                baseUrl,
+                key,
+                models,
+              });
+
+              // 新供应商必须重启 pi 才会被看见：pi 只在启动时读 models.json，
+              // RPC 里没有热重载。保存端点是低频、刻意的动作，重启的代价可以接受
+              // （与 install_pi 之后 restartAll 同一个先例）。
+              lanes.restartAll(currentCwd);
+
+              // 回包用新 id：前端好知道该选哪一个
+              return {
+                provider: created.id,
+                endpointOf: provider,
+                migrated: created.migrated,
+                restarted: true,
+              };
+            }
+
             // key 留空是允许的（只改名字/地址）：saveProviderConfig 会判断这个
             // 供应商是不是已经配过，没配过才报「API key 不能为空」。
             await saveProviderConfig({ provider, key, baseUrl, name });
@@ -575,7 +665,7 @@ wss.on('connection', (ws: WebSocket) => {
             // 回包只带供应商名：key 不回显、也不进日志
             return { provider };
           },
-          value => ({ provider: value.provider }),
+          value => ({ ...value }),
           () => ({ id: data.id })
         );
 

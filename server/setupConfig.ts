@@ -2,6 +2,12 @@ import * as fs from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
 import { PROVIDER_ENV_VARS } from './providers.js';
+import {
+  assertModelsUsable,
+  deriveEndpointId,
+  isPresetProvider,
+  presetLabel,
+} from './providerEndpoints.js';
 
 /**
  * 读写 pi 的配置文件。
@@ -344,11 +350,13 @@ export async function readAuthProviders(
 }
 
 /**
- * 删掉一个供应商的凭证，并清掉它在 models.json 里的显示名。
+ * 删掉一个供应商的凭证。
  *
- * 只碰 auth.json 里的这一条和 models.json 里的 `name`：models.json 里可能躺着
- * 用户手写的 models / cost 等等，不能整条拿掉。文件坏掉时 readJsonObject 会抛错，
- * 拒绝写入。
+ * 内置目录里的 id（官方入口）只清凭证与显示名——models.json 里可能有用户手写的
+ * 模型定义，不能整条拿掉。不在目录里的 id 是我们建的中转端点，整个条目都是
+ * 这次保存写进去的，所以一并删除，否则会留一个没密钥的空壳。
+ *
+ * 文件坏掉时 readJsonObject 会抛错，拒绝写入。
  */
 export async function deleteProvider(
   provider: string,
@@ -361,8 +369,100 @@ export async function deleteProvider(
   delete existing[provider];
   await writeJsonObject(auth, existing, { mode: 0o600 });
 
-  // 显示名一并清掉（只碰 name；清完变空条目会被 saveProviderName 删掉）
-  await saveProviderName(provider, '', agentDir);
+  if (isPresetProvider(provider)) {
+    // 官方入口：只清显示名（清完变空条目会被 saveProviderName 删掉）
+    await saveProviderName(provider, '', agentDir);
+    return;
+  }
+
+  // 中转端点：整条删掉
+  const { models } = configPaths(agentDir);
+  const modelConfig = await readJsonObject(models);
+  const providers = modelConfig.providers;
+  if (providers && typeof providers === 'object' && !Array.isArray(providers)) {
+    delete (providers as Record<string, any>)[provider];
+    if (Object.keys(providers).length === 0) delete modelConfig.providers;
+    else modelConfig.providers = providers;
+    await writeJsonObject(models, modelConfig, { mode: 0o600 });
+  }
+}
+
+export interface CreateEndpointInput {
+  /** 上游供应商（内置目录里的 id，如 deepseek） */
+  provider: string;
+  /** 端点显示名；留空用「官方名 中转」 */
+  name?: string;
+  baseUrl: string;
+  key: string;
+  /** 从 pi 的内置目录复制来的模型定义（必须已剥掉 baseUrl / provider） */
+  models: Record<string, unknown>[];
+}
+
+/**
+ * 把一个中转保存成独立端点：新的供应商 id + 自己的密钥地址 + 复制的模型清单。
+ *
+ * 顺带做一次**迁移**：如果官方条目上还挂着旧的地址（第一版的存法），把它清掉、
+ * 密钥保留——否则官方入口仍然指向中转，用户会以为官方的还能用。
+ *
+ * 返回实际使用的 id，以及是否做了迁移。
+ */
+export async function createProviderEndpoint(
+  input: CreateEndpointInput,
+  agentDir: string = resolveAgentDir()
+): Promise<{ id: string; name: string; migrated: boolean }> {
+  const { auth, models } = configPaths(agentDir);
+
+  const baseUrl = input.baseUrl.trim();
+  const key = input.key.trim();
+  if (!baseUrl) throw new Error('缺少中转地址');
+  if (!key) throw new Error('API key 不能为空');
+  // 清单不对就别写：建出一个没有模型的端点，界面上看不见，用户只会觉得「没生效」
+  assertModelsUsable(input.models);
+
+  const authExisting = await readJsonObject(auth);
+  const modelExisting = await readJsonObject(models);
+  const taken = [
+    ...Object.keys(authExisting),
+    ...Object.keys(
+      (modelExisting.providers as Record<string, any> | undefined) ?? {}
+    ),
+  ];
+  const id = deriveEndpointId(input.provider, taken);
+
+  const name = input.name?.trim() || `${presetLabel(input.provider) ?? input.provider} 中转`;
+
+  // 密钥 + 地址
+  authExisting[id] = { type: 'api_key', key, baseUrl };
+  await writeJsonObject(auth, authExisting, { mode: 0o600 });
+
+  // 模型清单：provider 级地址 + 逐条复制的定义
+  const providers =
+    modelExisting.providers &&
+    typeof modelExisting.providers === 'object' &&
+    !Array.isArray(modelExisting.providers)
+      ? (modelExisting.providers as Record<string, any>)
+      : {};
+  providers[id] = { name, baseUrl, models: input.models };
+  modelExisting.providers = providers;
+  await writeJsonObject(models, modelExisting, { mode: 0o600 });
+
+  // 迁移：官方条目上残留的地址清掉（密钥不动）
+  const official = authExisting[input.provider];
+  let migrated = false;
+  if (
+    official &&
+    typeof official === 'object' &&
+    !Array.isArray(official) &&
+    typeof (official as any).baseUrl === 'string' &&
+    (official as any).baseUrl
+  ) {
+    const { baseUrl: _dropped, ...rest } = official as Record<string, unknown>;
+    authExisting[input.provider] = rest;
+    await writeJsonObject(auth, authExisting, { mode: 0o600 });
+    migrated = true;
+  }
+
+  return { id, name, migrated };
 }
 
 /**

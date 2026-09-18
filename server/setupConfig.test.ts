@@ -4,6 +4,7 @@ import * as path from 'path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   configPaths,
+  createProviderEndpoint,
   deleteProvider,
   listConfiguredProviders,
   readAuthProviders,
@@ -372,5 +373,115 @@ describe('listConfiguredProviders', () => {
 
   it('空环境变量不算配置', async () => {
     expect(await listConfiguredProviders(dir, { ANTHROPIC_API_KEY: '  ' })).toEqual([]);
+  });
+});
+
+describe('中转端点（同一上游的第二个入口）', () => {
+  const catalog = [
+    { id: 'deepseek-chat', api: 'openai-completions', contextWindow: 65536 },
+    { id: 'deepseek-reasoner', api: 'openai-completions', reasoning: true },
+  ];
+
+  const seedOfficial = async () => {
+    await fs.writeFile(
+      auth(),
+      JSON.stringify({ deepseek: { type: 'api_key', key: 'sk-official', baseUrl: 'https://relay.example/v1' } })
+    );
+  };
+
+  it('建出独立 id：官方条目不动，旧地址被迁走（密钥保留）', async () => {
+    await seedOfficial();
+
+    const created = await createProviderEndpoint(
+      { provider: 'deepseek', baseUrl: 'https://relay2.example/v1', key: 'sk-relay', models: catalog },
+      dir
+    );
+
+    expect(created).toMatchObject({ id: 'deepseek-relay', name: 'DeepSeek 中转', migrated: true });
+    const stored = await readJsonObject(auth());
+    // 官方条目还在，密钥保留，但不再指向中转
+    expect(stored.deepseek).toEqual({ type: 'api_key', key: 'sk-official' });
+    expect(stored['deepseek-relay']).toEqual({
+      type: 'api_key',
+      key: 'sk-relay',
+      baseUrl: 'https://relay2.example/v1',
+    });
+  });
+
+  it('models.json 里写进名称、地址与复制的模型清单', async () => {
+    await createProviderEndpoint(
+      { provider: 'deepseek', name: '我的中转', baseUrl: 'https://r/v1', key: 'sk', models: catalog },
+      dir
+    );
+
+    const stored = await readJsonObject(models());
+    expect(stored.providers['deepseek-relay']).toEqual({
+      name: '我的中转',
+      baseUrl: 'https://r/v1',
+      models: catalog,
+    });
+  });
+
+  it('第二个中转不覆盖第一个（id 往后排）', async () => {
+    await createProviderEndpoint(
+      { provider: 'deepseek', baseUrl: 'https://a/v1', key: 'sk-a', models: catalog },
+      dir
+    );
+    const second = await createProviderEndpoint(
+      { provider: 'deepseek', baseUrl: 'https://b/v1', key: 'sk-b', models: catalog },
+      dir
+    );
+
+    expect(second.id).toBe('deepseek-relay-2');
+    const stored = await readJsonObject(auth());
+    expect(stored['deepseek-relay'].baseUrl).toBe('https://a/v1');
+    expect(stored['deepseek-relay-2'].baseUrl).toBe('https://b/v1');
+  });
+
+  it('目录清单是空的时拒绝（建出来界面上看不见）', async () => {
+    await expect(
+      createProviderEndpoint({ provider: 'deepseek', baseUrl: 'https://r/v1', key: 'sk', models: [] }, dir)
+    ).rejects.toThrow(/内置目录/);
+  });
+
+  it('缺密钥或缺地址拒绝', async () => {
+    await expect(
+      createProviderEndpoint({ provider: 'deepseek', baseUrl: 'https://r/v1', key: '', models: catalog }, dir)
+    ).rejects.toThrow(/API key/);
+    await expect(
+      createProviderEndpoint({ provider: 'deepseek', baseUrl: '  ', key: 'sk', models: catalog }, dir)
+    ).rejects.toThrow(/地址/);
+  });
+
+  it('删中转端点：auth 与 models.json 里的整条都删掉', async () => {
+    await createProviderEndpoint(
+      { provider: 'deepseek', name: '我的中转', baseUrl: 'https://r/v1', key: 'sk', models: catalog },
+      dir
+    );
+
+    await deleteProvider('deepseek-relay', dir);
+
+    const storedAuth = await readJsonObject(auth());
+    expect(storedAuth['deepseek-relay']).toBeUndefined();
+    const storedModels = await readJsonObject(models());
+    // 最后一条端点删掉后 providers 键整个消失（不留空壳）
+    expect(storedModels.providers?.['deepseek-relay']).toBeUndefined();
+  });
+
+  it('删官方入口仍只清凭证与名字，不碰 models.json 的其它内容', async () => {
+    await fs.writeFile(
+      auth(),
+      JSON.stringify({ deepseek: { type: 'api_key', key: 'sk' } })
+    );
+    await fs.writeFile(
+      models(),
+      JSON.stringify({ providers: { deepseek: { name: 'DeepSeek', models: catalog } } })
+    );
+
+    await deleteProvider('deepseek', dir);
+
+    const storedModels = await readJsonObject(models());
+    // 只清了 name；用户手写的 models 不能动
+    expect(storedModels.providers.deepseek).toEqual({ models: catalog });
   });
 });

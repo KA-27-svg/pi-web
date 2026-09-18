@@ -358,3 +358,63 @@ describe('ProviderSetup 保存反馈', () => {
     }
   });
 });
+
+describe('中转端点（同一上游的第二个入口）', () => {
+  it('已配的中转端点出现在下拉里，用显示名', () => {
+    render({
+      providerNames: { 'deepseek-relay': 'DeepSeek 中转' },
+      setup: {
+        ready: true,
+        credentials: { providers: ['deepseek', 'deepseek-relay'], hasAny: true },
+      },
+    } as unknown as Partial<BridgeStatus>);
+
+    const groups = [...select().querySelectorAll('optgroup')];
+    expect(groups.map(g => g.label)).toEqual(['官方入口', '已配的中转端点']);
+    expect(groups[1].querySelector('option')?.textContent).toBe('DeepSeek 中转');
+  });
+
+  it('填了地址：按独立端点保存（带 newEndpoint），名称缺省不发（桥接用官方名兜底）', () => {
+    const onSave = render();
+    setValue(select(), 'deepseek');
+    setValue(keyInput(), 'sk-relay');
+    setValue(baseUrlInput(), 'https://relay.example/v1');
+    submit();
+
+    expect(onSave).toHaveBeenCalledWith('deepseek', 'sk-relay', 'https://relay.example/v1', undefined);
+    expect(text()).toContain('独立的中转端点');
+  });
+
+  it('地址留空：配的是官方入口，不带 newEndpoint', () => {
+    const onSave = render();
+    setValue(select(), 'deepseek');
+    setValue(keyInput(), 'sk-official');
+    submit();
+
+    expect(onSave).toHaveBeenCalledWith('deepseek', 'sk-official', undefined, undefined);
+  });
+
+  it('选中已配的端点后可以只改名，密钥留空', () => {
+    const onSave = render({
+      providerNames: { 'deepseek-relay': 'DeepSeek 中转' },
+      providerBaseUrls: { 'deepseek-relay': 'https://relay.example/v1' },
+      setup: {
+        ready: true,
+        credentials: { providers: ['deepseek', 'deepseek-relay'], hasAny: true },
+      },
+    } as unknown as Partial<BridgeStatus>);
+
+    setValue(select(), 'deepseek-relay');
+    // 地址回显（不然只换 key 会在空地址上提交，把中转地址覆盖掉）
+    expect(baseUrlInput().value).toBe('https://relay.example/v1');
+    setValue(nameInput(), '改名后的中转');
+    submit();
+
+    expect(onSave).toHaveBeenCalledWith(
+      'deepseek-relay',
+      '',
+      'https://relay.example/v1',
+      '改名后的中转'
+    );
+  });
+});

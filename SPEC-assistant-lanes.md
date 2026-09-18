@@ -245,3 +245,48 @@ src/
 ✓ set_lane_model 不动全局 settings.json
 ✓ 顾问窗口不能切工作目录
 ```
+
+## 追加：同一上游的官方 + 中转并存（已实现）
+
+**用户报的问题**：官方 DeepSeek 配好后，再配一个中转的 DeepSeek，结果只剩「官方那个」。
+
+**根因（是通病，不是个例）**：凭证按供应商 id 单键存储——`auth.json` 里 `deepseek`
+只有一条，中转地址写进同一条，等于把官方入口覆盖掉。而模型清单来自 pi 的内置目录，
+界面上看起来还是「官方 DeepSeek」，实际请求全去了中转。pi 的凭证解析确实认
+auth.json 条目里的 `baseUrl`（源码 `model-registry.js`：`resolution.auth.baseUrl`），
+但**一个 id 只能有一个地址**——同一上游的官方和中转在数据模型上就不可能并存。
+
+**读 pi 源码定下的三个事实**（决定了修法）：
+1. models.json 的 `ProviderConfigSchema` 支持任意新 id（`name`/`baseUrl`/`api`/`models`）。
+2. 对目录里**没有**的 id，`applyModelsJson` 的 baseModels 是空数组——不写 `models`
+   就一个模型都没有，界面上不可见。所以新端点必须带清单。
+3. `modelFromJson` 里 `definition.baseUrl` 优先于 provider 级地址——所以复制目录定义时
+   **必须剥掉 baseUrl**，否则中转地址被定义里的官方地址盖掉。
+   另外 pi 的 RPC **没有**热重载 models.json 的指令（`runtime.refresh()` 只在启动时走），
+   新 provider 必须重启 pi 才能被看见。
+
+**实现**：
+- 中转保存成**独立端点**：新 id（`<上游>-relay`，撞了往 `-2`、`-3` 排）+ 自己的密钥地址
+  + 从 pi 内置目录**原样复制**的模型清单（剥 baseUrl/provider/headers）。
+  官方条目一个字节不动，两个入口并存。
+- **迁移**：官方条目上若残留旧版写法的中转地址，保存时自动清掉（密钥保留），
+  否则官方入口仍然指向中转，用户会以为官方的还能用。
+- 删除：内置目录里的 id 只清凭证与显示名（models.json 可能有用户手写的内容）；
+  不在目录里的 id 是我们建的端点，整条删。
+- 前端：地址栏语义改为「填了就是独立端点」；已配的中转端点出现在供应商下拉的
+  第二个分组里（可改名 / 换密钥 / 换地址，地址会回显）；提示保存后 pi 会重启一次。
+- 重启：只在创建端点这条路上 `lanes.restartAll()`（与 install_pi 同一先例），
+  因为新 provider 不重启就永远不可见。
+
+**真机冒烟**（跑完已恢复 auth.json / models.json / settings.json）：
+```
+✓ 内置目录里有官方 deepseek 的模型 — 4 个
+✓ 中转保存成功，回包带新 id — deepseek-relay
+✓ 官方条目还在且不再指向中转
+✓ 中转有自己的条目（自己的 key + 地址）
+✓ models.json 写入了中转端点的清单 — 4 个模型
+✓ 复制的定义里没有 baseUrl
+✓ 官方入口的模型仍在清单里 — 4 个
+✓ 中转端点的模型出现在清单里，地址指向中转 — 4 个
+✓ 删中转端点后 auth 与 models.json 都干净了
+```

@@ -4,7 +4,11 @@ import { useRefreshFeedback } from '../hooks/useRefreshFeedback';
 
 interface ProviderSetupProps {
   status: BridgeStatus;
-  /** 保存供应商凭证；baseUrl 只在走中转站时才填，name 留空表示用官方名字 */
+  /**
+   * 保存供应商入口。
+   * baseUrl 留空 = 配 / 改官方入口；填了 = 保存成一个**独立的中转端点**
+   * （新的供应商 id，不动官方条目）。
+   */
   onSave: (provider: string, key: string, baseUrl?: string, name?: string) => void;
   /**
    * wizard：首次运行向导里用，自带「配置模型」标题，按钮说「保存并开始」
@@ -17,18 +21,16 @@ interface ProviderSetupProps {
 }
 
 /**
- * 配置模型凭证。就三样：供应商、密钥、地址（走中转站才改）。
+ * 配置模型凭证。供应商、密钥、名称、地址。
  *
- * 这是照着 pi 自己的做法来的：
+ * 入口有两种，存的位置也不同：
+ * - **官方入口**：`auth.json` 里的内置 id（如 deepseek），不带地址，
+ *   模型清单来自 pi 的内置目录。
+ * - **中转端点**：填了地址就另存一个 id（如 deepseek-relay），自己的密钥 + 地址，
+ *   模型清单从内置目录复制。以前地址是写进官方那一条的，结果配完中转官方入口
+ *   就被覆盖没了——同一个上游想同时用官方和中转根本做不到。
  *
- * - **供应商**取内置目录（20 个），密钥写进 `auth.json` 的 `{ type: 'api_key', key }`。
- * - **地址**是可选的 `baseUrl`。填了它，pi 就仍然用**内置的那套模型清单**，只是把请求
- *   发到你指定的地址——即中转站 / 自建网关。pi 的文档叫它
- *   「Route a built-in provider through a proxy without redefining models」，
- *   我们桥接的 `save_provider_key` 本来就收 baseUrl，凭证解析也认这个字段。
- *
- * 所以不需要声明「有哪些模型」、也不需要选 API 类型：模型清单一律来自 pi 内置目录，
- * 中转站的分组只决定其中哪些真的能用。
+ * 已配的中转端点也会出现在供应商下拉里（选中后改名 / 换密钥 / 换地址）。
  *
  * 订阅登录（Claude Pro / ChatGPT / Copilot）桥接做不了——`/login` 是纯 TUI 流程，
  * 所以只做引导，并说明授权完成后页面会自己继续。
@@ -43,7 +45,13 @@ export function ProviderSetup({
   const submitLabel = wizard ? '保存并开始' : '保存';
   // 只收能贴 API key 的供应商：subscriptionOnly 的（如 GitHub Copilot）只认 OAuth，
   // 给它写一个 { type: 'api_key' } 进 auth.json 语义就是错的
-  const providers = (status.providers ?? []).filter(preset => !preset.subscriptionOnly);
+  const presets = (status.providers ?? []).filter(preset => !preset.subscriptionOnly);
+  const presetIds = new Set(presets.map(preset => preset.id));
+  /** 已配的中转端点：不在内置目录里的已配 id（显示名优先） */
+  const endpoints = (status.setup?.credentials.providers ?? [])
+    .filter(id => !presetIds.has(id))
+    .map(id => ({ id, label: status.providerNames?.[id] ?? id }));
+  const providers = [...presets, ...endpoints];
   const subscriptions = status.subscriptions ?? [];
 
   const [selected, setSelected] = useState('');
@@ -102,11 +110,22 @@ export function ProviderSetup({
             }}
             className={`mt-1 ${inputClass}`}
           >
-            {providers.map(preset => (
-              <option key={preset.id} value={preset.id}>
-                {preset.label}
-              </option>
-            ))}
+            <optgroup label="官方入口">
+              {presets.map(preset => (
+                <option key={preset.id} value={preset.id}>
+                  {preset.label}
+                </option>
+              ))}
+            </optgroup>
+            {endpoints.length > 0 && (
+              <optgroup label="已配的中转端点">
+                {endpoints.map(endpoint => (
+                  <option key={endpoint.id} value={endpoint.id}>
+                    {endpoint.label}
+                  </option>
+                ))}
+              </optgroup>
+            )}
           </select>
         </label>
 
@@ -135,24 +154,35 @@ export function ProviderSetup({
             onChange={event =>
               setNameDraft(draft => ({ ...draft, [provider]: event.target.value }))
             }
-            placeholder="留空就用官方名字"
+            placeholder="留空用官方名字；配中转时建议起个名字（如「官方 / 中转」）"
             autoComplete="off"
             className={`mt-1 ${inputClass}`}
           />
         </label>
 
         <label className="block">
-          <span className="text-[11px] text-muted">地址</span>
+          <span className="text-[11px] text-muted">中转地址（可选）</span>
           <input
             data-field="baseUrl"
             value={baseUrl}
             onChange={event =>
               setBaseUrlDraft(draft => ({ ...draft, [provider]: event.target.value }))
             }
-            placeholder="仅中转填写"
+            placeholder="https://你的中转站/v1"
             autoComplete="off"
             className={`mt-1 font-mono ${inputClass}`}
           />
+          {baseUrl.trim() ? (
+            <span className="mt-1 block text-[10.5px] leading-[1.6] text-muted/80">
+              会保存成一个**独立的中转端点**（用上面的名称区分），官方入口不受影响，
+              两个都能用。官方条目上残留的旧地址会被自动清掉。
+              保存后 pi 会重启一次来加载新的模型清单（正在跑的那一轮会被打断）。
+            </span>
+          ) : (
+            <span className="mt-1 block text-[10.5px] leading-[1.6] text-muted/80">
+              走中转站才填。留空就是官方入口。
+            </span>
+          )}
         </label>
 
         <button

@@ -2,7 +2,7 @@
 
 > 依据 [SPEC-assistant-lanes.md](./SPEC-assistant-lanes.md)。按依赖顺序排列，不按重要性。
 > **全部完成**（每个切片收尾都跑过 `npm run lint && npm test && npm run build`）。
-> 收尾状态：`tsc OK · lint OK · 978 tests passed / 3 skipped · build OK`（含顾问历史切片的 15 项）。
+> 收尾状态：`tsc OK · lint OK · 998 tests passed / 3 skipped · build OK`。
 
 ## Slice 0：先验证假设（不写产品代码）✅
 
@@ -110,3 +110,17 @@
 - [x] 真机冒烟（备用端口 3123，跑完清理了临时产物与多出来的 pi 进程，**没动**用户原有的 3 个）
 - [x] 更新 `SPEC-assistant-lanes.md`：假设打勾、偏差记录、Success Criteria 打勾 + 「还没验证 / 已知限制」
 - [ ] **用户需要重启桥接进程**（前端已经不认识旧桥接的指令集：`register_lane` / `save_plan_file` / `set_lane_model`）
+
+## Slice 6：同一上游的官方 + 中转并存（追加）✅
+
+- [x] Task 6.1：`server/providerEndpoints.ts` —— 端点 id 派生、目录复制（剥 baseUrl）、清单校验
+  - Verify: `providerEndpoints.test.ts`（8 项）
+- [x] Task 6.2：`setupConfig.ts` —— `createProviderEndpoint` + 删除区分官方/端点
+  - Acceptance: 官方条目不动、残留地址迁走（密钥保留）；第二个中转不覆盖第一个；models.json 写入名称/地址/清单；删端点整条干净
+  - Verify: `setupConfig.test.ts`（新增 7 项）
+- [x] Task 6.3：桥接 —— `requestFromPi`（拿内置目录清单）+ `save_provider_key` 的 newEndpoint 分支 + 保存后 `restartAll`
+  - Verify: 真机冒烟（官方 4 个模型 + 中转 4 个模型并存，中转地址正确）
+  - Files: `server/bridge.ts`
+- [x] Task 6.4：前端 —— 地址栏语义改为独立端点、已配端点进下拉第二分组、地址回显
+  - Verify: `ProviderSetup.test.tsx`（4 项）+ `piSetupActions.test.ts`（指令形状 2 项）
+  - Files: `src/services/piSetupActions.ts`, `src/components/ProviderSetup.tsx`
