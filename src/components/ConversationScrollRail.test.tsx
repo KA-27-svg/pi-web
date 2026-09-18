@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, useRef } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { ConversationScrollRail, type RailItem } from './ConversationScrollRail';
@@ -19,10 +19,22 @@ const items: RailItem[] = USER_MESSAGE_INDICES.map((index, i) => ({
   text: `提问 ${i}`,
 }));
 
-function Harness({ railItems = items, sentinel = false }: { railItems?: RailItem[]; sentinel?: boolean }) {
+function Harness({
+  railItems = items,
+  sentinel = false,
+  renderCount,
+  onNeedRender,
+}: {
+  railItems?: RailItem[];
+  sentinel?: boolean;
+  /** 限制实际渲染多少条消息（模拟「窗口还没滑到某条」） */
+  renderCount?: number;
+  onNeedRender?: (absoluteIndex: number) => void;
+}) {
   const containerRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
-  const childCount = Math.max(MESSAGE_COUNT, ...railItems.map(item => item.index + 1));
+  const childCount =
+    renderCount ?? Math.max(MESSAGE_COUNT, ...railItems.map(item => item.index + 1));
   return (
     <>
       <div ref={containerRef} data-testid="container">
@@ -40,6 +52,7 @@ function Harness({ railItems = items, sentinel = false }: { railItems?: RailItem
         containerRef={containerRef}
         contentRef={contentRef}
         items={railItems}
+        onNeedRender={onNeedRender}
       />
     </>
   );
@@ -131,7 +144,14 @@ const mount = (railItems: RailItem[] = items, sentinel = false) => {
   Array.from(content.children).forEach((child, i) => stubRect(child, i * MESSAGE_STEP, MESSAGE_STEP));
   stubScroll(container, SCROLL_HEIGHT, CLIENT_HEIGHT);
 
-  // 触发一次重新测量，让轨道拿到真实几何
+  // 触发重新测量，让轨道在 stub 之后重算锚点。
+  // 先把 scrollHeight 变一下再变回来：否则第二次 mount 时 metrics 与上一次相同，
+  // setMetrics 会被相等性短路掉，锚点就不会在新节点上重算。
+  setScrollHeight(SCROLL_HEIGHT + 1);
+  act(() => {
+    container.dispatchEvent(new Event('scroll'));
+  });
+  setScrollHeight(SCROLL_HEIGHT);
   act(() => {
     container.dispatchEvent(new Event('scroll'));
   });
@@ -388,23 +408,24 @@ describe('滑动条形态', () => {
     expect(Number.parseFloat(thumb()!.style.height)).toBeCloseTo(expected, 1);
   });
 
-  it('点击按比例滚动，而不是跳到某一次提问', () => {
+  it('条数多到画成滑块时，点击也是跳到某次提问（窗口可滑动，按比例滚没意义）', () => {
     mount(manyItems(140));
 
     act(() => {
       rail()!.dispatchEvent(pointer('pointerdown', fractionY(0.5)));
     });
 
-    expect(container.scrollTop).toBeCloseTo((SCROLL_HEIGHT - CLIENT_HEIGHT) * 0.5, 1);
+    // 中间那条 = 提问 70，每条 100px
+    expect(container.scrollTop).toBe(70 * MESSAGE_STEP);
   });
 
-  it('点击两端分别到顶和到底', () => {
+  it('点击两端分别跳到第一条和最后一条提问', () => {
     mount(manyItems(140));
 
     act(() => {
       rail()!.dispatchEvent(pointer('pointerdown', fractionY(1)));
     });
-    expect(container.scrollTop).toBe(SCROLL_HEIGHT - CLIENT_HEIGHT);
+    expect(container.scrollTop).toBe(139 * MESSAGE_STEP);
 
     act(() => {
       rail()!.dispatchEvent(pointer('pointerdown', fractionY(0)));
@@ -441,5 +462,54 @@ describe('键盘与语义', () => {
     expect(el?.getAttribute('aria-orientation')).toBe('vertical');
     expect(el?.getAttribute('aria-controls')).toBe('conversation-scroll');
     expect(el?.getAttribute('tabindex')).toBe('0');
+  });
+});
+
+describe('跳到还没渲染的提问（窗口可滑动）', () => {
+  it('先请上层滑窗口，渲染出来后再滚过去', () => {
+    const onNeedRender = vi.fn();
+    const one = [{ index: 5, text: '提问' }];
+
+    // 只渲染了消息 0、1：要找的 5 还没出来
+    act(() => {
+      root.render(<Harness railItems={one} renderCount={2} onNeedRender={onNeedRender} />);
+    });
+    container = host.querySelector('[data-testid="container"]') as HTMLElement;
+    content = host.querySelector('[data-testid="content"]') as HTMLElement;
+    stubRect(container, 0, CLIENT_HEIGHT);
+    Array.from(content.children).forEach((child, i) => stubRect(child, i * MESSAGE_STEP, MESSAGE_STEP));
+    stubScroll(container, SCROLL_HEIGHT, CLIENT_HEIGHT);
+    setScrollHeight(SCROLL_HEIGHT + 1);
+    act(() => {
+      container.dispatchEvent(new Event('scroll'));
+    });
+    setScrollHeight(SCROLL_HEIGHT);
+    act(() => {
+      container.dispatchEvent(new Event('scroll'));
+    });
+    stubRect(rail()!, 0, CLIENT_HEIGHT);
+
+    act(() => {
+      rail()!.dispatchEvent(pointer('pointerdown', fractionY(0)));
+    });
+
+    // 找不到锚点 → 请上层把窗口滑到第 5 条；此时还没滚
+    expect(onNeedRender).toHaveBeenCalledWith(5);
+    expect(container.scrollTop).toBe(0);
+
+    // 上层滑过来了：第 5 条现在渲染出来了
+    act(() => {
+      root.render(<Harness railItems={one} renderCount={6} onNeedRender={onNeedRender} />);
+    });
+    content = host.querySelector('[data-testid="content"]') as HTMLElement;
+    Array.from(content.children).forEach((child, i) => stubRect(child, i * MESSAGE_STEP, MESSAGE_STEP));
+
+    // 触发一次重算（真实环境里窗口一变就会重算）
+    setScrollHeight(SCROLL_HEIGHT + 1);
+    act(() => {
+      container.dispatchEvent(new Event('scroll'));
+    });
+
+    expect(container.scrollTop).toBe(5 * MESSAGE_STEP);
   });
 });

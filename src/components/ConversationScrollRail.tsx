@@ -22,6 +22,13 @@ interface ConversationScrollRailProps {
   containerRef: RefObject<HTMLElement | null>;
   contentRef: RefObject<HTMLElement | null>;
   items: RailItem[];
+  /**
+   * 渲染窗口的标识。items 现在是整段会话（不随窗口变），所以窗口滑动时必须
+   * 靠它把锚点重算一遍。
+   */
+  windowKey?: string | number;
+  /** 点到还没渲染的提问：请上层把窗口滑到它 */
+  onNeedRender?: (absoluteIndex: number) => void;
 }
 
 interface Metrics {
@@ -43,6 +50,8 @@ export function ConversationScrollRail({
   containerRef,
   contentRef,
   items,
+  windowKey,
+  onNeedRender,
 }: ConversationScrollRailProps) {
   const railRef = useRef<HTMLDivElement>(null);
 
@@ -51,8 +60,10 @@ export function ConversationScrollRail({
     scrollHeight: 0,
     clientHeight: 0,
   });
-  /** 每一条对应的纵向偏移，与当前滚动位置无关（基准里已减掉 scrollTop） */
-  const [anchors, setAnchors] = useState<number[]>([]);
+  /** 每一条对应的纵向偏移；没渲染出来的那一条是 undefined */
+  const [anchors, setAnchors] = useState<Array<number | undefined>>([]);
+  /** 等窗口滑过来的目标（绝对下标）；渲染好之后就滚过去 */
+  const pendingIndexRef = useRef<number | null>(null);
   const [expanded, setExpanded] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
@@ -124,29 +135,42 @@ export function ConversationScrollRail({
 
   /**
    * 量每条提问在内容里的位置。放在 effect 里而不是渲染期，渲染期读 ref 在并发渲染下不安全。
-   * 只在内容尺寸变化时重算，滚动本身不影响结果；滑动条形态用不到，跳过。
+   * items 是整段会话（不随窗口变），所以还要盯 windowKey：窗口一滑就得重算。
+   * 没渲染出来的那一条记 undefined，等着窗口滑过来。
    */
   useEffect(() => {
     const container = containerRef.current;
     const content = contentRef.current;
-    if (!container || !content || dense) {
+    if (!container || !content) {
       setAnchors([]);
       return;
     }
 
     const base = container.getBoundingClientRect().top - container.scrollTop;
-    setAnchors(
-      items.map(item => {
-        // 按 data 属性找，而不是 content.children[item.index]：content 里除了消息
-        // 还有「向上滚动加载更早的消息」那个哨兵 div，用下标会整体差一条，
-        // 表现成点一次提问却跳到上一个回答
-        const child = content.querySelector<HTMLElement>(
-          `[data-message-index="${item.index}"]`
-        );
-        return child ? child.getBoundingClientRect().top - base : 0;
-      })
-    );
-  }, [containerRef, contentRef, items, dense, metrics.scrollHeight, metrics.clientHeight]);
+    // 一次 querySelectorAll 建表，比每条 item 各查一次便宜（items 是整段会话）
+    const rendered = new Map<string, HTMLElement>();
+    content.querySelectorAll<HTMLElement>('[data-message-index]').forEach(element => {
+      const key = element.dataset.messageIndex;
+      if (key !== undefined) rendered.set(key, element);
+    });
+
+    const next = items.map(item => {
+      const child = rendered.get(String(item.index));
+      return child ? child.getBoundingClientRect().top - base : undefined;
+    });
+    setAnchors(next);
+
+    // 之前点了一个还没渲染的提问，窗口已经滑过来了：滚到它
+    const pending = pendingIndexRef.current;
+    if (pending !== null) {
+      const position = items.findIndex(item => item.index === pending);
+      const anchor = position >= 0 ? next[position] : undefined;
+      if (anchor !== undefined) {
+        pendingIndexRef.current = null;
+        container.scrollTop = anchor;
+      }
+    }
+  }, [containerRef, contentRef, items, windowKey, metrics.scrollHeight, metrics.clientHeight]);
 
   /** 指针落在轨道上的比例。两种形态的轨道都带同样的上下留白，所以共用一套换算 */
   const fractionFromClientY = (clientY: number) => {
@@ -160,18 +184,21 @@ export function ConversationScrollRail({
   const indexFromFraction = (fraction: number) =>
     count <= 1 ? 0 : Math.round(fraction * (count - 1));
 
-  const scrollToFraction = (fraction: number) => {
+  const scrollToIndex = (position: number) => {
     const container = containerRef.current;
-    if (!container) return;
-    const max = Math.max(0, container.scrollHeight - container.clientHeight);
-    container.scrollTop = fraction * max;
-  };
+    const item = items[position];
+    if (!container || !item) return;
 
-  const scrollToIndex = (index: number) => {
-    const container = containerRef.current;
-    const anchor = anchors[index];
-    if (!container || anchor === undefined) return;
-    container.scrollTop = anchor;
+    const anchor = anchors[position];
+    if (anchor !== undefined) {
+      pendingIndexRef.current = null;
+      container.scrollTop = anchor;
+      return;
+    }
+
+    // 这条还没渲染：请上层把窗口滑到它，渲染完由锚点 effect 接手滚动
+    pendingIndexRef.current = item.index;
+    onNeedRender?.(item.index);
   };
 
   const track = (clientY: number) => {
@@ -186,8 +213,9 @@ export function ConversationScrollRail({
 
   const applyPointer = (clientY: number) => {
     const fraction = track(clientY);
-    if (dense) scrollToFraction(fraction);
-    else scrollToIndex(indexFromFraction(fraction));
+    // 两种画法都按「跳到某次提问」处理：窗口是可滑动的，
+    // 按比例滚当前窗口既跳不到没渲染的那条，也对不上整段会话的进度
+    scrollToIndex(indexFromFraction(fraction));
   };
 
   const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
@@ -197,10 +225,9 @@ export function ConversationScrollRail({
   };
 
   const handlePointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
-    const fraction = track(event.clientY);
+    track(event.clientY);
     if (!dragging) return;
-    if (dense) scrollToFraction(fraction);
-    else scrollToIndex(indexFromFraction(fraction));
+    applyPointer(event.clientY);
   };
 
   const endDrag = (event: React.PointerEvent<HTMLDivElement>) => {

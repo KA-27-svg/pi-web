@@ -29,6 +29,9 @@ interface Options {
   switching?: boolean;
   hasEarlier?: boolean;
   onLoadEarlier?: () => void;
+  startIndex?: number;
+  hasLater?: boolean;
+  onLoadLater?: () => void;
 }
 
 const render = (messages: PiMessage[], options: Options = {}) => {
@@ -36,9 +39,12 @@ const render = (messages: PiMessage[], options: Options = {}) => {
     root.render(
       <ConversationThread
         messages={messages}
+        startIndex={options.startIndex}
         switching={options.switching}
         hasEarlier={options.hasEarlier}
         onLoadEarlier={options.onLoadEarlier}
+        hasLater={options.hasLater}
+        onLoadLater={options.onLoadLater}
         scrollRef={scrollRef}
         contentRef={createRef<HTMLDivElement>()}
         endRef={createRef<HTMLDivElement>()}
@@ -146,5 +152,43 @@ describe('向上加载更早的消息', () => {
   it('没有更早的消息时不注册观察器', () => {
     render([message('a', '窗口内')], { hasEarlier: false, onLoadEarlier: vi.fn() });
     expect(observerCallbacks).toHaveLength(0);
+  });
+});
+
+describe('右侧轨道用的绝对下标', () => {
+  it('窗口不是从 0 开始时，data-message-index 也带上偏移', () => {
+    render([message('a', '一'), message('b', '二'), message('c', '三')], { startIndex: 70 });
+
+    const indices = Array.from(host.querySelectorAll('[data-message-index]')).map(
+      el => el.getAttribute('data-message-index')
+    );
+    expect(indices).toEqual(['70', '71', '72']);
+  });
+});
+
+describe('向下加载更新的消息', () => {
+  it('后面还有没渲染的消息时给出提示与底部哨兵', () => {
+    render([message('a', '一')], { hasLater: true });
+
+    expect(host.textContent).toContain('向下滚动加载更新的消息');
+  });
+
+  it('底部哨兵进入视口时请求补一页', () => {
+    const onLoadLater = vi.fn();
+    render([message('a', '一')], { hasLater: true, onLoadLater });
+
+    intersect(true);
+
+    expect(onLoadLater).toHaveBeenCalledTimes(1);
+  });
+
+  it('后面没有更多时不注册观察器，也不出提示', () => {
+    const onLoadLater = vi.fn();
+    render([message('a', '一')], { hasLater: false, onLoadLater });
+
+    intersect(true);
+
+    expect(onLoadLater).not.toHaveBeenCalled();
+    expect(host.textContent).not.toContain('向下滚动加载更新的消息');
   });
 });

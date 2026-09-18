@@ -4,7 +4,7 @@ import { useRubberBandScroll } from './hooks/useRubberBandScroll';
 import { ConversationScrollRail, type RailItem } from './components/ConversationScrollRail';
 import { ConversationThread } from './components/ConversationThread';
 import { isSidebarDismissClick } from './utils/sidebarDismiss';
-import { growWindow, initialWindow, visibleSlice } from './utils/threadWindow';
+import { growWindow, initialWindow, loadLater as loadLaterPage, visibleSlice, windowAround } from './utils/threadWindow';
 import { composerLayout } from './utils/composerLayout';
 
 /** 与 Tailwind 的 sm 断点一致：窄屏时侧栏是覆盖层，而不是并排的一栏 */
@@ -72,7 +72,7 @@ export default function App() {
   // 历史每次加载都换一批 id，所以首条 id 能代表「这是哪一次加载」；
   // 换会话时窗口自动回到一页，不必额外写重置逻辑
   const historyKey = messages[0]?.id ?? '';
-  const { visible: visibleMessages, hasEarlier } = useMemo(
+  const { visible: visibleMessages, startIndex, hasEarlier, hasLater } = useMemo(
     () => visibleSlice(messages, threadWindow, historyKey),
     [messages, threadWindow, historyKey]
   );
@@ -80,12 +80,25 @@ export default function App() {
   const scrollAdjustRef = useRef<number | null>(null);
 
   // 往上补一页。补进来的内容会把视线推下去，所以先记下当前高度，
-  // 渲染后补回同样的量——否则既会跳动，sеntinel 也会一直可见而把整段历史拉完
+  // 渲染后补回同样的量——否则既会跳动，sentinel 也会一直可见而把整段历史拉完
   const loadEarlier = useCallback(() => {
     const el = scrollContainerRef.current;
     scrollAdjustRef.current = el ? el.scrollHeight : null;
     setThreadWindow(prev => growWindow(prev, historyKey, messages.length));
   }, [historyKey, messages.length]);
+
+  // 往下补一页：窗口上沿不动，只在下面接一段，所以不用补偿滚动位置
+  const loadLater = useCallback(() => {
+    setThreadWindow(prev => loadLaterPage(prev, historyKey));
+  }, [historyKey]);
+
+  // 右侧轨道点了一个还没渲染的提问：把窗口滑到它，由轨道那边接手滚动
+  const ensureMessageRendered = useCallback(
+    (index: number) => {
+      setThreadWindow(windowAround(historyKey, messages.length, index));
+    },
+    [historyKey, messages.length]
+  );
 
   useLayoutEffect(() => {
     const el = scrollContainerRef.current;
@@ -147,14 +160,15 @@ export default function App() {
   // 到底/到顶后继续滚轮可以再拉出一段阻尼位移，松手回弹；拖滚动条不触发
   useRubberBandScroll(scrollContainerRef, contentRef, { enabled: !isEmpty });
 
-  // 轨道的一条横线 = 一次提问：悬停预览用户输入原文，点击跳到那一次
+  // 轨道的一条横线 = 一次提问：悬停预览用户输入原文，点击跳到那一次。
+  // 基于**整段会话**而不是当前渲染窗口，否则长会话里只剩最近几条，看着对不上
   const railItems = useMemo<RailItem[]>(
     () =>
-      // 轨道只能反映已经渲染出来的那段：没渲染的消息没有 DOM 锚点，跳不过去
-      visibleMessages.flatMap((message, index) =>
+      messages.flatMap((message, index) =>
         message.role === 'user'
           ? [
               {
+                // 绝对下标（在整段 messages 里），要跟消息上的 data-message-index 对得上
                 index,
                 // 先截断再压空白，避免对流式中的长文本反复做全文正则
                 text:
@@ -164,7 +178,7 @@ export default function App() {
             ]
           : []
       ),
-    [visibleMessages]
+    [messages]
   );
 
   // 展开侧栏时刷新一次，保证顺序与最新改动一致（首次拉取在连接建立时完成）
@@ -310,9 +324,12 @@ export default function App() {
             {!isEmpty && (
               <ConversationThread
                 messages={visibleMessages}
+                startIndex={startIndex}
                 switching={switching}
                 hasEarlier={hasEarlier}
                 onLoadEarlier={loadEarlier}
+                hasLater={hasLater}
+                onLoadLater={loadLater}
                 onOpenFile={path => void openAttachment(path).catch(() => undefined)}
                 fallbackModel={status.model?.name || status.model?.id}
                 modelNames={modelNames}
@@ -328,6 +345,8 @@ export default function App() {
               containerRef={scrollContainerRef}
               contentRef={contentRef}
               items={railItems}
+              windowKey={`${startIndex}:${visibleMessages.length}`}
+              onNeedRender={ensureMessageRendered}
             />
           )}
         </div>
