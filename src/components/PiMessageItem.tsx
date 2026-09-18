@@ -8,6 +8,8 @@ import { formatClockTime } from '../utils/format';
 
 interface PiMessageItemProps {
   message: PiMessage;
+  /** 在这段消息里的下标，供右侧轨道定位（挂到根节点的 data-message-index 上） */
+  dataIndex?: number;
   /** 点开文件附件时交给上层（桥接会用系统默认程序打开） */
   onOpenFile?: (path: string) => void;
   /** 当前会话的模型名：实时消息自己没记模型，用它兜底 */
@@ -18,6 +20,7 @@ interface PiMessageItemProps {
 
 export function PiMessageItem({
   message,
+  dataIndex,
   onOpenFile,
   fallbackModel,
   modelNames,
@@ -36,7 +39,7 @@ export function PiMessageItem({
     const hasText = message.content.length > 0;
 
     return (
-      <div className={`${enter} flex flex-col items-end gap-2`}>
+      <div data-message-index={dataIndex} className={`${enter} flex flex-col items-end gap-2`}>
         {attachments.length > 0 && (
           <div className="flex max-w-[85%] flex-wrap justify-end gap-2">
             {attachments.map((attachment, index) =>
@@ -97,7 +100,7 @@ export function PiMessageItem({
   ].filter(Boolean);
 
   return (
-    <div className={enter}>
+    <div data-message-index={dataIndex} className={enter}>
       <ExecutionCollapse
         reasoning={message.reasoning}
         tools={message.tools}

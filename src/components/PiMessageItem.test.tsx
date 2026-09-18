@@ -262,3 +262,23 @@ describe('回答结束的标记', () => {
     expect(meta()).toBeNull();
   });
 });
+
+describe('右侧轨道的定位锚点', () => {
+  it('把 dataIndex 挂到根节点上（用户消息）', () => {
+    render(message({ role: 'user', content: '问' }), { dataIndex: 4 });
+
+    expect(host.querySelector('[data-message-index="4"]')).toBeTruthy();
+  });
+
+  it('把 dataIndex 挂到根节点上（助手消息）', () => {
+    render(message({ role: 'assistant', content: '答' }), { dataIndex: 5 });
+
+    expect(host.querySelector('[data-message-index="5"]')).toBeTruthy();
+  });
+
+  it('没有 dataIndex 时不挂这个属性（避免 querySelector 选中它）', () => {
+    render(message({ role: 'user', content: '问' }));
+
+    expect(host.querySelector('[data-message-index]')).toBeNull();
+  });
+});
