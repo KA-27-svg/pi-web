@@ -138,6 +138,157 @@ body {
   }
 }
 
+/*
+ * ── 助手模式：打开那一刻的「铺纸」────────────────
+ *
+ * 分栏线像一笔墨画下来、一道光顺着它扫过、顾问栏从右边铺进来；开关按钮泛一圈涟漪。
+ *
+ * 这几个类**只在打开那 700ms 里挂着**（`useAssistantOpening`），播完就摘掉。
+ * 不只是省事：动画带 `animation-fill-mode: both`，播完元素上仍然留着 transform，
+ * 而面板里有 `position: fixed` 的元素（输入框的菜单遮罩），只要有 transform，
+ * 它们的参照系就从视口变成这个祖先。所以关键帧的终点一律写 `transform: none`
+ * 而不是 `translateX(0)`，而且过了窗口就把类拿掉。
+ */
+@keyframes assistant-pane-in {
+  from {
+    opacity: 0;
+    transform: translateX(20px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.assistant-pane-open {
+  animation: assistant-pane-in 460ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+
+/* 分栏线：先像一笔墨画下来，再化回原本那条细线 */
+@keyframes assistant-seam-draw {
+  0% {
+    transform: scaleY(0);
+    opacity: 0;
+  }
+  12% {
+    opacity: 1;
+  }
+  62% {
+    transform: scaleY(1);
+    opacity: 1;
+  }
+  100% {
+    transform: scaleY(1);
+    opacity: 0;
+  }
+}
+
+/* 光带：从线的一头扫到另一头，扫完就没了 */
+@keyframes assistant-seam-sheen {
+  0% {
+    opacity: 0;
+    transform: translateY(-100%);
+  }
+  18% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(100%);
+  }
+}
+
+/* 基态 opacity: 0：prefers-reduced-motion 下把动画一关，这两层就不存在，
+   留下的是原本那条 border 色的细线 */
+.assistant-seam-open::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  background: rgb(var(--foreground) / 0.35);
+  transform-origin: 50% 50%;
+  animation: assistant-seam-draw 460ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+.assistant-seam-open::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  pointer-events: none;
+  background: linear-gradient(
+    to bottom,
+    transparent,
+    rgb(var(--foreground) / 0.55),
+    transparent
+  );
+  animation: assistant-seam-sheen 700ms cubic-bezier(0.33, 0, 0.67, 1) both;
+}
+
+/* 开关按钮：泛一圈涟漪，图标轻轻落定（不弹跳，就是收一下） */
+@keyframes assistant-ring {
+  0% {
+    opacity: 0.5;
+    transform: scale(0.6);
+  }
+  60% {
+    opacity: 0.14;
+  }
+  /* 按钮在 top-3，扩到 2 倍就顶出视口了；提前把透明度收到 0，
+     最后那一点被切掉也看不见 */
+  88% {
+    opacity: 0;
+    transform: scale(2);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(2.05);
+  }
+}
+@keyframes assistant-icon-settle {
+  from {
+    transform: scale(0.8) rotate(-8deg);
+  }
+  to {
+    transform: none;
+  }
+}
+.assistant-ring-open::after {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  opacity: 0;
+  border-radius: 9999px;
+  border: 1px solid rgb(var(--foreground) / 0.5);
+  pointer-events: none;
+  animation: assistant-ring 620ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+.assistant-ring-open svg {
+  animation: assistant-icon-settle 460ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+
+/* 窄屏没有分栏线，只有 tab 条淡进来 */
+@keyframes assistant-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.assistant-fade-open {
+  animation: assistant-fade-in 320ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .assistant-pane-open,
+  .assistant-seam-open::before,
+  .assistant-seam-open::after,
+  .assistant-ring-open::after,
+  .assistant-ring-open svg,
+  .assistant-fade-open {
+    animation: none;
+  }
+}
+
 /* 极淡滚动条 —— 几乎看不见，悬停才浮现 */
 ::-webkit-scrollbar {
   width: 8px;

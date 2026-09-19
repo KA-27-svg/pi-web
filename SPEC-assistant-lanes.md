@@ -360,3 +360,30 @@ auth.json 条目里的 `baseUrl`（源码 `model-registry.js`：`resolution.auth
   `/v1` 与 `/1` 是不同地址（真实案例里 `/1` 是假 200）。
 - 保存与探测都先 `endpointForAddress(上游, 地址)` 找已有端点：找到就原地更新，
   并用**端点自己存着的**密钥（所以重配时可以留空密钥）。
+
+### 打开那一刻的「铺纸」动画（补充）
+
+用户要求：助手模式打开时来点动画/特效，提升仪式感。
+
+四条线，全部只动 `transform` / `opacity`，播完不留残留：
+
+| 线 | 做法 | 时长 |
+|---|---|---|
+| 分栏线 | `::before` 像一笔墨从上往下画出来（`scaleY` 0→1），再化回原本那条细线 | 460ms |
+| 光带 | `::after` 一道柔和渐变从线的一头扫到另一头 | 700ms |
+| 顾问栏 | 从右边 `translateX(20px) + scale(0.985)` 铺进来 | 460ms |
+| 开关按钮 | 泛一圈涟漪（`scale` 0.6→2，透明度先升后落）+ 图标轻轻落定（`scale 0.8 / rotate -8deg` → 无） | 620 / 460ms |
+
+关掉时不演：顾问进程立刻退场，多等一帧都是在拖后腿。窄屏没有分栏线，只有 tab 条淡进来。
+
+**为什么要有「动画窗口」这个状态**（`useAssistantOpening`，760ms）：这些动画带
+`animation-fill-mode: both`，播完元素上仍然留着 transform；而面板里有
+`position: fixed` 的元素（输入框的菜单遮罩），只要祖先有 transform，它们的参照系
+就从视口变成那个祖先。所以关键帧终点一律写 `transform: none`（不是 `translateX(0)`），
+而且过了窗口就把类摘掉。
+
+页面加载时（localStorage 里存着「开着」）不算「刚打开」——那时界面本来就在那儿，
+不该一进来就演一遍。
+
+`prefers-reduced-motion: reduce` 下这几段动画一律 `animation: none`；墨线 / 光带 / 涟漪的
+基态透明度是 0，关掉动画后它们不存在，留下的是原本那条 border 色的细线。

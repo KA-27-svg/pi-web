@@ -156,3 +156,46 @@ describe('窄屏', () => {
     expect(text()).not.toContain('执行窗口');
   });
 });
+
+describe('打开那一刻的动画', () => {
+  /** 顾问栏是分隔条后面那个 pane */
+  const advisorPane = () => separator()?.nextElementSibling as HTMLElement | null;
+
+  it('opening 为真：分栏线与顾问栏都挂上动画类', () => {
+    render({ opening: true });
+
+    expect(separator()?.className).toContain('assistant-seam-open');
+    expect(advisorPane()?.className).toContain('assistant-pane-open');
+  });
+
+  it('opening 落回去后类就摘掉（残留的 transform 会把 fixed 元素带偏）', () => {
+    render({ opening: true });
+    render({ opening: false });
+
+    expect(separator()?.className).not.toContain('assistant-seam-open');
+    expect(advisorPane()?.className).not.toContain('assistant-pane-open');
+  });
+
+  it('不传 opening（默认）就是安静的，没有任何动画类', () => {
+    render();
+
+    expect(separator()?.className).not.toContain('assistant-seam-open');
+    expect(advisorPane()?.className).not.toContain('assistant-pane-open');
+  });
+
+  it('关着时不演（没有顾问栏可铺）', () => {
+    render({ enabled: false, opening: true, advisor: undefined });
+
+    expect(host.querySelector('.assistant-pane-open')).toBeNull();
+    expect(host.querySelector('.assistant-seam-open')).toBeNull();
+  });
+
+  it('窄屏没有分栏线，改成 tab 条淡进来', () => {
+    stubMatchMedia(true);
+    render({ opening: true });
+
+    expect(separator()).toBeNull();
+    expect(host.querySelector('.assistant-fade-open')).not.toBeNull();
+    expect(host.querySelector('.assistant-pane-open')).toBeNull();
+  });
+});

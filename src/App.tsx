@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { usePiWebSocket } from './hooks/usePiWebSocket';
 import { useAssistantMode } from './hooks/useAssistantMode';
+import { useAssistantOpening } from './hooks/useAssistantOpening';
 import type { ApiProbeResult } from './types/pi';
 import { AssistantLayout } from './components/AssistantLayout';
 import { AdvisorPane } from './components/AdvisorPane';
@@ -34,6 +35,8 @@ export default function App() {
   const [toast, setToast] = useState<string>();
   /** 助手模式的开关与分栏比例（存 localStorage） */
   const { enabled: assistantMode, toggle: toggleAssistantMode, ratio, setRatio } = useAssistantMode();
+  // 打开那一刻的动画窗口：开关按钮泛涟漪、顾问栏铺进来、分栏线画下来都用它
+  const assistantOpening = useAssistantOpening(assistantMode);
   /**
    * 变一次就让执行窗口的 pane 复位（回开场图标、窗口回一页）。
    * 那些状态归 pane 所有，外壳碰不到，所以用信号通知而不是直接调它的 setter。
@@ -239,7 +242,7 @@ export default function App() {
             assistantMode
               ? 'bg-surface text-foreground'
               : 'text-muted hover:text-foreground hover:bg-surface'
-          }`}
+          } ${assistantOpening ? 'assistant-ring-open' : ''}`}
           aria-label="助手模式"
           title="助手模式：左边执行、右边顾问（只聊不碰项目）"
         >
@@ -289,6 +292,7 @@ export default function App() {
 
         <AssistantLayout
           enabled={assistantMode}
+          opening={assistantOpening}
           ratio={ratio}
           onRatioChange={setRatio}
           main={
