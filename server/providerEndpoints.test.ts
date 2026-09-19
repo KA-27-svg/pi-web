@@ -5,6 +5,7 @@ import {
   deriveEndpointId,
   isPresetProvider,
   presetLabel,
+  upstreamModels,
 } from './providerEndpoints';
 
 /** pi 的 get_available_models 回包里，一条模型定义长这样 */
@@ -85,5 +86,33 @@ describe('清单可用性检查', () => {
   it('缺 id 的条目拒绝', () => {
     expect(() => assertModelsUsable([{ name: 'x' }])).toThrow(/id/);
     expect(() => assertModelsUsable([{ id: 'a' }, { id: 'b' }])).not.toThrow();
+  });
+});
+
+describe('上游自己报的模型清单', () => {
+  it('[OI] 风格响应（{data:[{id}]}）转成模型定义，名字用 id', () => {
+    const models = upstreamModels({
+      data: [
+        { id: 'deepseek-v4-flash', object: 'model' },
+        { id: 'deepseek-v4-pro', object: 'model' },
+        { id: 'deepseek-v4-flash' }, // 重复的去掉
+        { object: 'model' }, // 没 id 的跳过
+        'garbage',
+      ],
+    });
+
+    expect(models).toEqual([
+      { id: 'deepseek-v4-flash', name: 'deepseek-v4-flash', api: 'openai-completions' },
+      { id: 'deepseek-v4-pro', name: 'deepseek-v4-pro', api: 'openai-completions' },
+    ]);
+  });
+
+  it('裸数组与结构对不上时都能兜住', () => {
+    // 裸字符串没有 id，跳过；有 id 的才算
+    expect(upstreamModels(['a', { id: 'b' }])).toEqual([
+      { id: 'b', name: 'b', api: 'openai-completions' },
+    ]);
+    expect(upstreamModels(null)).toEqual([]);
+    expect(upstreamModels({ error: 'x' })).toEqual([]);
   });
 });

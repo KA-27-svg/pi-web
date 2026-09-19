@@ -2,7 +2,7 @@
 
 > 依据 [SPEC-assistant-lanes.md](./SPEC-assistant-lanes.md)。按依赖顺序排列，不按重要性。
 > **全部完成**（每个切片收尾都跑过 `npm run lint && npm test && npm run build`）。
-> 收尾状态：`tsc OK · lint OK · 998 tests passed / 3 skipped · build OK`。
+> 收尾状态：`tsc OK · lint OK · 1000 tests passed / 3 skipped · build OK`。
 
 ## Slice 0：先验证假设（不写产品代码）✅
 
@@ -124,3 +124,14 @@
 - [x] Task 6.4：前端 —— 地址栏语义改为独立端点、已配端点进下拉第二分组、地址回显
   - Verify: `ProviderSetup.test.tsx`（4 项）+ `piSetupActions.test.ts`（指令形状 2 项）
   - Files: `src/services/piSetupActions.ts`, `src/components/ProviderSetup.tsx`
+
+### Task 6.5（补充）：优先探测上游自己的模型清单 ✅
+
+真实中转（micuapi）暴露了两个盲区：地址 `/1` 是假 200（真前缀是 `/v1`）；
+分组卖的模型名与官方不同（deepseek-v4-flash vs 内置的 deepseek-chat），
+复制内置目录在这种站上必然 model_not_found。
+
+- 创建端点时先 `GET {地址}/models`（带密钥），拿到就用上游清单；拿不到退回复制内置目录。
+- `upstreamModels(payload)`：[OI] 风格响应 → 模型定义，去重、跳过无 id 条目。
+- Verify: `providerEndpoints.test.ts`（+2 项）+ 真机冒烟（含真实密钥出话）
+- Files: `server/providerEndpoints.ts`, `server/bridge.ts`

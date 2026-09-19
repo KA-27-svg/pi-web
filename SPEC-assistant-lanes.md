@@ -290,3 +290,30 @@ auth.json 条目里的 `baseUrl`（源码 `model-registry.js`：`resolution.auth
 ✓ 中转端点的模型出现在清单里，地址指向中转 — 4 个
 ✓ 删中转端点后 auth 与 models.json 都干净了
 ```
+
+### 补充：中转分组的模型名和官方不一样（真实案例）
+
+用户的中转（micuapi）报的两件事，推翻了「复制内置目录」这一版的做法：
+
+1. **地址是假 200**：用户给的 `https://…/1`，下面所有请求都返回 200 空响应；
+   真正的 API 前缀是 `https://…/v1`。只看状态码根本发现不了。
+2. **分组卖的模型名和官方不同**：上游 `/v1/models` 列的是 `deepseek-v4-flash`、
+   `deepseek-v4-pro` 这些，没有内置目录的 `deepseek-chat` / `deepseek-reasoner`。
+   复制内置目录在这种站上必然 `model_not_found`。
+
+所以创建端点时改为**先问上游自己**（`GET {地址}/models`，带密钥）：
+- 拿得到 → 用**上游的清单**（模型名用 id，api 默认 `openai-completions`，
+  contextWindow / cost 让 pi 用默认值）。这才是真的能用。
+- 拿不到（地址错 / 分组不暴露清单 / 网络问题）→ 退回复制内置目录，端点照样建，
+  回包带 `modelsFrom` 标记来源。
+
+真机冒烟（用真实密钥跑，跑完已恢复配置文件）：
+```
+✓ 错误地址(/1)也能保存（退回复制内置目录）
+✓ 正确地址(/v1)保存成功，清单来自上游 — deepseek-relay
+✓ 中转清单用的是上游的模型名 — 14 个（deepseek-v4-flash…）
+✓ 官方条目没被动过；官方 deepseek 模型仍在 — 4 个
+✓ 中转端点的模型出现 — 14 个
+✓ 切到中转模型后真实回复了一个字
+✓ 删端点后 auth 与 models.json 干净
+```

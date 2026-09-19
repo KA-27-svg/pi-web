@@ -89,3 +89,30 @@ export function assertModelsUsable(models: Record<string, unknown>[]): void {
   const bad = models.find(model => typeof model.id !== 'string' || !model.id);
   if (bad) throw new Error('模型清单里有缺 id 的条目，无法创建独立端点');
 }
+
+/** OpenAI 风格模型列表响应（`GET {baseUrl}/models`）里的一条 */
+export function modelIdFromListEntry(entry: unknown): string | null {
+  if (!entry || typeof entry !== 'object') return null;
+  const id = (entry as { id?: unknown }).id;
+  return typeof id === 'string' && id.trim() ? id.trim() : null;
+}
+
+/**
+ * 上游自己报的模型清单 → 模型定义。
+ *
+ * 中转分组卖的模型名经常和官方不一样（这个真实案例里上游是 deepseek-v4-flash，
+ * 而内置目录是 deepseek-chat）——复制内置目录在这种站上会 model_not_found。
+ * 所以优先用上游 `/models` 报的清单：名字用 id，api 默认 openai-completions
+ * （`GET /models` 是 OpenAI 风格接口，能列出模型的基本都是这一族），
+ * contextWindow / cost 未知就让 pi 用默认值。
+ */
+export function upstreamModels(payload: unknown): Record<string, unknown>[] {
+  const list = Array.isArray((payload as { data?: unknown })?.data)
+    ? ((payload as { data: unknown[] }).data)
+    : Array.isArray(payload)
+      ? (payload as unknown[])
+      : [];
+
+  const ids = list.map(modelIdFromListEntry).filter((id): id is string => !!id);
+  return [...new Set(ids)].map(id => ({ id, name: id, api: 'openai-completions' }));
+}

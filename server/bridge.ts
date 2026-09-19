@@ -60,11 +60,12 @@ import {
   catalogModelsFor,
   isPresetProvider,
   presetLabel,
+  upstreamModels,
 } from './providerEndpoints.js';
 import { createProviderEndpoint } from './setupConfig.js';
 import { watchConfigFiles } from './configWatch.js';
 import { piNotReadyReply } from './bridgeMessages.js';
-import { probeApi, isHttpUrl } from './apiProbe.js';
+import { modelsEndpoint, probeApi, isHttpUrl } from './apiProbe.js';
 import {
   emptyTrash,
   listTrash,
@@ -629,11 +630,35 @@ wss.on('connection', (ws: WebSocket) => {
               if (!isPresetProvider(provider)) {
                 throw new Error('只有内置目录里的供应商才能另开中转端点');
               }
-              lanes.ensure(DEFAULT_LANE, currentCwd);
-              const response = await requestFromPi<{ data?: { models?: unknown[] } }>({
-                type: 'get_available_models',
-              });
-              const models = catalogModelsFor(response?.data?.models, provider);
+
+              // 中转分组卖的模型名经常和官方不一样（真实案例：上游是 deepseek-v4-flash，
+              // 内置目录是 deepseek-chat），所以**先问上游自己**：GET {地址}/models。
+              // 问得到就用上游的清单（这才真的能用）；问不到再退回复制内置目录。
+              let models: Record<string, unknown>[] = [];
+              let modelsFrom: 'upstream' | 'catalog' = 'catalog';
+              try {
+                const response = await fetch(modelsEndpoint(baseUrl), {
+                  headers: { Authorization: `Bearer ${key}` },
+                  signal: AbortSignal.timeout(15_000),
+                });
+                if (response.ok) {
+                  const upstream = upstreamModels(await response.json().catch(() => null));
+                  if (upstream.length > 0) {
+                    models = upstream;
+                    modelsFrom = 'upstream';
+                  }
+                }
+              } catch {
+                // 网络 / 超时都不拦：退回复制内置目录
+              }
+
+              if (models.length === 0) {
+                lanes.ensure(DEFAULT_LANE, currentCwd);
+                const response = await requestFromPi<{ data?: { models?: unknown[] } }>({
+                  type: 'get_available_models',
+                });
+                models = catalogModelsFor(response?.data?.models, provider);
+              }
               assertModelsUsable(models);
 
               const created = await createProviderEndpoint({
@@ -655,6 +680,7 @@ wss.on('connection', (ws: WebSocket) => {
                 endpointOf: provider,
                 migrated: created.migrated,
                 restarted: true,
+                modelsFrom,
               };
             }
 
