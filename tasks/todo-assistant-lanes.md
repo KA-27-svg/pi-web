@@ -190,27 +190,45 @@
 - [x] 真机冒烟（临时 agent 目录）：重配不冒 `-2`、尾斜杠不同仍认同一个、
   换地址才新建第二个、密钥留空时探测仍能拿到上游清单
 
-## Slice 9：打开那一刻的「铺纸」动画 ✅
+## Slice 9：打开那一刻的「铺纸」动画（已撤）❌
 
 用户要求：「助手模式打开来点动画或者特效，提升仪式感」。
 
-- [x] `src/hooks/useAssistantOpening.ts`（新）：只在 false → true 时给一个 760ms 的
-  「刚打开」窗口。用 React 官方的「props 变了就顺手改一下 state」写法（不在 effect 里
-  setState，少一轮渲染）；关掉立刻收回；卸载清定时器
-- [x] `src/index.css`：`assistant-seam-draw` / `assistant-seam-sheen` / `assistant-pane-in` /
-  `assistant-ring` / `assistant-icon-settle` / `assistant-fade-in`；关键帧终点一律
-  `transform: none`；`prefers-reduced-motion` 下全部关掉
-- [x] `AssistantLayout.tsx`：`opening` prop（默认 false）；宽屏挂分栏线与顾问栏的类，
-  窄屏给 tab 条挂淡入
-- [x] `App.tsx`：开关按钮挂 `assistant-ring-open`
-- [x] Verify：`useAssistantOpening.test.tsx`（6 项）+ `AssistantLayout.test.tsx`（+5 项）
-- [x] 门禁：`tsc OK · lint OK · 1041 tests passed / 3 skipped · build OK`
-- [x] 真机验证（Chrome DevTools MCP + 隔离桥接，`PI_CODING_AGENT_DIR` 临时目录）：
-  - 5 段动画的 `animationstart` 全部触发，时长与设计一致
-    （460 / 620 / 700 / 460 / 460ms，`animationstart` 在 click 后约 16ms）
-  - 逐帧冻结 + 截图**解码比像素**确认真的画出来了：
-    墨线满高 683px、峰值暗 32%；光带 357px、峰值暗 9.4%；顾问栏整体位移 2px 且淡入；
-    涟漪外径约 58px（按钮 32px）
-  - 窗口过后类已摘掉，顾问栏 `transform: none`、`opacity: 1`——没有残留
-  - 全程不连桥接（`127.0.0.2` 被 origin 校验 403 拒掉），零副作用；
-    用户真实 `models.json` / `auth.json` mtime 未变
+做完之后用户反馈「展开的动画很奇怪，删除掉吧」——改成 Slice 10 的样子。这里留一行
+记录：当时的做法是顾问栏从右边滑进来（`translateX(100%)`）+ 一层 `--surface` 底色 +
+左缘 30px 投影，分栏线像一笔墨画下来、一道光顺着扫过，执行窗口让位 14px；窗口由
+`useAssistantOpening`（820ms）管着。真机逐帧量过，五段动画都确实画出来了
+（投影处亮度 233.9 vs 背景 251.9、底色 243.8 vs 251.9），但**画出来不等于好看**：
+一块空面板从旁边滑进来，在这个极克制的界面里就是抢戏。
+
+## Slice 10：只留按钮的点击动画 + 齿轮转一下 ✅
+
+用户反馈：「助手区域的展开看到动画了，但是很奇怪，删除掉吧，只留图标的点击动画，
+设置齿轮那里也加一个点击的图标动画：齿轮会转一下」。
+
+- [x] 撤掉全部面板入场动画：`assistant-pane-open` / `assistant-seam-open` /
+  `assistant-main-open` / `assistant-fade-open` 四组类与它们的 keyframes 一起删；
+  `AssistantLayout` 的 `opening` prop 也随之去掉（它已经没有别的作用了）
+- [x] 删 `src/hooks/useAssistantOpening.ts` 与它的 6 项测试
+- [x] `src/hooks/useIconPress.ts`（新）：`{ active, count, press }`。点击触发、过窗口
+  自己落回；`count` 每次点击自增并当作图标元素的 `key`，让连点也能重播（`active`
+  第二下本来就是 true，React 不重渲染、动画也就不会重播；`key` 一变元素重建就从头播。
+  挂在图标上而不是按钮上，免得把按钮重建掉丢焦点）
+- [x] `src/index.css`：换成「图标的点击动画」一节——`icon-ring`（涟漪，620ms）、
+  `icon-settle`（图标落定，460ms）挂在 `.icon-press-ring`；`icon-spin`（齿轮转一圈，
+  520ms）挂在 `.icon-press-spin`。属性全用 `scale` / `rotate` 独立变换属性，不写进
+  `transform`
+- [x] `App.tsx`：助手开关与设置齿轮各一个 `useIconPress`（660 / 560ms），点击时
+  `press()`，图标挂 `key={count}`
+- [x] Verify：`useIconPress.test.tsx`（5 项）；`AssistantLayout.test.tsx` 删掉那 6 项
+- [x] 门禁：`tsc OK · lint OK · 1035 tests passed / 3 skipped · build OK`
+- [x] 真机验证（Chrome DevTools MCP + 隔离桥接绑 `127.0.0.2:3001` + 临时 agent 目录，
+  用户实例零干扰）——逐帧读 computed 值：
+  - 齿轮：`rotate` 0° → 78.9° → 186.5° → 285.3° → 332.8°（ease-out 收敛到 360°）
+  - 助手开关：图标 `scale` 0.8 → 0.988、`rotate` -8° → -0.47°；涟漪 `scale` 0.6 → 1.85、
+    `opacity` 0.5 → 0.146
+  - **旧的面板动画类残留 0 个、`assistant-*` 动画一个都没有**（确认真的撤干净了）
+  - 窗口过后类摘掉，图标 `scale: none` / `rotate: none`，没有残留
+  - 连点重播：第一遍跑到 273° 时再点一下，`rotate` **重置回 16°** 重播一遍，
+    跑完落回 `none`——`key={count}` 重建图标元素这条路是通的
+  - `prefers-reduced-motion` 规则在 CSSOM 里确认命中三个选择器、值为 `animation: none`

@@ -12,11 +12,6 @@ function mediaMatches(query: string): boolean {
 interface AssistantLayoutProps {
   /** 助手模式开关 */
   enabled: boolean;
-  /**
-   * 「刚打开」的那一下（`useAssistantOpening`）。为真时给顾问栏、分栏线挂上
-   * 一次性动画类；播完由外面摘掉。
-   */
-  opening?: boolean;
   /** 顾问那一栏的宽度占比 */
   ratio: number;
   onRatioChange: (ratio: number) => void;
@@ -33,18 +28,11 @@ interface AssistantLayoutProps {
  * 新出现的顾问栏落在右边的空位里。反过来的话，每切一次模式整个界面都要重排一次，
  * 而这种「随手切一下」的开关不该有这种代价。
  *
- * 打开时演一遍「铺纸」：分栏线像一笔墨画下来、一道光顺着它扫过、顾问栏从右边
- * 铺进来。动画只在 `opening` 为真时挂着（播完外面就摘掉），不是常驻——原因见
- * `useAssistantOpening` 的注释（残留的 transform 会把 `position: fixed` 带偏）。
+ * 这里没有任何入场动画：铺纸、滑入那一类试过，观感并不好（顾问栏首屏常常还是空的，
+ * 要几秒才连上，一块空面板动起来很怪）。仪式感留在开关按钮自己身上，见 `index.css`
+ * 的「图标的点击动画」。
  */
-export function AssistantLayout({
-  enabled,
-  opening = false,
-  ratio,
-  onRatioChange,
-  main,
-  advisor,
-}: AssistantLayoutProps) {
+export function AssistantLayout({ enabled, ratio, onRatioChange, main, advisor }: AssistantLayoutProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const draggingRef = useRef(false);
   const [narrow, setNarrow] = useState(() => mediaMatches(NARROW_QUERY));
@@ -80,9 +68,6 @@ export function AssistantLayout({
     return <div className="flex min-h-0 min-w-0 flex-1">{main}</div>;
   }
 
-  // 只在真的「刚打开」时挂动画类
-  const entering = opening;
-
   if (narrow) {
     const tabs: Array<{ id: 'main' | 'advisor'; label: string }> = [
       { id: 'main', label: '执行' },
@@ -92,11 +77,7 @@ export function AssistantLayout({
     return (
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         {/* mt-12 是给右上角那排悬浮按钮让位（它们在 top-3） */}
-        <div
-          className={`mt-12 flex shrink-0 items-center justify-center gap-1 ${
-            entering ? 'assistant-fade-open' : ''
-          }`}
-        >
+        <div className="mt-12 flex shrink-0 items-center justify-center gap-1">
           {tabs.map(item => (
             <button
               key={item.id}
@@ -120,7 +101,7 @@ export function AssistantLayout({
   return (
     <div ref={containerRef} className="flex min-h-0 min-w-0 flex-1">
       <div
-        className={`flex min-h-0 min-w-0 flex-col ${entering ? 'assistant-main-open' : ''}`}
+        className="flex min-h-0 min-w-0 flex-col"
         style={{ flexGrow: 1 - ratio, flexBasis: 0 }}
       >
         {main}
@@ -136,18 +117,14 @@ export function AssistantLayout({
         onPointerCancel={handlePointerUp}
         onDoubleClick={() => onRatioChange(DEFAULT_RATIO)}
         title="拖动调整宽度（双击复位）"
-        className={`relative w-px shrink-0 cursor-col-resize bg-border ${
-          entering ? 'assistant-seam-open' : ''
-        }`}
+        className="relative w-px shrink-0 cursor-col-resize bg-border"
       >
         {/* 1px 的线太难点，把可点区域左右各撑开一点（线本身不变粗） */}
         <span className="absolute inset-y-0 -left-1 -right-1" />
       </div>
 
       <div
-        className={`flex min-h-0 min-w-0 flex-col ${
-          entering ? 'assistant-pane-open' : ''
-        }`}
+        className="flex min-h-0 min-w-0 flex-col"
         style={{ flexGrow: ratio, flexBasis: 0 }}
       >
         {advisor}

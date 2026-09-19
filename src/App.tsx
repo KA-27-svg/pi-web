@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { usePiWebSocket } from './hooks/usePiWebSocket';
 import { useAssistantMode } from './hooks/useAssistantMode';
-import { useAssistantOpening } from './hooks/useAssistantOpening';
+import { useIconPress } from './hooks/useIconPress';
 import type { ApiProbeResult } from './types/pi';
 import { AssistantLayout } from './components/AssistantLayout';
 import { AdvisorPane } from './components/AdvisorPane';
@@ -17,6 +17,13 @@ import { Settings, PanelLeftOpen, Columns2 } from 'lucide-react';
 /** 与 Tailwind 的 sm 断点一致：窄屏时侧栏是覆盖层，而不是并排的一栏 */
 const NARROW_VIEWPORT = '(max-width: 640px)';
 const isOverlaySidebar = () => window.matchMedia(NARROW_VIEWPORT).matches;
+
+/**
+ * 图标点击动画的窗口。要盖住 `index.css` 里最长的那一段（助手开关的涟漪 620ms、
+ * 齿轮旋转 520ms），CSS 里的毫秒数改了就跟着改这里。
+ */
+const ASSISTANT_PRESS_MS = 660;
+const GEAR_PRESS_MS = 560;
 
 export default function App() {
   /**
@@ -35,8 +42,9 @@ export default function App() {
   const [toast, setToast] = useState<string>();
   /** 助手模式的开关与分栏比例（存 localStorage） */
   const { enabled: assistantMode, toggle: toggleAssistantMode, ratio, setRatio } = useAssistantMode();
-  // 打开那一刻的动画窗口：开关按钮泛涟漪、顾问栏铺进来、分栏线画下来都用它
-  const assistantOpening = useAssistantOpening(assistantMode);
+  // 两个图标的点击动画：助手开关泛涟漪 + 图标落定，设置齿轮转一圈
+  const assistantPress = useIconPress(ASSISTANT_PRESS_MS);
+  const gearPress = useIconPress(GEAR_PRESS_MS);
   /**
    * 变一次就让执行窗口的 pane 复位（回开场图标、窗口回一页）。
    * 那些状态归 pane 所有，外壳碰不到，所以用信号通知而不是直接调它的 setter。
@@ -145,6 +153,7 @@ export default function App() {
   }, [assistantMode, requestSessions]);
 
   const handleToggleAssistantMode = () => {
+    assistantPress.press();
     toggleAssistantMode();
     // 关掉时顾问窗口整个卸载，它上报的「当前会话」也就不作数了
     setAdvisorSessionId(undefined);
@@ -226,12 +235,18 @@ export default function App() {
 
         {/* 设置入口：常驻可见，不随焦点或点击位置隐藏 */}
         <button
-          onClick={() => setPanelOpen(o => !o)}
-          className="absolute right-4 top-3 z-[110] rounded-full p-2 text-muted hover:text-foreground hover:bg-surface transition-colors duration-200"
+          onClick={() => {
+            gearPress.press();
+            setPanelOpen(o => !o);
+          }}
+          className={`absolute right-4 top-3 z-[110] rounded-full p-2 text-muted hover:text-foreground hover:bg-surface transition-colors duration-200 ${
+            gearPress.active ? 'icon-press-spin' : ''
+          }`}
           aria-label="设置"
           title="设置"
         >
-          <Settings className="w-4 h-4" />
+          {/* key 让连点也能重播：见 useIconPress 的注释 */}
+          <Settings key={gearPress.count} className="w-4 h-4" />
         </button>
 
         {/* 助手模式开关：左下是执行、右下是顾问。关着时连顾问进程都不会起 */}
@@ -242,11 +257,11 @@ export default function App() {
             assistantMode
               ? 'bg-surface text-foreground'
               : 'text-muted hover:text-foreground hover:bg-surface'
-          } ${assistantOpening ? 'assistant-ring-open' : ''}`}
+          } ${assistantPress.active ? 'icon-press-ring' : ''}`}
           aria-label="助手模式"
           title="助手模式：左边执行、右边顾问（只聊不碰项目）"
         >
-          <Columns2 className="w-4 h-4" />
+          <Columns2 key={assistantPress.count} className="w-4 h-4" />
         </button>
 
         {panelOpen && (
@@ -292,7 +307,6 @@ export default function App() {
 
         <AssistantLayout
           enabled={assistantMode}
-          opening={assistantOpening}
           ratio={ratio}
           onRatioChange={setRatio}
           main={
