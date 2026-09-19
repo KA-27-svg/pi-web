@@ -30,6 +30,8 @@ function PiMessageItemBase({
 }: PiMessageItemProps) {
   /** 正在放大查看的图片；null 表示没开 */
   const [zoomed, setZoomed] = useState<{ src: string; alt: string } | null>(null);
+  /** 压缩摘要是否展开。默认收起：摘要动辄几万字，一屏就没了 */
+  const [summaryOpen, setSummaryOpen] = useState(false);
   const isUser = message.role === 'user';
   const isStreaming = message.status === 'streaming';
   // 历史恢复出来的消息直接显示；入场动画只留给刚刚产生的那条
@@ -97,6 +99,39 @@ function PiMessageItemBase({
 
   // Pi：左对齐，完全无容器，纯正文流
   // 回答结束后末尾留一行小字：用的哪个模型、什么时候答的。
+  // 自动压缩的分界。压掉的正文模型也看不到了（只留摘要），但用户得知道
+  // 上面的对话去哪了，所以这里画一条安静的线，摘要想看再展开。
+  if (message.role === 'compaction') {
+    const folded =
+      message.tokensBefore && message.tokensBefore > 0
+        ? `压缩前约 ${Math.round(message.tokensBefore / 1000)}k token 的对话已折叠成上面的摘要`
+        : '';
+
+    return (
+      <div data-message-index={dataIndex} className={`${enter} py-1`}>
+        <div className="flex items-center gap-3">
+          <span aria-hidden className="h-px flex-1 bg-border" />
+          <button
+            type="button"
+            onClick={() => setSummaryOpen(open => !open)}
+            aria-expanded={summaryOpen}
+            className="shrink-0 rounded-full px-2 py-0.5 text-[11.5px] text-muted transition-colors hover:bg-surface hover:text-foreground"
+          >
+            {summaryOpen ? '收起压缩摘要' : '上下文已压缩 · 查看摘要'}
+          </button>
+          <span aria-hidden className="h-px flex-1 bg-border" />
+        </div>
+
+        {summaryOpen && (
+          <div className="mt-3 rounded-lg border border-border bg-surface px-4 py-3">
+            <MarkdownView content={message.content} />
+            {folded && <p className="mt-2 text-[11px] text-muted">{folded}</p>}
+          </div>
+        )}
+      </div>
+    );
+  }
+
   const answerMeta = [
     message.model ? (modelNames?.[message.model] ?? message.model) : fallbackModel,
     formatClockTime(message.timestamp),

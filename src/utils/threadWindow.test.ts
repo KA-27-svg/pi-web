@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   THREAD_PAGE,
   growWindow,
+  historyWeight,
   initialWindow,
   loadLater,
   messageWeight,
@@ -9,6 +10,9 @@ import {
   windowAround,
   windowFor,
 } from './threadWindow';
+
+/** 一条挂满工具卡的消息：19 个工具 → 体量 20 */
+const heavyTools = () => Array.from({ length: 19 }, () => ({}));
 
 describe('对话区渲染窗口', () => {
   it('初始只渲染一页', () => {
@@ -40,6 +44,38 @@ describe('对话区渲染窗口', () => {
 
   it('消息很少时窗口就是全部', () => {
     expect(growWindow(initialWindow(), 'h1', 3).size).toBe(3);
+  });
+
+  it('上限按体量算，不按条数：消息很重时往上滚不能卡住', () => {
+    // 157 条、每条 20 个体量单位（一段工具调用很多的历史）。
+    // 上限如果错用条数（157），窗口加到 157 就再也长不动了，
+    // 而 157 个体量单位只够装七八条消息——用户往上滚就停在那儿。
+    const heavy = Array.from({ length: 157 }, (_, i) => ({ id: `m${i}`, tools: heavyTools() }));
+
+    const available = historyWeight(heavy, messageWeight);
+
+    let w = growWindow(initialWindow(), 'h1', available);
+    expect(w.size).toBe(THREAD_PAGE * 2);
+    w = growWindow(w, 'h1', available);
+    expect(w.size).toBe(THREAD_PAGE * 3);
+    w = growWindow(w, 'h1', available);
+    expect(w.size).toBe(THREAD_PAGE * 4);
+  });
+
+  it('一直往上补，能把整段历史都放进来', () => {
+    const heavy = Array.from({ length: 40 }, (_, i) => ({ id: `m${i}`, tools: heavyTools() }));
+
+    const available = historyWeight(heavy, messageWeight);
+
+    let w = initialWindow();
+    for (let i = 0; i < 30; i++) {
+      w = growWindow(w, 'h1', available);
+      if (!visibleSlice(heavy, w, 'h1', messageWeight).hasEarlier) break;
+    }
+
+    const slice = visibleSlice(heavy, w, 'h1', messageWeight);
+    expect(slice.hasEarlier).toBe(false);
+    expect(slice.visible).toHaveLength(heavy.length);
   });
 });
 

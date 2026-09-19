@@ -46,13 +46,39 @@ export function windowFor(
 }
 
 /**
+ * 一段历史的总体量。
+ *
+ * 窗口的上限得按**体量**算，不能按条数：一条挂了几十个工具卡的消息抵得上
+ * 几十条普通消息，按条数封顶的话窗口加到「条数」就再也长不动了，而那个数
+ * 只够装几条——用户往上滚两下就卡住，更早的对话永远翻不到。
+ *
+ * 返回的是个数字，方便调用方塞进 useMemo：窗口的补页回调要能被 memo 稳住，
+ * 否则流式输出时每来一个 delta 都会把哨兵观察器重建一遍。
+ */
+export function historyWeight<T>(
+  all: T[],
+  weight: (item: T) => number = () => 1
+): number {
+  let total = 0;
+  for (const item of all) total += weight(item);
+  return total;
+}
+
+/**
  * 向上补一页（看更早的消息）。
  * 只把长度加上去，尾部留白不动，于是窗口上沿往更早处扩。最多撑到最开头。
  */
-export function growWindow(window: ThreadWindow, historyKey: string, total: number): ThreadWindow {
+export function growWindow(
+  window: ThreadWindow,
+  historyKey: string,
+  availableWeight: number
+): ThreadWindow {
   const { size, end } = windowFor(window, historyKey);
-  const endIndex = Math.max(0, total - end);
-  return { key: historyKey, size: Math.max(1, Math.min(size + THREAD_PAGE, endIndex)), end };
+  return {
+    key: historyKey,
+    size: Math.max(1, Math.min(size + THREAD_PAGE, availableWeight)),
+    end,
+  };
 }
 
 /**

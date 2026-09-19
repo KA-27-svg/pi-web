@@ -28,10 +28,40 @@ export function presetLabel(providerId: string): string | undefined {
 }
 
 /**
- * 从 pi 的模型清单里摘出某个上游的定义，准备写进 models.json。
+ * 可以从内置目录抄进 models.json 的字段。
  *
  * **必须剥掉 baseUrl / provider / headers**：definition.baseUrl 的优先级高于
  * provider 级的中转地址，原样复制会让请求仍发往官方。
+ */
+const COPYABLE_MODEL_KEYS = new Set([
+  'id',
+  'name',
+  'api',
+  'reasoning',
+  'input',
+  'cost',
+  'contextWindow',
+  'maxTokens',
+  'samplingParams',
+  'compat',
+  'thinkingLevelMap',
+]);
+
+/** 剥掉不能抄的字段；没 id 的条目直接丢 */
+export function allCatalogModels(models: unknown): Record<string, unknown>[] {
+  if (!Array.isArray(models)) return [];
+
+  return models
+    .filter((model: any) => model && typeof model === 'object' && typeof model.id === 'string')
+    .map((model: any) =>
+      Object.fromEntries(Object.entries(model).filter(([key]) => COPYABLE_MODEL_KEYS.has(key)))
+    );
+}
+
+/**
+ * 从 pi 的模型清单里摘出某个上游的定义，准备写进 models.json。
+ *
+ * 「上游」= pi 目录里的 provider id（deepseek / zai / moonshot…）。
  */
 export function catalogModelsFor(
   models: unknown,
@@ -39,30 +69,9 @@ export function catalogModelsFor(
 ): Record<string, unknown>[] {
   if (!Array.isArray(models)) return [];
 
-  const copyable = new Set([
-    'id',
-    'name',
-    'api',
-    'reasoning',
-    'input',
-    'cost',
-    'contextWindow',
-    'maxTokens',
-    'samplingParams',
-    'compat',
-    'thinkingLevelMap',
-  ]);
-
-  return models
-    .filter(
-      (model: any) =>
-        model && typeof model === 'object' && (model as any).provider === providerId
-    )
-    .map((model: any) =>
-      Object.fromEntries(
-        Object.entries(model).filter(([key]) => copyable.has(key))
-      )
-    );
+  return allCatalogModels(
+    models.filter((model: any) => model && typeof model === 'object' && model.provider === providerId)
+  );
 }
 
 /** 端点 id：`<上游>-relay`，撞了就 `-2`、`-3` 往后排 */
@@ -188,20 +197,27 @@ export function recommendedModelIds(
  *
  * 内置目录里**有**同名定义的就用目录那份：它带着 cost / contextWindow / reasoning /
  * compat，界面上显示的是官方名、上下文窗口也对，比上游那句光秃秃的 id 好得多。
- * 目录里没有的（中转独有的模型）才退回最小定义——`GET /models` 是 [OI] 风格接口，
- * 能列出模型的基本都是这一族，所以 api 默认 `openai-completions`。
  *
- * 注意：目录那份的 baseUrl 已经在 catalogModelsFor 里剥掉了，这里不必再管。
+ * 找不到就**去整份目录里找**（`fallbackModels`）：中转分组常常一次卖好几家
+ * （DeepSeek 的中转上挂着 glm / kimi），只在上游自己名下找的话它们全是光秃秃
+ * 的 id——没有 `reasoning`，pi 就认为这个模型不会思考，界面上思考档位只剩 off。
+ *
+ * 两边都没有的（上游独有、目录里没收录的模型）才退回最小定义：
+ * `GET /models` 是 [OI] 风格接口，能列出模型的基本都是这一族，所以 api 默认
+ * `openai-completions`。宁可不给档位，也不乱猜一个可能让上游 400 的思考格式。
+ *
+ * 注意：目录那份的 baseUrl 已经在 allCatalogModels 里剥掉了，这里不必再管。
  */
 export function mergeModelDefinitions(
   ids: Iterable<string>,
-  catalogModels: Record<string, unknown>[]
+  catalogModels: Record<string, unknown>[],
+  fallbackModels: Record<string, unknown>[] = []
 ): Record<string, unknown>[] {
-  const byId = new Map(
-    catalogModels
-      .filter(model => typeof model?.id === 'string')
-      .map(model => [model.id as string, model])
-  );
+  const byId = new Map<string, Record<string, unknown>>();
+  // 上游自己那份写在后面：同一个 id 在不同上游下 cost / 窗口可能不一样
+  for (const model of [...fallbackModels, ...catalogModels]) {
+    if (typeof model?.id === 'string') byId.set(model.id, model);
+  }
 
   const seen = new Set<string>();
   const merged: Record<string, unknown>[] = [];

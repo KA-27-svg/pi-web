@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  allCatalogModels,
   assertModelsUsable,
   catalogModelsFor,
   deriveEndpointId,
@@ -162,6 +163,26 @@ describe('哪些模型算「这个上游自己的」', () => {
   });
 });
 
+describe('整份内置目录（不按上游过滤）', () => {
+  it('所有上游的定义都留着，只剥掉 baseUrl / provider / headers', () => {
+    const models = [
+      catalogModel({ id: 'deepseek-v4-pro', reasoning: true }),
+      catalogModel({ id: 'glm-5.3', provider: 'zai' }),
+      { name: '没有 id 的垃圾' },
+    ];
+
+    const all = allCatalogModels(models);
+
+    expect(all.map(model => model.id)).toEqual(['deepseek-v4-pro', 'glm-5.3']);
+    expect(all[1].provider).toBeUndefined();
+    expect(all[1].baseUrl).toBeUndefined();
+  });
+
+  it('回包不是数组时给空', () => {
+    expect(allCatalogModels(undefined)).toEqual([]);
+  });
+});
+
 describe('勾中的 id → 模型定义', () => {
   const catalog = [
     { id: 'deepseek-v4-pro', name: 'DeepSeek V4 Pro', api: 'openai-completions', contextWindow: 1000000 },
@@ -173,6 +194,26 @@ describe('勾中的 id → 模型定义', () => {
 
   it('目录里没有的（中转独有的模型）退回最小定义', () => {
     expect(mergeModelDefinitions(['deepseek-v4.1-flash'], catalog)).toEqual([
+      { id: 'deepseek-v4.1-flash', name: 'deepseek-v4.1-flash', api: 'openai-completions' },
+    ]);
+  });
+
+  it('这个上游名下没有的，去整份目录里找：否则中转分组卖的 glm / kimi 全是光秃秃的 id，思考档位只剩 off', () => {
+    const full = [
+      { id: 'glm-5.3', name: 'GLM 5.3', api: 'openai-completions', reasoning: true, thinkingLevelMap: { minimal: null, high: 'high' } },
+    ];
+
+    expect(mergeModelDefinitions(['glm-5.3'], catalog, full)).toEqual(full);
+  });
+
+  it('同一个 id 上游自己那份优先', () => {
+    const full = [{ id: 'deepseek-v4-pro', name: '别家的同名模型', reasoning: true }];
+
+    expect(mergeModelDefinitions(['deepseek-v4-pro'], catalog, full)).toEqual(catalog);
+  });
+
+  it('两边都没有才退回最小定义', () => {
+    expect(mergeModelDefinitions(['deepseek-v4.1-flash'], catalog, [{ id: 'glm-5.3' }])).toEqual([
       { id: 'deepseek-v4.1-flash', name: 'deepseek-v4.1-flash', api: 'openai-completions' },
     ]);
   });

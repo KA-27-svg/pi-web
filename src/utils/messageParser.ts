@@ -43,6 +43,22 @@ export class MessageParser {
         return;
       }
 
+      // 自动压缩留下的摘要。压掉的那段正文确实没了（模型也看不到了），
+      // 但这一条得留在原位：不画的话用户只会看到「上面的对话不见了」。
+      if (rm.role === 'compactionSummary') {
+        currentAssistant = null;
+        restored.push({
+          id: id('compaction'),
+          role: 'compaction',
+          content: typeof rm.summary === 'string' ? rm.summary : '',
+          tokensBefore: typeof rm.tokensBefore === 'number' ? rm.tokensBefore : undefined,
+          timestamp: rm.timestamp || 0,
+          status: 'done',
+          fromHistory: true,
+        });
+        return;
+      }
+
       if (rm.role === 'user') {
         // 新回合开始，后面连着来的 assistant 不该再并进上一条
         currentAssistant = null;

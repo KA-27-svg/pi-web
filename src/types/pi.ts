@@ -11,12 +11,18 @@ export interface ToolCallState {
 
 export interface PiMessage {
   id: string;
-  role: 'user' | 'assistant' | 'system';
+  /**
+   * `compaction` = 自动压缩留下的摘要。它不是对话消息，但必须留在原位：
+   * 被压缩掉的那段从这里断开，用户才知道上面的对话去哪了。
+   */
+  role: 'user' | 'assistant' | 'system' | 'compaction';
   content: string;
   reasoning?: string;
   tools?: ToolCallState[];
   /** 用户消息随行的附件（图片 / 文件） */
   attachments?: MessageAttachment[];
+  /** role 为 compaction 时：压缩前占了多少 token */
+  tokensBefore?: number;
   timestamp: number;
   status?: 'streaming' | 'done' | 'error';
   /** status 为 error 时的原因，用于直接展示给用户 */

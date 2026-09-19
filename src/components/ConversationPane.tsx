@@ -19,6 +19,7 @@ import { contextLevel, contextLevelText } from '../utils/contextUsage';
 import { isSidebarDismissClick } from '../utils/sidebarDismiss';
 import {
   growWindow,
+  historyWeight,
   initialWindow,
   loadLater as loadLaterPage,
   messageWeight,
@@ -120,6 +121,8 @@ export function ConversationPane({
     () => visibleSlice(messages, threadWindow, historyKey, messageWeight),
     [messages, threadWindow, historyKey]
   );
+  // 整段历史的体量：往上补页时窗口最多撑到这里（不是消息条数）
+  const availableWeight = useMemo(() => historyWeight(messages, messageWeight), [messages]);
 
   const scrollAdjustRef = useRef<number | null>(null);
 
@@ -128,8 +131,8 @@ export function ConversationPane({
   const loadEarlier = useCallback(() => {
     const el = scrollContainerRef.current;
     scrollAdjustRef.current = el ? el.scrollHeight : null;
-    setThreadWindow(prev => growWindow(prev, historyKey, messages.length));
-  }, [historyKey, messages.length]);
+    setThreadWindow(prev => growWindow(prev, historyKey, availableWeight));
+  }, [historyKey, availableWeight]);
 
   // 往下补一页：窗口上沿不动，只在下面接一段，所以不用补偿滚动位置
   const loadLater = useCallback(() => {

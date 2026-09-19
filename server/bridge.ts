@@ -55,8 +55,10 @@ import {
   hasAdvisorSessions,
 } from './advisor.js';
 import { savePlan } from './planFile.js';
+import { historyMessages, type SessionEntry } from './history.js';
 import {
   assertModelsUsable,
+  allCatalogModels,
   catalogModelsFor,
   derivedEndpointIds,
   isPresetProvider,
@@ -192,7 +194,10 @@ const ADVISOR_PERSONA_FILE = advisorPersonaPath();
 const connLanes = new WeakMap<WebSocket, string>();
 
 /** 等回包的 pi 请求（见 requestFromPi） */
-const pendingPiRequests = new Map<string, (value: unknown) => void>();
+const pendingPiRequests = new Map<
+  string,
+  { settle: (value: unknown) => void; swallow: boolean }
+>();
 
 function laneOf(ws: WebSocket): string {
   return connLanes.get(ws) ?? DEFAULT_LANE;
@@ -226,7 +231,12 @@ function cwdForLane(lane: string): string {
   return lanes.get(lane)?.cwd ?? currentCwd;
 }
 
-/** pi 的某条输出是不是我们要等的回包；是就兑现并返回 true */
+/**
+ * pi 的某条输出是不是我们要等的回包。
+ *
+ * 返回 true = 这条回包是桥接自己要的，不要再转给前端。拿目录清单那种顺带
+ * 刷一下前端也无所谓，但 `get_entries` 是整段会话（几 MB），转过去纯属浪费。
+ */
 function settlePiRequest(line: string): boolean {
   if (!line.includes('"id":"bridge-req-')) return false;
   try {
@@ -234,8 +244,8 @@ function settlePiRequest(line: string): boolean {
     const waiter = typeof message?.id === 'string' ? pendingPiRequests.get(message.id) : undefined;
     if (!waiter) return false;
     pendingPiRequests.delete(message.id);
-    waiter(message);
-    return true;
+    waiter.settle(message);
+    return waiter.swallow;
   } catch {
     return false;
   }
@@ -244,10 +254,14 @@ function settlePiRequest(line: string): boolean {
 /**
  * 向 pi 发一条指令并等它的回包（按 id 配对）。
  *
- * 目前只有「拿内置目录的模型清单」用得上：保存中转端点时要把官方那套模型定义
- * 原样复制给新 id。回包照常广播给前端，多刷一次模型列表无害。
+ * `swallow` 为真时这条回包不转给前端（几 MB 的 `get_entries` 没必要转）。
+ * `lane` 决定问哪个 pi 进程：顾问窗口的历史得问顾问那条。
  */
-function requestFromPi<T = any>(command: object, timeoutMs = 20_000): Promise<T> {
+function requestFromPi<T = any>(
+  command: object,
+  options: { timeoutMs?: number; lane?: string; swallow?: boolean } = {}
+): Promise<T> {
+  const { timeoutMs = 20_000, lane = DEFAULT_LANE, swallow = false } = options;
   const id = `bridge-req-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   return new Promise<T>((resolve, reject) => {
     const timer = setTimeout(() => {
@@ -255,12 +269,15 @@ function requestFromPi<T = any>(command: object, timeoutMs = 20_000): Promise<T>
       reject(new Error('pi 没有响应（超时）'));
     }, timeoutMs);
 
-    pendingPiRequests.set(id, value => {
-      clearTimeout(timer);
-      resolve(value as T);
+    pendingPiRequests.set(id, {
+      settle: value => {
+        clearTimeout(timer);
+        resolve(value as T);
+      },
+      swallow,
     });
 
-    if (!lanes.send(DEFAULT_LANE, { ...command, id })) {
+    if (!lanes.send(lane, { ...command, id })) {
       clearTimeout(timer);
       pendingPiRequests.delete(id);
       reject(new Error('pi 还没就绪，稍后再试'));
@@ -269,22 +286,29 @@ function requestFromPi<T = any>(command: object, timeoutMs = 20_000): Promise<T>
 }
 
 /**
- * pi 内置目录里某个上游的模型定义（已剥掉 baseUrl，可以直接写进 models.json）。
+ * pi 内置目录的原始模型清单。
  *
  * 拿不到就当空（pi 没装 / 没起来 / 超时）：探测与保存都不该因为这一项整个失败，
  * 顶多退回「只用上游报的 id」那种最小定义。
  */
-async function catalogFor(upstream: string): Promise<Record<string, unknown>[]> {
+async function catalogModels(): Promise<unknown[]> {
   try {
     lanes.ensure(DEFAULT_LANE, currentCwd);
     const response = await requestFromPi<{ data?: { models?: unknown[] } }>(
       { type: 'get_available_models' },
-      8_000
+      { timeoutMs: 8_000 }
     );
-    return catalogModelsFor(response?.data?.models, upstream);
+    return response?.data?.models ?? [];
   } catch {
     return [];
   }
+}
+
+/**
+ * pi 内置目录里某个上游的模型定义（已剥掉 baseUrl，可以直接写进 models.json）。
+ */
+async function catalogFor(upstream: string): Promise<Record<string, unknown>[]> {
+  return catalogModelsFor(await catalogModels(), upstream);
 }
 
 /**
@@ -407,6 +431,8 @@ function applyPendingSwitch(laneId: string, line: string) {
 const lanes = new LaneRegistry(
   {
     onLine: (lane, line) => {
+      // 桥接自己要的回包（如整段会话条目）不再转给前端
+      if (settlePiRequest(line)) return;
       claimAttachments(line);
       applyPendingSwitch(lane, line);
       settlePiRequest(line);
@@ -545,6 +571,50 @@ function sendToPi(ws: WebSocket, lane: string, command: object): boolean {
     ws.send(piNotReadyReply(command));
   }
   return false;
+}
+
+/**
+ * 回一份**整段会话**的历史。
+ *
+ * 不能用 pi 的 `get_messages`：它给的是模型当前上下文，自动压缩之后被压掉的
+ * 那一段就整个消失了——界面上只剩摘要之后的三两条，右侧轨道也跟着只剩一根
+ * 线。会话文件是只增不减的，所以改走 `get_entries`（当前分支的全部条目），
+ * 压缩摘要按它保留的第一条之前插回去。
+ *
+ * 拿不到就退回 pi 的上下文：宁可少显示，也不能让对话区一直空着。
+ */
+async function sendFullHistory(ws: WebSocket, lane: string) {
+  const internal = { lane, swallow: true, timeoutMs: 30_000 };
+
+  try {
+    const [tree, context] = await Promise.all([
+      requestFromPi<{ data?: { entries?: SessionEntry[]; leafId?: string } }>(
+        { type: 'get_entries' },
+        internal
+      ),
+      requestFromPi<{ data?: { messages?: unknown[] } }>({ type: 'get_messages' }, internal),
+    ]);
+
+    const line = JSON.stringify({
+      type: 'response',
+      command: 'get_messages',
+      success: true,
+      data: {
+        messages: historyMessages(
+          tree?.data?.entries ?? [],
+          tree?.data?.leafId,
+          context?.data?.messages as any[]
+        ),
+      },
+    });
+
+    // 附件白名单也认一遍：压缩掉的那段里贴过的附件现在也回到界面上了
+    claimAttachments(line);
+    if (ws.readyState === WebSocket.OPEN) ws.send(line);
+  } catch (err) {
+    console.warn('[Pi Bridge] 取全量历史失败，退回 pi 的上下文:', (err as Error).message);
+    sendToPi(ws, lane, { type: 'get_messages' });
+  }
 }
 
 wss.on('connection', (ws: WebSocket) => {
@@ -744,7 +814,8 @@ wss.on('connection', (ws: WebSocket) => {
               const endpointKey =
                 key || (existingEndpoint ? (await readApiKey(existingEndpoint)) || '' : '');
 
-              const catalog = await catalogFor(upstream);
+              const rawCatalog = await catalogModels();
+              const catalog = catalogModelsFor(rawCatalog, upstream);
               const catalogIds = catalog.map(model => String(model.id));
 
               // 前端勾好的清单优先：探测那一步已经把「上游有哪些」给用户看过一遍了
@@ -763,7 +834,9 @@ wss.on('connection', (ws: WebSocket) => {
                   : catalogIds;
               }
 
-              const models = mergeModelDefinitions(ids, catalog);
+              // 兜底定义去整份目录里找：中转分组常挂着别家的模型（glm / kimi），
+              // 只在上游自己名下找的话它们连 reasoning 都没有，思考档位只剩 off
+              const models = mergeModelDefinitions(ids, catalog, allCatalogModels(rawCatalog));
               assertModelsUsable(models);
 
               const created = await createProviderEndpoint({
@@ -1138,7 +1211,14 @@ wss.on('connection', (ws: WebSocket) => {
         return;
       }
 
-      // 转发指令给 Pi (prompt, abort, new_session, get_state, get_messages 等)
+      // 历史要给整段会话（见 sendFullHistory），不能再转发 pi 的 get_messages：
+      // 那个只有压缩之后的上下文，用户会以为上面的对话丢了
+      if (data.type === 'get_messages') {
+        void sendFullHistory(ws, lane);
+        return;
+      }
+
+      // 转发指令给 Pi (prompt, abort, new_session, get_state 等)
       sendToPi(ws, lane, data);
     } catch (err: any) {
       console.error('[Pi Bridge] Error handling client message:', err);

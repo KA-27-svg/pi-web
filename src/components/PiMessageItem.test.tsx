@@ -282,3 +282,39 @@ describe('右侧轨道的定位锚点', () => {
     expect(host.querySelector('[data-message-index]')).toBeNull();
   });
 });
+
+describe('压缩摘要的分隔卡', () => {
+  const compaction = (over: Partial<PiMessage> = {}) =>
+    message({
+      role: 'compaction',
+      content: '上面聊了配置模型、修了轨道、还有别的',
+      tokensBefore: 112416,
+      fromHistory: true,
+      ...over,
+    });
+
+  it('默认收起：只看到一条分隔，摘要正文不占地方', () => {
+    render(compaction());
+
+    expect(host.textContent).toContain('上下文已压缩');
+    expect(host.textContent).not.toContain('上面聊了配置模型');
+  });
+
+  it('点开才显示摘要正文', () => {
+    render(compaction());
+
+    const toggle = host.querySelector('button')!;
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+
+    act(() => toggle.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+
+    expect(host.textContent).toContain('上面聊了配置模型');
+    expect(host.querySelector('button')!.getAttribute('aria-expanded')).toBe('true');
+  });
+
+  it('分隔卡不画回答结束的时间戳', () => {
+    render(compaction());
+
+    expect(host.querySelector('[data-answer-meta]')).toBeNull();
+  });
+});

@@ -317,3 +317,39 @@ describe('同一回合的消息合并（实时是这样，历史不能拆成一�
     expect(parsed[1].content).toBe('答');
   });
 });
+
+describe('压缩摘要（自动压缩后的历史回看）', () => {
+  const summary = {
+    role: 'compactionSummary',
+    summary: '上面聊了 X、Y、Z',
+    tokensBefore: 112416,
+    timestamp: 1700000000000,
+  };
+
+  it('摘要变成一条独立的分隔，正文是摘要原文', () => {
+    const parsed = MessageParser.parseHistory([user('问题'), summary]);
+
+    expect(parsed.map(m => m.role)).toEqual(['user', 'compaction']);
+    expect(parsed[1]).toMatchObject({
+      role: 'compaction',
+      content: '上面聊了 X、Y、Z',
+      tokensBefore: 112416,
+      timestamp: 1700000000000,
+      status: 'done',
+      fromHistory: true,
+    });
+  });
+
+  it('摘要断开回合：压缩前后的 assistant 不能并成一条', () => {
+    const parsed = MessageParser.parseHistory([
+      user('问题'),
+      { role: 'assistant', content: '压缩前', timestamp: 1 },
+      summary,
+      { role: 'assistant', content: '压缩后', timestamp: 2 },
+    ]);
+
+    expect(parsed.map(m => m.role)).toEqual(['user', 'assistant', 'compaction', 'assistant']);
+    expect(parsed[1].content).toBe('压缩前');
+    expect(parsed[3].content).toBe('压缩后');
+  });
+});
