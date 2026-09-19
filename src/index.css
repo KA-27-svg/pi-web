@@ -150,29 +150,110 @@ body {
  * 而不是 `translateX(0)`，而且过了窗口就把类拿掉。
  */
 @keyframes assistant-pane-in {
-  from {
+  0% {
     opacity: 0;
-    transform: translateX(20px) scale(0.985);
+    transform: translateX(100%);
   }
-  to {
+  /* 先淡到不透明，剩下的路程是干净的滑入（半透明地飘一大段会看着发虚） */
+  22% {
+    opacity: 1;
+  }
+  100% {
     opacity: 1;
     transform: none;
   }
 }
 .assistant-pane-open {
-  animation: assistant-pane-in 460ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
+  position: relative;
+  animation:
+    assistant-pane-in 560ms cubic-bezier(0.22, 0.61, 0.36, 1) both,
+    assistant-pane-tint 560ms linear both;
 }
 
-/* 分栏线：先像一笔墨画下来，再化回原本那条细线 */
+/*
+ * 「第二张纸」的投影：铺进来时它左缘压着一道柔和的暗边，落定前化掉。
+ *
+ * 用伪元素而不是 box-shadow：box-shadow 是绘制属性，每帧重绘一个大面板的
+ * 阴影会拖帧；伪元素跟着 pane 的 transform 一起走，全程在合成层上。
+ *
+ * 这一道是「仪式感」能不能被看见的关键：顾问栏首屏常常是空的（顾问进程要几秒
+ * 才连上），而且它跟主区域同色，单靠一块同色空白滑进来在屏幕上就是什么都没发生。
+ */
+.assistant-pane-open::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -30px;
+  width: 30px;
+  pointer-events: none;
+  background: linear-gradient(to left, rgb(var(--foreground) / 0.11), transparent);
+  animation: assistant-pane-shade 560ms linear both;
+}
+
+@keyframes assistant-pane-shade {
+  0% {
+    opacity: 1;
+  }
+  72% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+/*
+ * 滑入时带一层极淡的底色（“第二张纸”），落定前再化掉。
+ *
+ * 这一条和上面的主窗口让位是同一类问题：顾问栏首屏往往还是空的（顾问进程
+ * 要几秒才连上），而且它跟主区域同色——一块与背景同色的空白从右边滑进来，
+ * 在屏幕上就是什么都没发生。得有块看得见的“纸”在动。
+ *
+ * 底色用动画淡到 transparent 而不是直接写死，是为了摘类那一刻不跳色。
+ */
+@keyframes assistant-pane-tint {
+  0% {
+    background-color: rgb(var(--surface));
+  }
+  72% {
+    background-color: rgb(var(--surface));
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+/*
+ * 执行窗口轻轻让一下。
+ *
+ * 这一条是「仪式感」能不能被看见的关键：顾问栏刚出现时往往还是空的
+ * （顾问进程要几秒才连上），一块空白面板从右边滑进来根本看不出来；
+ * 而执行窗口是有内容的，它一动就一定看得见。
+ */
+@keyframes assistant-main-yield {
+  from {
+    transform: translateX(-14px);
+  }
+  to {
+    transform: none;
+  }
+}
+.assistant-main-open {
+  animation: assistant-main-yield 560ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+
+/* 分栏线：先像一笔墨画下来，再化回原本那条细线。
+   左右各溢出 1px，所以实际是 3px 宽的一笔——1px 的线根本看不见 */
 @keyframes assistant-seam-draw {
   0% {
     transform: scaleY(0);
     opacity: 0;
   }
-  12% {
+  10% {
     opacity: 1;
   }
-  62% {
+  66% {
     transform: scaleY(1);
     opacity: 1;
   }
@@ -188,7 +269,7 @@ body {
     opacity: 0;
     transform: translateY(-100%);
   }
-  18% {
+  16% {
     opacity: 1;
   }
   100% {
@@ -202,25 +283,25 @@ body {
 .assistant-seam-open::before {
   content: '';
   position: absolute;
-  inset: 0;
+  inset: 0 -1px;
   opacity: 0;
-  background: rgb(var(--foreground) / 0.35);
+  background: rgb(var(--foreground) / 0.45);
   transform-origin: 50% 50%;
-  animation: assistant-seam-draw 460ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
+  animation: assistant-seam-draw 520ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
 }
 .assistant-seam-open::after {
   content: '';
   position: absolute;
-  inset: 0;
+  inset: 0 -1px;
   opacity: 0;
   pointer-events: none;
   background: linear-gradient(
     to bottom,
     transparent,
-    rgb(var(--foreground) / 0.55),
+    rgb(var(--foreground) / 0.7),
     transparent
   );
-  animation: assistant-seam-sheen 700ms cubic-bezier(0.33, 0, 0.67, 1) both;
+  animation: assistant-seam-sheen 760ms cubic-bezier(0.33, 0, 0.67, 1) both;
 }
 
 /* 开关按钮：泛一圈涟漪，图标轻轻落定（不弹跳，就是收一下） */
@@ -279,13 +360,35 @@ body {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .assistant-pane-open,
+  /* 这一档不整个关掉：关掉的话「打开助手模式」就完全没有反应了，
+     看起来像坏了。保留顾问栏的淡入，只把位移缩到很小、去掉纯装饰的墨线与光带 */
+  .assistant-pane-open {
+    animation:
+      assistant-pane-fade 320ms ease-out both,
+      assistant-pane-tint 320ms linear both;
+  }
+  .assistant-pane-open::before {
+    animation: assistant-pane-shade 320ms linear both;
+  }
+  .assistant-main-open {
+    animation: none;
+  }
   .assistant-seam-open::before,
   .assistant-seam-open::after,
   .assistant-ring-open::after,
-  .assistant-ring-open svg,
-  .assistant-fade-open {
+  .assistant-ring-open svg {
     animation: none;
+  }
+}
+
+@keyframes assistant-pane-fade {
+  from {
+    opacity: 0;
+    transform: translateX(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
   }
 }
 

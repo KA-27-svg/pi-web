@@ -3,11 +3,11 @@ import { useEffect, useState } from 'react';
 /**
  * 「刚打开」这个窗口开多久。
  *
- * 里面几段动画的长度：分栏线画下来 460ms、按钮涟漪 620ms、光带扫过 700ms。
- * 取最长的那个再留一帧余量——留余量是因为动画从下一帧才真正开始（
- * 实测 animationstart 在 click 后约 16ms），卡着 700ms 摘类会把光带最后几帧切掉。
+ * 里面几段动画的长度：分栏线画下来 520ms、顾问栏铺进来 560ms、按钮涟漪 620ms、
+ * 光带扫过 760ms。取最长的那个再留一帧余量——留余量是因为动画从下一帧才真正开始
+ * （实测 animationstart 在 click 后约 16ms），卡着 760ms 摘类会把光带最后几帧切掉。
  */
-export const OPENING_MS = 760;
+export const OPENING_MS = 820;
 
 /**
  * 助手模式「刚打开」的那一下。只在 false → true 时为真，OPENING_MS 之后自己落回去。

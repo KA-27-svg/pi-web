@@ -198,4 +198,12 @@ describe('打开那一刻的动画', () => {
     expect(host.querySelector('.assistant-fade-open')).not.toBeNull();
     expect(host.querySelector('.assistant-pane-open')).toBeNull();
   });
+
+  it('执行窗口也轻轻让位（顾问栏首屏常常是空的，光靠它看不出动静）', () => {
+    render({ opening: true });
+
+    const mainPane = host.querySelector('.assistant-main-open');
+    expect(mainPane).not.toBeNull();
+    expect(mainPane?.textContent).toContain('执行窗口');
+  });
 });

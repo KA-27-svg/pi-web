@@ -120,7 +120,7 @@ export function AssistantLayout({
   return (
     <div ref={containerRef} className="flex min-h-0 min-w-0 flex-1">
       <div
-        className="flex min-h-0 min-w-0 flex-col"
+        className={`flex min-h-0 min-w-0 flex-col ${entering ? 'assistant-main-open' : ''}`}
         style={{ flexGrow: 1 - ratio, flexBasis: 0 }}
       >
         {main}
