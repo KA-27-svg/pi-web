@@ -135,3 +135,35 @@
 - `upstreamModels(payload)`：[OI] 风格响应 → 模型定义，去重、跳过无 id 条目。
 - Verify: `providerEndpoints.test.ts`（+2 项）+ 真机冒烟（含真实密钥出话）
 - Files: `server/providerEndpoints.ts`, `server/bridge.ts`
+
+## Slice 7：中转端点保存时勾选模型（追加）✅
+
+用户选的方案：**保存时让用户勾选**。起因是上游 `/models` 报的 14 个模型
+（DeepSeek 6 + 智谱 3 + Kimi 3 + MiniMax + qwen）全被挂进名叫「DeepSeek 中转」
+的端点里，标签在骗人。默认只勾该上游自己的，别的列出来但不勾。
+
+- [x] Task 7.1：纯函数（TDD）
+  - `upstreamOf`：端点 id 反推上游；除 `<上游>-relay` 外，也认手写 id 里的上游名
+    （`micuapi-deepseek` → `deepseek`），认不出返回 null
+  - `matchesUpstream`：前缀命中（`deepseek-v4-flash`、`deepseek-ai/DeepSeek-V3`）
+    或按非字母数字切段后整段相等（`moonshot/kimi-k3` 里的 `kimi`）
+  - `recommendedModelIds`：内置目录有同名 **或** 名字像该上游 → 默认勾选
+  - `mergeModelDefinitions`：目录里有同名定义就用目录那份（带 cost/contextWindow），
+    没有才退回最小定义 `{id, name: id, api: 'openai-completions'}`
+  - 删掉了旧的 `modelIdFromListEntry` / `upstreamModels`（不留两套解析器）
+  - Verify: `providerEndpoints.test.ts`（18 项）
+- [x] Task 7.2：`fetchUpstreamModelIds`（`apiProbe.ts`）—— 统一用 `parseModelIds`，
+  拿不到一律 null（不抛）
+  - Verify: `apiProbe.test.ts`（+4 项，含假 200 空响应体）
+- [x] Task 7.3：桥接 —— 新指令 `probe_endpoint_models` → `endpoint_models_probed`，
+  回 `{provider, upstream, from, models:[{id, recommended}]}`；
+  `save_provider_key` 接受 `models: string[]`，支持**改已有端点**（id 不变、密钥可留空）
+  - Verify: 真机冒烟（探测 14 → 只勾 6 → 保存 → pi 重启 → 真出话 → 改端点）
+- [x] Task 7.4：`createProviderEndpoint` 支持传 `id` 原地更新；id === provider 时
+  **不做迁移**（否则会清掉端点自己的地址）
+  - Verify: `setupConfig.test.ts`（+3 项）
+- [x] Task 7.5：前端 —— 两步流程（探测 → 勾选 → 保存），分「该上游的 / 其它厂商的」两段，
+  全选/全不选，地址/密钥/供应商一变作废探测结果
+  - Verify: `ProviderSetup.test.tsx`（+9 项）
+- [x] 门禁：`tsc OK · lint OK · 1025 tests passed / 3 skipped · build OK`
+- [x] 真机冒烟：跑在**临时 agent 目录**（`PI_CODING_AGENT_DIR`），真实配置一个字节没碰

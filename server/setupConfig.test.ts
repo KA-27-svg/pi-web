@@ -485,3 +485,71 @@ describe('中转端点（同一上游的第二个入口）', () => {
     expect(storedModels.providers.deepseek).toEqual({ models: catalog });
   });
 });
+
+describe('中转端点：改已有端点', () => {
+  const catalog = [{ id: 'deepseek-v4-pro', api: 'openai-completions' }];
+  const picked = [
+    { id: 'deepseek-v4-pro', api: 'openai-completions' },
+    { id: 'deepseek-v4.1-flash', api: 'openai-completions' },
+  ];
+
+  const seedEndpoint = () =>
+    createProviderEndpoint(
+      { provider: 'deepseek', name: '我的中转', baseUrl: 'https://old/v1', key: 'sk-old', models: catalog },
+      dir
+    );
+
+  it('传了 id 就原地更新：id 不变，地址 / 密钥 / 清单都换掉', async () => {
+    const created = await seedEndpoint();
+
+    const updated = await createProviderEndpoint(
+      {
+        provider: 'deepseek',
+        id: created.id,
+        name: '我的中转',
+        baseUrl: 'https://new/v1',
+        key: 'sk-new',
+        models: picked,
+      },
+      dir
+    );
+
+    // id 必须不变：它已经写在会话与默认模型里了，换一个等于让用户重配一遍
+    expect(updated.id).toBe('deepseek-relay');
+    expect((await readJsonObject(auth()))['deepseek-relay']).toEqual({
+      type: 'api_key',
+      key: 'sk-new',
+      baseUrl: 'https://new/v1',
+    });
+    expect((await readJsonObject(models())).providers['deepseek-relay']).toEqual({
+      name: '我的中转',
+      baseUrl: 'https://new/v1',
+      models: picked,
+    });
+  });
+
+  it('认不出上游时（id 就是 provider）不会把端点自己的地址当残留清掉', async () => {
+    // 手写 id 的端点（如 `wode`）：桥接会把 provider 传成端点自己，
+    // 这时若还去「清理官方条目上的残留地址」，清掉的正是刚写好的中转地址
+    await createProviderEndpoint(
+      { provider: 'wode', id: 'wode', baseUrl: 'https://api-slb.micuapi.ai/v1', key: 'sk-1', models: picked },
+      dir
+    );
+
+    expect((await readJsonObject(auth())).wode).toEqual({
+      type: 'api_key',
+      key: 'sk-1',
+      baseUrl: 'https://api-slb.micuapi.ai/v1',
+    });
+  });
+
+  it('改端点不会再建一个（不会冒出 deepseek-relay-2）', async () => {
+    const created = await seedEndpoint();
+    await createProviderEndpoint(
+      { provider: 'deepseek', id: created.id, baseUrl: 'https://new/v1', key: 'sk-new', models: picked },
+      dir
+    );
+
+    expect(Object.keys(await readJsonObject(auth()))).toEqual(['deepseek-relay']);
+  });
+});

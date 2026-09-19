@@ -2,7 +2,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import type { BridgeStatus, ProviderPreset, SetupStatus } from '../types/pi';
+import type {
+  BridgeStatus,
+  EndpointModelsProbe,
+  ProviderPreset,
+  SetupStatus,
+} from '../types/pi';
 import { ProviderSetup } from './ProviderSetup';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -416,5 +421,170 @@ describe('中转端点（同一上游的第二个入口）', () => {
       'https://relay.example/v1',
       '改名后的中转'
     );
+  });
+});
+
+describe('ProviderSetup：中转端点分两步（探测 → 勾选 → 保存）', () => {
+  /** 真实案例的形状：一个「DeepSeek」分组里混着别的厂商 */
+  const probe = {
+    provider: 'deepseek',
+    upstream: 'deepseek',
+    from: 'upstream' as const,
+    models: [
+      { id: 'deepseek-v4-flash', recommended: true },
+      { id: 'deepseek-v4-pro', recommended: true },
+      { id: 'deepseek-v4.1-flash', recommended: true },
+      { id: 'glm-5.3', recommended: false },
+      { id: 'kimi-k3', recommended: false },
+    ],
+  };
+
+  const renderWithProbe = (
+    onProbe: (provider: string, key: string, baseUrl: string) => Promise<EndpointModelsProbe> =
+      vi.fn(async () => probe),
+    onSave = vi.fn()
+  ) => {
+    act(() => {
+      root.render(
+        <ProviderSetup status={status()} onSave={onSave} onProbe={onProbe} onSaved={vi.fn()} />
+      );
+    });
+    return { onProbe, onSave };
+  };
+
+  const checkboxes = () => [...host.querySelectorAll('input[type="checkbox"]')] as HTMLInputElement[];
+  const check = (id: string, on: boolean) => {
+    const box = checkboxes().find(
+      el => el.closest('label')?.textContent?.includes(id)
+    ) as HTMLInputElement;
+    if (box.checked !== on) act(() => box.click());
+  };
+  const fillEndpoint = () => {
+    setValue(keyInput(), 'sk-relay');
+    setValue(baseUrlInput(), 'https://api-slb.micuapi.ai/v1');
+  };
+
+  it('填了地址先探测，不直接保存', async () => {
+    const { onProbe, onSave } = renderWithProbe();
+
+    fillEndpoint();
+    await act(async () => submit());
+
+    expect(onProbe).toHaveBeenCalledWith(
+      'anthropic',
+      'sk-relay',
+      'https://api-slb.micuapi.ai/v1'
+    );
+    expect(onSave).not.toHaveBeenCalled();
+    // 列出来的就是上游报的那些
+    expect(checkboxes()).toHaveLength(5);
+    expect(text()).toContain('上游报了 5 个模型');
+  });
+
+  it('默认只勾该上游自己的，别的厂商列出来但不勾', async () => {
+    renderWithProbe();
+
+    fillEndpoint();
+    await act(async () => submit());
+
+    const checkedIds = checkboxes()
+      .filter(box => box.checked)
+      .map(box => box.closest('label')?.textContent?.trim());
+    expect(checkedIds).toEqual(['deepseek-v4-flash', 'deepseek-v4-pro', 'deepseek-v4.1-flash']);
+    expect(text()).toContain('同一个分组里的其它厂商');
+  });
+
+  it('确认后只把勾中的交上去', async () => {
+    const { onSave } = renderWithProbe();
+
+    fillEndpoint();
+    await act(async () => submit());
+    // 再勾一个别的厂商的
+    check('glm-5.3', true);
+    await act(async () => submit());
+
+    expect(onSave).toHaveBeenCalledWith(
+      'anthropic',
+      'sk-relay',
+      'https://api-slb.micuapi.ai/v1',
+      undefined,
+      ['deepseek-v4-flash', 'deepseek-v4-pro', 'deepseek-v4.1-flash', 'glm-5.3']
+    );
+  });
+
+  it('一个都不勾就不让保存（建出空清单的端点，界面上看不见）', async () => {
+    renderWithProbe();
+
+    fillEndpoint();
+    await act(async () => submit());
+    for (const id of ['deepseek-v4-flash', 'deepseek-v4-pro', 'deepseek-v4.1-flash']) {
+      check(id, false);
+    }
+
+    expect(submitButton().disabled).toBe(true);
+    expect(submitButton().textContent).toContain('0 个模型');
+  });
+
+  it('「全选」把上游的模型全勾上', async () => {
+    renderWithProbe();
+
+    fillEndpoint();
+    await act(async () => submit());
+    const selectAll = [...host.querySelectorAll('button')].find(
+      button => button.textContent === '全选'
+    ) as HTMLButtonElement;
+    act(() => selectAll.click());
+
+    expect(checkboxes().every(box => box.checked)).toBe(true);
+    expect(submitButton().textContent).toContain('5 个模型');
+  });
+
+  it('地址一改，探测结果作废（不能拿 A 的清单存给 B）', async () => {
+    renderWithProbe();
+
+    fillEndpoint();
+    await act(async () => submit());
+    expect(checkboxes()).toHaveLength(5);
+
+    setValue(baseUrlInput(), 'https://别的中转/v1');
+
+    expect(checkboxes()).toHaveLength(0);
+    expect(submitButton().textContent).toContain('选择模型');
+  });
+
+  it('探测失败：把原因说出来，不静默', async () => {
+    renderWithProbe(vi.fn(async () => Promise.reject(new Error('中转地址必须是 http(s) 链接'))));
+
+    fillEndpoint();
+    await act(async () => submit());
+
+    expect(text()).toContain('中转地址必须是 http(s) 链接');
+  });
+
+  it('上游没给清单时用内置目录兜底，并说明来源', async () => {
+    renderWithProbe(
+      vi.fn(async () => ({
+        provider: 'deepseek',
+        upstream: 'deepseek',
+        from: 'catalog' as const,
+        models: [{ id: 'deepseek-v4-pro', recommended: true }],
+      }))
+    );
+
+    fillEndpoint();
+    await act(async () => submit());
+
+    expect(text()).toContain('上游没给清单，改用 pi 内置目录');
+    expect(checkboxes()[0].checked).toBe(true);
+  });
+
+  it('没填地址时还是一步到位（官方入口）', async () => {
+    const onSave = vi.fn();
+    renderWithProbe(vi.fn(async () => probe), onSave);
+
+    setValue(keyInput(), 'sk-official');
+    submit();
+
+    expect(onSave).toHaveBeenCalledWith('anthropic', 'sk-official', undefined, undefined);
   });
 });

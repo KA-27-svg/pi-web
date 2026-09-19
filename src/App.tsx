@@ -23,7 +23,7 @@ export default function App() {
    * 这里只留外壳（侧栏 / 设置 / 向导 / 提示）。
    */
   const session = usePiWebSocket();
-  const { status, switchSession, switchAdvisorSession, renameSession, deleteSession, requestSessions, requestTrash, restoreSession, purgeSession, emptyTrash, newSession, setModel, setThinkingLevel, compactContext, requestStats, requestSetupStatus, installPi, saveProviderKey, deleteProvider, probeApi, sendPrompt, savePlanFile } =
+  const { status, switchSession, switchAdvisorSession, renameSession, deleteSession, requestSessions, requestTrash, restoreSession, purgeSession, emptyTrash, newSession, setModel, setThinkingLevel, compactContext, requestStats, requestSetupStatus, installPi, saveProviderKey, probeEndpointModels, deleteProvider, probeApi, sendPrompt, savePlanFile } =
     session;
 
   const [panelOpen, setPanelOpen] = useState(false);
@@ -171,6 +171,7 @@ export default function App() {
         onRecheck={requestSetupStatus}
         onInstall={installPi}
         onSaveProvider={saveProviderKey}
+        onProbeEndpointModels={probeEndpointModels}
       />
     );
   }
@@ -263,6 +264,7 @@ export default function App() {
             status={status}
             onClose={() => setDialog(null)}
             onSaveProvider={saveProviderKey}
+            onProbeEndpointModels={probeEndpointModels}
             onDeleteProvider={deleteProvider}
             onSaved={() => {
               // 直接转回对话，并在上面报一声——不然用户不知道配完没、下一步干什么

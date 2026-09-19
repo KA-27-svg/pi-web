@@ -1,3 +1,4 @@
+import type { EndpointModelsProbe } from '../types/pi';
 import { useEffect, useState } from 'react';
 import type { BridgeStatus } from '../types/pi';
 import { ProviderSetup } from './ProviderSetup';
@@ -16,7 +17,19 @@ interface SetupWizardProps {
   /** 让桥接代跑官方安装器 */
   onInstall: () => void;
   /** 保存供应商凭证 */
-  onSaveProvider?: (provider: string, key: string, baseUrl?: string) => void;
+  onSaveProvider?: (
+    provider: string,
+    key: string,
+    baseUrl?: string,
+    name?: string,
+    models?: string[]
+  ) => void;
+  /** 探测中转上游有哪些模型（填了地址时先走这一步） */
+  onProbeEndpointModels?: (
+    provider: string,
+    key: string,
+    baseUrl: string
+  ) => Promise<EndpointModelsProbe>;
 }
 
 /**
@@ -34,6 +47,7 @@ export function SetupWizard({
   onRecheck,
   onInstall,
   onSaveProvider,
+  onProbeEndpointModels,
 }: SetupWizardProps) {
   const setup = status.setup;
   const ready = setup?.ready ?? false;
@@ -175,7 +189,11 @@ export function SetupWizard({
         )}
 
         {needsCredentials && onSaveProvider && (
-          <ProviderSetup status={status} onSave={onSaveProvider} />
+          <ProviderSetup
+            status={status}
+            onSave={onSaveProvider}
+            onProbe={onProbeEndpointModels}
+          />
         )}
 
         <button

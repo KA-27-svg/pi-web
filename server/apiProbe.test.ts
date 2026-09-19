@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { isHttpUrl, modelsEndpoint, parseModelIds, probeApi } from './apiProbe';
+import { fetchUpstreamModelIds, isHttpUrl, modelsEndpoint, parseModelIds, probeApi } from './apiProbe';
 
 const response = (status: number, body?: unknown) =>
   ({
@@ -120,5 +120,57 @@ describe('isHttpUrl', () => {
   it('只认 http / https', () => {
     expect(isHttpUrl('https://api.example.com/v1')).toBe(true);
     expect(isHttpUrl('file:///etc/passwd')).toBe(false);
+  });
+});
+
+describe('fetchUpstreamModelIds', () => {
+  it('拿到上游自己报的清单', async () => {
+    const fetchLike = vi.fn(async (_url: string, _init?: RequestInit) =>
+      response(200, { data: [{ id: 'deepseek-v4-flash' }, { id: 'glm-5.3' }] })
+    );
+
+    await expect(
+      fetchUpstreamModelIds('https://relay.example/v1', 'sk-1', { fetchLike })
+    ).resolves.toEqual(['deepseek-v4-flash', 'glm-5.3']);
+
+    // 地址补成 /v1/models，密钥走 Authorization
+    expect(fetchLike.mock.calls[0][0]).toBe('https://relay.example/v1/models');
+    expect((fetchLike.mock.calls[0][1] as RequestInit).headers).toMatchObject({
+      Authorization: 'Bearer sk-1',
+    });
+  });
+
+  it('地址写错（200 但空响应体）拿不到清单 → null', async () => {
+    // 真实案例：中转站的分组前缀 /1 下所有请求都回 200 空响应
+    const fetchLike = vi.fn(async () => response(200, null));
+
+    await expect(
+      fetchUpstreamModelIds('https://relay.example/1', 'sk-1', { fetchLike })
+    ).resolves.toBeNull();
+  });
+
+  it('鉴权失败 / 网络错 / 超时都不抛，一律 null（调用方退回复制内置目录）', async () => {
+    await expect(
+      fetchUpstreamModelIds('https://r/v1', 'sk', { fetchLike: vi.fn(async () => response(401)) })
+    ).resolves.toBeNull();
+    await expect(
+      fetchUpstreamModelIds('https://r/v1', 'sk', {
+        fetchLike: vi.fn(async () => {
+          throw new Error('ECONNREFUSED');
+        }),
+      })
+    ).resolves.toBeNull();
+  });
+
+  it('没有密钥时不带 Authorization（仍能拿到公开清单）', async () => {
+    const fetchLike = vi.fn(async (_url: string, _init?: RequestInit) =>
+      response(200, { data: [{ id: 'a' }] })
+    );
+
+    await fetchUpstreamModelIds('https://r/v1', '', { fetchLike });
+
+    expect((fetchLike.mock.calls[0][1] as RequestInit).headers).not.toHaveProperty(
+      'Authorization'
+    );
   });
 });

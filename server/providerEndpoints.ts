@@ -90,29 +90,101 @@ export function assertModelsUsable(models: Record<string, unknown>[]): void {
   if (bad) throw new Error('模型清单里有缺 id 的条目，无法创建独立端点');
 }
 
-/** OpenAI 风格模型列表响应（`GET {baseUrl}/models`）里的一条 */
-export function modelIdFromListEntry(entry: unknown): string | null {
-  if (!entry || typeof entry !== 'object') return null;
-  const id = (entry as { id?: unknown }).id;
-  return typeof id === 'string' && id.trim() ? id.trim() : null;
+
+/**
+ * 端点 id → 它的上游（内置目录里的 id）。
+ *
+ * 端点 id 是我们自己生成的（`<上游>-relay`、撞了 `-2`），所以能反推回去。
+ * 编辑一个已配端点时靠它知道该拿谁的内置目录当兜底。
+ *
+ * 除了我们自己的命名，也认「上游名作为一个词出现在 id 里」：手写的 id
+ * （`micuapi-deepseek`、`micuapi-glm`）没有 `-relay` 后缀，但一样能认出来。
+ * 认不出来返回 null（调用方不要瞎猜，改成不预勾）。
+ */
+export function upstreamOf(
+  providerId: string,
+  presetIds: Iterable<string>
+): string | null {
+  const id = providerId.trim().toLowerCase();
+  if (!id) return null;
+
+  const presets = [...presetIds].map(preset => preset.trim().toLowerCase()).filter(Boolean);
+  // 长的先试：同时含 `glm` 和 `glm-4` 这种命名时不至于认成短的那个
+  presets.sort((a, b) => b.length - a.length);
+
+  for (const preset of presets) {
+    if (id === preset || id.startsWith(`${preset}-relay`)) return preset;
+  }
+
+  const segments = id.split(/[^a-z0-9]+/);
+  for (const preset of presets) {
+    if (segments.includes(preset)) return preset;
+  }
+  return null;
 }
 
 /**
- * 上游自己报的模型清单 → 模型定义。
+ * 上游报的这个模型 id 算不算「这个供应商自己的」。
  *
- * 中转分组卖的模型名经常和官方不一样（这个真实案例里上游是 deepseek-v4-flash，
- * 而内置目录是 deepseek-chat）——复制内置目录在这种站上会 model_not_found。
- * 所以优先用上游 `/models` 报的清单：名字用 id，api 默认 openai-completions
- * （`GET /models` 是 OpenAI 风格接口，能列出模型的基本都是这一族），
- * contextWindow / cost 未知就让 pi 用默认值。
+ * 中转分组常常是混合的：真实案例里一个 DeepSeek 分组同时卖 glm-5.3、kimi-k3、
+ * qwen3.8-max。按名字判断是唯一可行的办法（上游只报 id，不报厂商）。
+ * 两种命中方式：
+ *  - 前缀：`deepseek-v4-flash`、`deepseek-ai/DeepSeek-V3`（SiliconFlow 那种写法）
+ *  - 按非字母数字切段后正好是上游名：`moonshot/kimi-k3` 里的 `kimi`
  */
-export function upstreamModels(payload: unknown): Record<string, unknown>[] {
-  const list = Array.isArray((payload as { data?: unknown })?.data)
-    ? ((payload as { data: unknown[] }).data)
-    : Array.isArray(payload)
-      ? (payload as unknown[])
-      : [];
+export function matchesUpstream(modelId: string, upstream: string): boolean {
+  const id = modelId.trim().toLowerCase();
+  const up = upstream.trim().toLowerCase();
+  if (!id || !up) return false;
+  if (id.startsWith(up)) return true;
+  return id.split(/[^a-z0-9]+/).includes(up);
+}
 
-  const ids = list.map(modelIdFromListEntry).filter((id): id is string => !!id);
-  return [...new Set(ids)].map(id => ({ id, name: id, api: 'openai-completions' }));
+/**
+ * 上游报的清单里，哪些默认勾选。
+ *
+ * 两条命中任一即可：**内置目录里有同名的**（说明官方就是这个模型，元数据还更全），
+ * 或**名字像是这个上游的**。剩下的（别的厂商的模型）列出来但不勾——
+ * 想要的人自己勾，不想要的人不必每次在一堆无关模型里找。
+ */
+export function recommendedModelIds(
+  upstream: string,
+  upstreamIds: Iterable<string>,
+  catalogIds: Iterable<string>
+): string[] {
+  const catalog = new Set(catalogIds);
+  return [...upstreamIds].filter(
+    id => catalog.has(id) || matchesUpstream(id, upstream)
+  );
+}
+
+/**
+ * 勾中的 id → 写进 models.json 的模型定义。
+ *
+ * 内置目录里**有**同名定义的就用目录那份：它带着 cost / contextWindow / reasoning /
+ * compat，界面上显示的是官方名、上下文窗口也对，比上游那句光秃秃的 id 好得多。
+ * 目录里没有的（中转独有的模型）才退回最小定义——`GET /models` 是 [OI] 风格接口，
+ * 能列出模型的基本都是这一族，所以 api 默认 `openai-completions`。
+ *
+ * 注意：目录那份的 baseUrl 已经在 catalogModelsFor 里剥掉了，这里不必再管。
+ */
+export function mergeModelDefinitions(
+  ids: Iterable<string>,
+  catalogModels: Record<string, unknown>[]
+): Record<string, unknown>[] {
+  const byId = new Map(
+    catalogModels
+      .filter(model => typeof model?.id === 'string')
+      .map(model => [model.id as string, model])
+  );
+
+  const seen = new Set<string>();
+  const merged: Record<string, unknown>[] = [];
+  for (const raw of ids) {
+    const id = raw.trim();
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    merged.push(byId.get(id) ?? { id, name: id, api: 'openai-completions' });
+  }
+  return merged;
 }

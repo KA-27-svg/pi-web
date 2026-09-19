@@ -59,13 +59,15 @@ import {
   assertModelsUsable,
   catalogModelsFor,
   isPresetProvider,
+  mergeModelDefinitions,
   presetLabel,
-  upstreamModels,
+  recommendedModelIds,
+  upstreamOf,
 } from './providerEndpoints.js';
 import { createProviderEndpoint } from './setupConfig.js';
 import { watchConfigFiles } from './configWatch.js';
 import { piNotReadyReply } from './bridgeMessages.js';
-import { modelsEndpoint, probeApi, isHttpUrl } from './apiProbe.js';
+import { fetchUpstreamModelIds, probeApi, isHttpUrl } from './apiProbe.js';
 import {
   emptyTrash,
   listTrash,
@@ -262,6 +264,25 @@ function requestFromPi<T = any>(command: object, timeoutMs = 20_000): Promise<T>
       reject(new Error('pi 还没就绪，稍后再试'));
     }
   });
+}
+
+/**
+ * pi 内置目录里某个上游的模型定义（已剥掉 baseUrl，可以直接写进 models.json）。
+ *
+ * 拿不到就当空（pi 没装 / 没起来 / 超时）：探测与保存都不该因为这一项整个失败，
+ * 顶多退回「只用上游报的 id」那种最小定义。
+ */
+async function catalogFor(upstream: string): Promise<Record<string, unknown>[]> {
+  try {
+    lanes.ensure(DEFAULT_LANE, currentCwd);
+    const response = await requestFromPi<{ data?: { models?: unknown[] } }>(
+      { type: 'get_available_models' },
+      8_000
+    );
+    return catalogModelsFor(response?.data?.models, upstream);
+  } catch {
+    return [];
+  }
 }
 
 /**
@@ -612,6 +633,61 @@ wss.on('connection', (ws: WebSocket) => {
       // 写供应商凭证。
       // 不重启 pi：`/login` 在终端里也是写同一个文件、当前会话立即生效，说明
       // 凭证是惰性读取的，重起反而会把正在聊的会话弄丢。
+      // 中转端点：先探一次上游到底有哪些模型，让用户勾选要加哪些。
+      //
+      // 不能照单全收：真实案例里一个「DeepSeek」分组同时卖 glm-5.3 / kimi-k3 /
+      // qwen3.8-max，全加进去会让名叫「DeepSeek 中转」的端点下挂着一堆别的厂商的模型，
+      // 用户一看就懵（「我选的 deepseek，怎么冒出十几个」）。
+      if (data.type === 'probe_endpoint_models') {
+        const probed = reply(
+          ws,
+          'endpoint_models_probed',
+          async () => {
+            const provider = String(data.provider ?? '').trim();
+            const baseUrl = typeof data.baseUrl === 'string' ? data.baseUrl.trim() : '';
+            if (!baseUrl) throw new Error('请先填中转地址');
+            if (!isHttpUrl(baseUrl)) throw new Error('中转地址必须是 http(s) 链接');
+
+            const presetIds = PROVIDER_PRESETS.map(preset => preset.id);
+            const upstream = upstreamOf(provider, presetIds);
+
+            // 编辑已配端点时用户可能不重贴密钥：用存着的那份
+            const key =
+              (typeof data.key === 'string' ? data.key.trim() : '') ||
+              (await readApiKey(provider)) ||
+              '';
+
+            // 认不出上游（用户手写的端点 id，如 `wode`）：照样把上游报的清单列出来
+            // 让用户自己勾，只是不预勾任何东西——总比直接报错、什么都不给强
+            const catalog = upstream ? await catalogFor(upstream) : [];
+            const catalogIds = catalog.map(model => String(model.id));
+            const upstreamIds = await fetchUpstreamModelIds(baseUrl, key);
+
+            // 上游拿不到（地址写错、分组不暴露清单）就退回内置目录，照样能让用户勾
+            const ids = upstreamIds ?? catalogIds;
+            const recommended = new Set(
+              !upstream
+                ? []
+                : upstreamIds
+                  ? recommendedModelIds(upstream, ids, catalogIds)
+                  : catalogIds
+            );
+
+            return {
+              provider,
+              upstream: upstream ?? '',
+              from: upstreamIds ? 'upstream' : 'catalog',
+              models: ids.map(id => ({ id, recommended: recommended.has(id) })),
+            };
+          },
+          value => ({ ...value }),
+          () => ({ id: data.id })
+        );
+
+        void probed;
+        return;
+      }
+
       if (data.type === 'save_provider_key') {
         const saved = reply(
           ws,
@@ -621,51 +697,48 @@ wss.on('connection', (ws: WebSocket) => {
             const key = typeof data.key === 'string' ? data.key.trim() : '';
             const baseUrl = typeof data.baseUrl === 'string' ? data.baseUrl.trim() : '';
             const name = typeof data.name === 'string' ? data.name.trim() : '';
-
             // 填了中转地址 = 要一个**独立端点**：新的供应商 id + 自己的密钥地址 +
             // 从 pi 内置目录复制的模型清单。官方条目不动（残留的旧地址会被迁走）。
             // 不这么做的话，中转地址会写进官方那一条，把官方入口覆盖掉——
             // 用户配完中转就发现「官方的没了」，而界面上看起来还是官方那个。
             if (baseUrl && data.newEndpoint === true) {
-              if (!isPresetProvider(provider)) {
-                throw new Error('只有内置目录里的供应商才能另开中转端点');
+              const presetIds = PROVIDER_PRESETS.map(preset => preset.id);
+              // 认不出上游也能存：只是没有内置目录可兜底、也没官方条目要迁
+              const upstream = upstreamOf(provider, presetIds) ?? provider;
+              // 已配的端点（deepseek-relay）是**改**它自己，不是再建一个
+              const existingEndpoint = isPresetProvider(provider) ? null : provider;
+              // 改已有端点时密钥可以不重贴：用存着的那份
+              const endpointKey =
+                key || (existingEndpoint ? (await readApiKey(provider)) || '' : '');
+
+              const catalog = await catalogFor(upstream);
+              const catalogIds = catalog.map(model => String(model.id));
+
+              // 前端勾好的清单优先：探测那一步已经把「上游有哪些」给用户看过一遍了
+              const picked = Array.isArray(data.models)
+                ? data.models.filter((id: unknown): id is string => typeof id === 'string')
+                : [];
+
+              let ids: string[];
+              if (picked.length > 0) {
+                ids = picked;
+              } else {
+                // 没带勾选结果（旧前端 / 直接调接口）：自己探一次，只取该上游自己的那些
+                const upstreamIds = await fetchUpstreamModelIds(baseUrl, endpointKey);
+                ids = upstreamIds
+                  ? recommendedModelIds(upstream, upstreamIds, catalogIds)
+                  : catalogIds;
               }
 
-              // 中转分组卖的模型名经常和官方不一样（真实案例：上游是 deepseek-v4-flash，
-              // 内置目录是 deepseek-chat），所以**先问上游自己**：GET {地址}/models。
-              // 问得到就用上游的清单（这才真的能用）；问不到再退回复制内置目录。
-              let models: Record<string, unknown>[] = [];
-              let modelsFrom: 'upstream' | 'catalog' = 'catalog';
-              try {
-                const response = await fetch(modelsEndpoint(baseUrl), {
-                  headers: { Authorization: `Bearer ${key}` },
-                  signal: AbortSignal.timeout(15_000),
-                });
-                if (response.ok) {
-                  const upstream = upstreamModels(await response.json().catch(() => null));
-                  if (upstream.length > 0) {
-                    models = upstream;
-                    modelsFrom = 'upstream';
-                  }
-                }
-              } catch {
-                // 网络 / 超时都不拦：退回复制内置目录
-              }
-
-              if (models.length === 0) {
-                lanes.ensure(DEFAULT_LANE, currentCwd);
-                const response = await requestFromPi<{ data?: { models?: unknown[] } }>({
-                  type: 'get_available_models',
-                });
-                models = catalogModelsFor(response?.data?.models, provider);
-              }
+              const models = mergeModelDefinitions(ids, catalog);
               assertModelsUsable(models);
 
               const created = await createProviderEndpoint({
-                provider,
-                name: name || `${presetLabel(provider) ?? provider} 中转`,
+                provider: upstream,
+                id: existingEndpoint ?? undefined,
+                name: name || `${presetLabel(upstream) ?? upstream} 中转`,
                 baseUrl,
-                key,
+                key: endpointKey,
                 models,
               });
 
@@ -677,10 +750,10 @@ wss.on('connection', (ws: WebSocket) => {
               // 回包用新 id：前端好知道该选哪一个
               return {
                 provider: created.id,
-                endpointOf: provider,
+                endpointOf: upstream,
                 migrated: created.migrated,
                 restarted: true,
-                modelsFrom,
+                modelCount: models.length,
               };
             }
 

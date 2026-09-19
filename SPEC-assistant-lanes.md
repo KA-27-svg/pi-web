@@ -317,3 +317,29 @@ auth.json 条目里的 `baseUrl`（源码 `model-registry.js`：`resolution.auth
 ✓ 切到中转模型后真实回复了一个字
 ✓ 删端点后 auth 与 models.json 干净
 ```
+
+### 中转端点：保存时勾选模型（补充）
+
+上游 `/models` 常报混合分组：真实案例一个「DeepSeek」分组同时卖 DeepSeek 6 个 +
+智谱 3 个 + Kimi 3 个 + MiniMax + qwen。照单全收会得到名叫「DeepSeek 中转」的端点下
+挂着一堆别家模型——标签在骗人。
+
+填了地址后保存变成**两步**：
+
+1. `probe_endpoint_models`：`GET {地址}/models` 拿上游清单（拿不到退回 pi 内置目录），
+   逐条算出 `recommended` —— 内置目录有同名，或名字像该上游（前缀命中，
+   或按非字母数字切段后整段相等，能认 `moonshot/kimi-k3` 里的 `kimi`）。
+2. 前端列出清单，「这个上游的」与「同一个分组里的其它厂商」分两段，默认只勾前者，
+   可全选/全不选，也可以勾上别家的（同一个端点下混着用）。
+
+勾选结果随 `save_provider_key` 的 `models` 传给桥接；勾中的 id 里，
+内置目录有同名定义的用目录那份（带 cost / contextWindow / compat），
+目录没有的（中转独有模型）退回最小定义 `{id, name: id, api: 'openai-completions'}`。
+
+编辑已有端点：`createProviderEndpoint` 传 `id` 就原地更新（id 不变，否则会话与默认
+模型里存的那个 id 会失效），密钥留空表示沿用已存的那份。地址 / 密钥 / 供应商一变，
+前端作废探测结果——拿着 A 的清单存给 B 是纯粹的错。
+
+认不出上游的手写 id（`wode`）不再直接报错：照常探测、一个都不预勾。
+此时 `id === provider`，迁移那一步必须跳过，否则「清理官方条目残留地址」清掉的
+正是刚写好的中转地址。

@@ -4,8 +4,10 @@ import {
   catalogModelsFor,
   deriveEndpointId,
   isPresetProvider,
+  mergeModelDefinitions,
   presetLabel,
-  upstreamModels,
+  recommendedModelIds,
+  upstreamOf,
 } from './providerEndpoints';
 
 /** pi 的 get_available_models 回包里，一条模型定义长这样 */
@@ -89,30 +91,93 @@ describe('清单可用性检查', () => {
   });
 });
 
-describe('上游自己报的模型清单', () => {
-  it('[OI] 风格响应（{data:[{id}]}）转成模型定义，名字用 id', () => {
-    const models = upstreamModels({
-      data: [
-        { id: 'deepseek-v4-flash', object: 'model' },
-        { id: 'deepseek-v4-pro', object: 'model' },
-        { id: 'deepseek-v4-flash' }, // 重复的去掉
-        { object: 'model' }, // 没 id 的跳过
-        'garbage',
-      ],
-    });
+describe('端点 id 反推上游', () => {
+  const presets = ['deepseek', 'openai', 'anthropic', 'glm'];
 
-    expect(models).toEqual([
-      { id: 'deepseek-v4-flash', name: 'deepseek-v4-flash', api: 'openai-completions' },
-      { id: 'deepseek-v4-pro', name: 'deepseek-v4-pro', api: 'openai-completions' },
+  it('新建的端点 id 能反推出上游', () => {
+    expect(upstreamOf('deepseek-relay', presets)).toBe('deepseek');
+    expect(upstreamOf('deepseek-relay-2', presets)).toBe('deepseek');
+  });
+
+  it('内置目录里的 id 就是它自己', () => {
+    expect(upstreamOf('deepseek', presets)).toBe('deepseek');
+  });
+
+  it('认不出来时返回 null（不瞎猜）', () => {
+    expect(upstreamOf('my-custom-thing', presets)).toBeNull();
+  });
+
+  it('手写的 id 里带上游名也能认出来（micuapi-deepseek / wode-glm）', () => {
+    expect(upstreamOf('micuapi-deepseek', presets)).toBe('deepseek');
+    expect(upstreamOf('wode-glm', presets)).toBe('glm');
+    // 反例：别把域名里的词当上游（api-slb.micuapi.ai 里没有预设名）
+    expect(upstreamOf('api-slb.micuapi.ai', presets)).toBeNull();
+    expect(upstreamOf('wode', presets)).toBeNull();
+  });
+});
+
+describe('哪些模型算「这个上游自己的」', () => {
+  const catalog = ['deepseek-v4-flash', 'deepseek-v4-pro'];
+
+  it('内置目录里有同名的一律算', () => {
+    expect(recommendedModelIds('deepseek', ['deepseek-v4-pro'], [])).toEqual([
+      'deepseek-v4-pro',
     ]);
   });
 
-  it('裸数组与结构对不上时都能兜住', () => {
-    // 裸字符串没有 id，跳过；有 id 的才算
-    expect(upstreamModels(['a', { id: 'b' }])).toEqual([
-      { id: 'b', name: 'b', api: 'openai-completions' },
+  it('名字像这个上游的也算（前缀）', () => {
+    const upstream = [
+      'deepseek-v4-flash',
+      'deepseek-v4-flash-0731',
+      'deepseek-v4.1-flash',
+      'glm-5.3',
+      'kimi-k3',
+      'qwen3.8-max',
+      'MiniMax-M3',
+    ];
+
+    // 真实案例：一个「DeepSeek」分组同时卖 glm / kimi / qwen，默认只勾 deepseek 的
+    expect(recommendedModelIds('deepseek', upstream, catalog)).toEqual([
+      'deepseek-v4-flash',
+      'deepseek-v4-flash-0731',
+      'deepseek-v4.1-flash',
     ]);
-    expect(upstreamModels(null)).toEqual([]);
-    expect(upstreamModels({ error: 'x' })).toEqual([]);
+  });
+
+  it('带厂商前缀的写法（moonshot/kimi-k3）按段匹配', () => {
+    expect(recommendedModelIds('kimi', ['moonshot/kimi-k3', 'glm-5.3'], [])).toEqual([
+      'moonshot/kimi-k3',
+    ]);
+    // deepseek-ai/DeepSeek-V3 这种也认（前缀命中）
+    expect(recommendedModelIds('deepseek', ['deepseek-ai/DeepSeek-V3'], [])).toEqual([
+      'deepseek-ai/DeepSeek-V3',
+    ]);
+  });
+
+  it('大小写不敏感，且不会把别的厂商误认进来', () => {
+    expect(recommendedModelIds('deepseek', ['DeepSeek-V3'], [])).toEqual(['DeepSeek-V3']);
+    expect(recommendedModelIds('glm', ['glm-5.3', 'kimi-k3'], [])).toEqual(['glm-5.3']);
+  });
+});
+
+describe('勾中的 id → 模型定义', () => {
+  const catalog = [
+    { id: 'deepseek-v4-pro', name: 'DeepSeek V4 Pro', api: 'openai-completions', contextWindow: 1000000 },
+  ];
+
+  it('目录里有同名定义就用目录那份（名字 / 上下文窗口 / 价格都在）', () => {
+    expect(mergeModelDefinitions(['deepseek-v4-pro'], catalog)).toEqual(catalog);
+  });
+
+  it('目录里没有的（中转独有的模型）退回最小定义', () => {
+    expect(mergeModelDefinitions(['deepseek-v4.1-flash'], catalog)).toEqual([
+      { id: 'deepseek-v4.1-flash', name: 'deepseek-v4.1-flash', api: 'openai-completions' },
+    ]);
+  });
+
+  it('去重、跳过空 id，顺序按勾选清单', () => {
+    expect(
+      mergeModelDefinitions(['b', 'a', 'b', '', '  '], []).map(model => model.id)
+    ).toEqual(['b', 'a']);
   });
 });

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { BridgeStatus } from '../types/pi';
+import type { BridgeStatus, EndpointModelsProbe, EndpointModelOption } from '../types/pi';
 import { useRefreshFeedback } from '../hooks/useRefreshFeedback';
 
 interface ProviderSetupProps {
@@ -7,9 +7,20 @@ interface ProviderSetupProps {
   /**
    * 保存供应商入口。
    * baseUrl 留空 = 配 / 改官方入口；填了 = 保存成一个**独立的中转端点**
-   * （新的供应商 id，不动官方条目）。
+   * （新的供应商 id，不动官方条目）。models 是勾好的模型 id。
    */
-  onSave: (provider: string, key: string, baseUrl?: string, name?: string) => void;
+  onSave: (
+    provider: string,
+    key: string,
+    baseUrl?: string,
+    name?: string,
+    models?: string[]
+  ) => void;
+  /**
+   * 探测中转上游有哪些模型（填了地址时先走这一步）。
+   * 不给就只能直接存（桥接会自己探一次）。
+   */
+  onProbe?: (provider: string, key: string, baseUrl: string) => Promise<EndpointModelsProbe>;
   /**
    * wizard：首次运行向导里用，自带「配置模型」标题，按钮说「保存并开始」
    * settings：设置面板里用，外面已经有分区标题了（而且不是「开始」什么），
@@ -18,6 +29,15 @@ interface ProviderSetupProps {
   variant?: 'wizard' | 'settings';
   /** 存好了。弹窗用它把自己关掉，外面再报一声成功 */
   onSaved?: () => void;
+}
+
+/** 探测结果 + 用户勾了哪些。地址 / 密钥 / 供应商一变就作废 */
+interface PickedModels {
+  provider: string;
+  upstream: string;
+  from: EndpointModelsProbe['from'];
+  models: EndpointModelOption[];
+  checked: Set<string>;
 }
 
 /**
@@ -32,17 +52,21 @@ interface ProviderSetupProps {
  *
  * 已配的中转端点也会出现在供应商下拉里（选中后改名 / 换密钥 / 换地址）。
  *
+ * 填了地址是**两步**：先探测上游有哪些模型，让用户勾选要加哪些，再保存。
+ * 中转分组常常是混合的——一个「DeepSeek」分组可能同时卖 glm / kimi / qwen，
+ * 照单全收会让名叫「DeepSeek 中转」的端点下挂着一堆别的厂商的模型。
+ *
  * 订阅登录（Claude Pro / ChatGPT / Copilot）桥接做不了——`/login` 是纯 TUI 流程，
  * 所以只做引导，并说明授权完成后页面会自己继续。
  */
 export function ProviderSetup({
   status,
   onSave,
+  onProbe,
   variant = 'wizard',
   onSaved,
 }: ProviderSetupProps) {
   const wizard = variant === 'wizard';
-  const submitLabel = wizard ? '保存并开始' : '保存';
   // 只收能贴 API key 的供应商：subscriptionOnly 的（如 GitHub Copilot）只认 OAuth，
   // 给它写一个 { type: 'api_key' } 进 auth.json 语义就是错的
   const presets = (status.providers ?? []).filter(preset => !preset.subscriptionOnly);
@@ -59,6 +83,10 @@ export function ProviderSetup({
   const [baseUrlDraft, setBaseUrlDraft] = useState<Record<string, string>>({});
   /** 用户改过的名字。没改的供应商就用它已有那个 */
   const [nameDraft, setNameDraft] = useState<Record<string, string>>({});
+  /** 探测出来的模型清单 + 勾选（地址 / 密钥一变就作废，见下面的 resetProbe） */
+  const [picked, setPicked] = useState<PickedModels | null>(null);
+  const [probing, setProbing] = useState(false);
+  const [probeError, setProbeError] = useState<string>();
 
   // providers 是异步到达的，所以这里兜底到第一项，而不是在 useState 初始值里定
   const provider = selected || providers[0]?.id || '';
@@ -72,6 +100,41 @@ export function ProviderSetup({
   const baseUrl = baseUrlDraft[provider] ?? savedBaseUrl;
   const canSubmit = Boolean(provider) && (key.trim().length > 0 || alreadyConfigured);
 
+  /** 勾中的模型 id（按清单顺序，与勾选先后无关） */
+  const checkedIds = picked
+    ? picked.models.filter(model => picked.checked.has(model.id)).map(model => model.id)
+    : [];
+  /** 填了地址就是两步：先探测让用户勾，再保存 */
+  const needsPick = Boolean(baseUrl.trim()) && Boolean(onProbe);
+  const submitLabel = probing
+    ? '正在探测…'
+    : needsPick && !picked
+      ? '下一步：选择模型'
+      : picked
+        ? `确认保存（${checkedIds.length} 个模型）`
+        : wizard
+          ? '保存并开始'
+          : '保存';
+
+  /**
+   * 地址 / 密钥 / 供应商一变，探测结果就作废：那是「另一个上游」的清单，
+   * 拿着它保存会把 A 的模型名写给 B。
+   */
+  const resetProbe = () => {
+    setPicked(null);
+    setProbeError(undefined);
+  };
+
+  const toggleModel = (id: string) => {
+    setPicked(current => {
+      if (!current) return current;
+      const checked = new Set(current.checked);
+      if (checked.has(id)) checked.delete(id);
+      else checked.add(id);
+      return { ...current, checked };
+    });
+  };
+
   // 保存结果由桥接广播回来（provider_saved → setup_status），拿 setup 的引用变化
   // 当完成信号；不然点一下「保存」什么都不变，用户不知道到底存上没
   const save = useRefreshFeedback(status.setup);
@@ -79,12 +142,54 @@ export function ProviderSetup({
   // 存好了才通知外面——按钮上那句「已保存」在弹窗里一闪就没了，
   // 外面那条提示才是用户真正会看到的
   useEffect(() => {
-    if (save.phase === 'done') onSaved?.();
+    if (save.phase === 'done') {
+      onSaved?.();
+      // 存完了就把勾选清掉：再点一次不该拿着上一份清单又存一遍
+      resetProbe();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [save.phase, onSaved]);
 
   const submit = (event: React.FormEvent) => {
     event.preventDefault();
     if (!canSubmit) return;
+
+    // 填了地址且还没探测过：先去看上游有哪些模型
+    if (baseUrl.trim() && !picked && onProbe) {
+      setProbing(true);
+      setProbeError(undefined);
+      onProbe(provider, key.trim(), baseUrl.trim())
+        .then(result => {
+          setPicked({
+            provider,
+            upstream: result.upstream,
+            from: result.from,
+            models: result.models ?? [],
+            // 默认只勾该上游自己的：其余（别的厂商）列出来但不勾
+            checked: new Set((result.models ?? []).filter(m => m.recommended).map(m => m.id)),
+          });
+        })
+        .catch((error: Error) => setProbeError(error.message || '探测失败'))
+        .finally(() => setProbing(false));
+      return;
+    }
+
+    if (baseUrl.trim() && picked && checkedIds.length === 0) return;
+
+    // 勾选结果只在真的有的时候才多传一个参数（没填地址的老路子保持四个参数）
+    if (picked) {
+      save.trigger(() =>
+        onSave(
+          provider,
+          key.trim(),
+          baseUrl.trim() || undefined,
+          name.trim() || undefined,
+          checkedIds
+        )
+      );
+      return;
+    }
+
     save.trigger(() =>
       onSave(provider, key.trim(), baseUrl.trim() || undefined, name.trim() || undefined)
     );
@@ -107,6 +212,7 @@ export function ProviderSetup({
               // 密钥是单个输入框、又不回显；换供应商时必须清掉，
               // 否则容易把 A 刚贴的 key 存到 B 名下
               setKey('');
+              resetProbe();
             }}
             className={`mt-1 ${inputClass}`}
           >
@@ -134,7 +240,10 @@ export function ProviderSetup({
           <input
             type="password"
             value={key}
-            onChange={event => setKey(event.target.value)}
+            onChange={event => {
+              setKey(event.target.value);
+              resetProbe();
+            }}
             placeholder={alreadyConfigured ? '留空则不改动已有密钥' : 'sk-...'}
             autoComplete="off"
             className={`mt-1 font-mono ${inputClass}`}
@@ -165,9 +274,10 @@ export function ProviderSetup({
           <input
             data-field="baseUrl"
             value={baseUrl}
-            onChange={event =>
-              setBaseUrlDraft(draft => ({ ...draft, [provider]: event.target.value }))
-            }
+            onChange={event => {
+              setBaseUrlDraft(draft => ({ ...draft, [provider]: event.target.value }));
+              resetProbe();
+            }}
             placeholder="https://你的中转站/v1"
             autoComplete="off"
             className={`mt-1 font-mono ${inputClass}`}
@@ -176,7 +286,8 @@ export function ProviderSetup({
             <span className="mt-1 block text-[10.5px] leading-[1.6] text-muted/80">
               会保存成一个**独立的中转端点**（用上面的名称区分），官方入口不受影响，
               两个都能用。官方条目上残留的旧地址会被自动清掉。
-              保存后 pi 会重启一次来加载新的模型清单（正在跑的那一轮会被打断）。
+              下一步会列出上游的模型让你勾（默认只勾它自己的），保存后 pi 会重启一次
+              来加载新的模型清单（正在跑的那一轮会被打断）。
             </span>
           ) : (
             <span className="mt-1 block text-[10.5px] leading-[1.6] text-muted/80">
@@ -185,13 +296,87 @@ export function ProviderSetup({
           )}
         </label>
 
+        {picked && (
+          <div className="rounded-lg border border-border bg-surface px-3 py-2.5">
+            <div className="flex items-baseline justify-between gap-2">
+              <span className="text-[11px] text-muted">
+                上游报了 {picked.models.length} 个模型
+                {picked.from === 'catalog' && '（上游没给清单，改用 pi 内置目录）'}
+              </span>
+              <button
+                type="button"
+                hidden={picked.models.length === 0}
+                onClick={() =>
+                  setPicked(current => {
+                    if (!current) return current;
+                    const all = current.checked.size === current.models.length;
+                    return {
+                      ...current,
+                      checked: all ? new Set() : new Set(current.models.map(m => m.id)),
+                    };
+                  })
+                }
+                className="shrink-0 text-[11px] text-muted underline transition-colors hover:text-foreground"
+              >
+                {picked.checked.size === picked.models.length ? '全不选' : '全选'}
+              </button>
+            </div>
+            <p className="mt-1 text-[10.5px] leading-[1.6] text-muted/80">
+              {picked.models.length === 0
+                ? '上游没报出任何模型（地址或密钥不对？）。换个地址试试，或者直接编辑 models.json。'
+                : picked.upstream
+                  ? `已默认勾上「${picked.upstream}」自己的那些。别的厂商的也能勾，但它们会一起挂在这个端点下。`
+                  : '认不出这个端点属于哪个上游，所以一个都没勾——自己挑要用的。'}
+            </p>
+
+            {(['own', 'others'] as const).map(group => {
+              const models = picked.models.filter(model =>
+                group === 'own' ? model.recommended : !model.recommended
+              );
+              if (models.length === 0) return null;
+
+              return (
+                <div key={group} className={group === 'others' ? 'mt-2' : 'mt-1.5'}>
+                  {group === 'others' && (
+                    <div className="mb-0.5 border-t border-border/70 pt-1.5 text-[10px] text-muted">
+                      同一个分组里的其它厂商
+                    </div>
+                  )}
+                  <div className="max-h-44 space-y-px overflow-y-auto">
+                    {models.map(model => (
+                      <label
+                        key={model.id}
+                        className="flex cursor-pointer items-center gap-2 rounded px-1 py-0.5 transition-colors hover:bg-surface-hover"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={picked.checked.has(model.id)}
+                          onChange={() => toggleModel(model.id)}
+                          className="size-3 accent-accent"
+                        />
+                        <span className="truncate font-mono text-[11.5px] text-foreground/80">
+                          {model.id}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
         <button
           type="submit"
-          disabled={!canSubmit}
+          disabled={!canSubmit || probing || (Boolean(picked) && checkedIds.length === 0)}
           className="rounded-full bg-accent px-3.5 py-1.5 text-[12px] text-accent-foreground transition-colors hover:bg-accent-hover disabled:cursor-default disabled:opacity-40"
         >
           {save.phase === 'done' ? '已保存' : submitLabel}
         </button>
+
+        {probeError && (
+          <p className="text-[12.5px] leading-[1.7] text-rose-500">{probeError}</p>
+        )}
 
         {status.setupNotice && (
           <p className="text-[12.5px] leading-[1.7] text-rose-500">{status.setupNotice}</p>

@@ -33,6 +33,12 @@ export interface ApiProbeResult {
 
 const DEFAULT_TIMEOUT_MS = 10000;
 
+export interface ProbeOptions {
+  /** 注入点：测试里不发真实请求 */
+  fetchLike?: FetchLike;
+  timeoutMs?: number;
+}
+
 /** 只接受 http/https：这是桥接替前端发出去的请求，别放开别的协议 */
 export function isHttpUrl(raw: string): boolean {
   try {
@@ -82,10 +88,43 @@ export function parseModelIds(payload: unknown): string[] | null {
   return ids;
 }
 
-export interface ProbeOptions {
-  /** 注入点：测试里不发真实请求 */
-  fetchLike?: FetchLike;
-  timeoutMs?: number;
+/**
+ * 拉上游自己报的模型清单（`GET {地址}/models`）。
+ *
+ * 保存中转端点时用它：中转分组卖的模型名经常和官方不一样（真实案例里上游是
+ * deepseek-v4-flash，内置目录是 deepseek-chat），照抄内置目录必然 model_not_found。
+ *
+ * 拿不到就返回 null（地址错 / 分组不暴露清单 / 密钥无效 / 网络问题）——
+ * 这些都不该拦住建端点，调用方退回复制内置目录。
+ */
+export async function fetchUpstreamModelIds(
+  baseUrl: string,
+  key: string,
+  options: ProbeOptions = {}
+): Promise<string[] | null> {
+  const fetchLike = options.fetchLike ?? ((url, init) => fetch(url, init));
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+
+  try {
+    const response = await fetchLike(modelsEndpoint(baseUrl), {
+      method: 'GET',
+      headers: {
+        Accept: 'application/json',
+        ...(key ? { Authorization: `Bearer ${key}` } : {}),
+      },
+      redirect: 'follow',
+      signal: controller.signal,
+    });
+    if (!response.ok) return null;
+
+    const ids = parseModelIds(await response.json().catch(() => null));
+    return ids && ids.length > 0 ? ids : null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 export async function probeApi(

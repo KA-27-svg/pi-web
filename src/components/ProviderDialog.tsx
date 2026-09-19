@@ -2,13 +2,26 @@ import { useEffect, useRef, useState } from 'react';
 import type { BridgeStatus } from '../types/pi';
 import { providerLabel } from '../utils/providerLabel';
 import { Modal } from './Modal';
+import type { EndpointModelsProbe } from '../types/pi';
 import { ProviderSetup } from './ProviderSetup';
 import { X } from 'lucide-react';
 
 interface ProviderDialogProps {
   status: BridgeStatus;
   onClose: () => void;
-  onSaveProvider: (provider: string, key: string, baseUrl?: string) => void;
+  onSaveProvider: (
+    provider: string,
+    key: string,
+    baseUrl?: string,
+    name?: string,
+    models?: string[]
+  ) => void;
+  /** 探测中转上游有哪些模型（填了地址时先走这一步） */
+  onProbeEndpointModels?: (
+    provider: string,
+    key: string,
+    baseUrl: string
+  ) => Promise<EndpointModelsProbe>;
   /** 删除一个已配供应商的凭证 */
   onDeleteProvider: (provider: string) => void;
   /** 存好了：关掉弹窗并报一声成功 */
@@ -29,6 +42,7 @@ export function ProviderDialog({
   status,
   onClose,
   onSaveProvider,
+  onProbeEndpointModels,
   onDeleteProvider,
   onSaved,
 }: ProviderDialogProps) {
@@ -112,6 +126,7 @@ export function ProviderDialog({
           status={status}
           variant="settings"
           onSave={onSaveProvider}
+          onProbe={onProbeEndpointModels}
           onSaved={onSaved}
         />
       </div>

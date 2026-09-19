@@ -390,18 +390,25 @@ export async function deleteProvider(
 export interface CreateEndpointInput {
   /** 上游供应商（内置目录里的 id，如 deepseek） */
   provider: string;
+  /**
+   * 要**改**的已有端点 id。给了就原地更新（地址 / 密钥 / 清单），不再新建一个；
+   * 不给就是新建（id 自己派生，如 `deepseek-relay`）。
+   */
+  id?: string;
   /** 端点显示名；留空用「官方名 中转」 */
   name?: string;
   baseUrl: string;
   key: string;
-  /** 从 pi 的内置目录复制来的模型定义（必须已剥掉 baseUrl / provider） */
+  /** 写进 models.json 的模型定义（必须已剥掉 baseUrl / provider） */
   models: Record<string, unknown>[];
 }
 
 /**
- * 把一个中转保存成独立端点：新的供应商 id + 自己的密钥地址 + 复制的模型清单。
+ * 把一个中转保存成独立端点：新的供应商 id + 自己的密钥地址 + 选中的模型清单。
  *
- * 顺带做一次**迁移**：如果官方条目上还挂着旧的地址（第一版的存法），把它清掉、
+ * 传了 `id` 就是改已有端点（用户换了地址 / 密钥 / 勾选），不新建。
+ *
+ * 新建时顺带做一次**迁移**：如果官方条目上还挂着旧的地址（第一版的存法），把它清掉、
  * 密钥保留——否则官方入口仍然指向中转，用户会以为官方的还能用。
  *
  * 返回实际使用的 id，以及是否做了迁移。
@@ -421,13 +428,17 @@ export async function createProviderEndpoint(
 
   const authExisting = await readJsonObject(auth);
   const modelExisting = await readJsonObject(models);
-  const taken = [
-    ...Object.keys(authExisting),
-    ...Object.keys(
-      (modelExisting.providers as Record<string, any> | undefined) ?? {}
-    ),
-  ];
-  const id = deriveEndpointId(input.provider, taken);
+
+  // 改已有端点：id 不变（它已经写在会话 / 默认模型里了，换一个等于让用户重配一遍）
+  const existingId = input.id?.trim();
+  const id = existingId
+    ? existingId
+    : deriveEndpointId(input.provider, [
+        ...Object.keys(authExisting),
+        ...Object.keys(
+          (modelExisting.providers as Record<string, any> | undefined) ?? {}
+        ),
+      ]);
 
   const name = input.name?.trim() || `${presetLabel(input.provider) ?? input.provider} 中转`;
 
@@ -446,8 +457,11 @@ export async function createProviderEndpoint(
   modelExisting.providers = providers;
   await writeJsonObject(models, modelExisting, { mode: 0o600 });
 
-  // 迁移：官方条目上残留的地址清掉（密钥不动）
-  const official = authExisting[input.provider];
+  // 迁移：官方条目上残留的地址清掉（密钥不动）。
+  //
+  // 注意：`input.provider` 有时就是端点自己（认不出上游的手写 id），
+  // 那种情况下绝不能把「自己」当官方条目去清——那会把刚写好的中转地址抹掉。
+  const official = id === input.provider ? undefined : authExisting[input.provider];
   let migrated = false;
   if (
     official &&

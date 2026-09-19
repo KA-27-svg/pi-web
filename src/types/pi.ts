@@ -121,6 +121,28 @@ export interface ApiProbeResult {
   error?: string;
 }
 
+/** 中转端点里可勾选的一个模型 */
+export interface EndpointModelOption {
+  id: string;
+  /** 默认勾选：这个上游自己的模型（或内置目录里有同名的） */
+  recommended: boolean;
+}
+
+/**
+ * 「中转上游到底有哪些模型」的探测结果。
+ *
+ * 中转分组常是混合的：一个「DeepSeek」分组可能同时卖 glm / kimi / qwen。
+ * 全加进去会让端点的模型列表长出一堆无关的东西，所以先列出来让用户勾。
+ */
+export interface EndpointModelsProbe {
+  provider: string;
+  /** 判断归属用的上游 id（`deepseek-relay` → `deepseek`） */
+  upstream: string;
+  /** 清单来源：上游自己报的 / pi 的内置目录（上游问不到时的兜底） */
+  from: 'upstream' | 'catalog';
+  models: EndpointModelOption[];
+}
+
 export interface SessionSummary {
   path: string;
   id: string;
