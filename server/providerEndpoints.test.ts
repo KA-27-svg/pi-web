@@ -4,9 +4,11 @@ import {
   catalogModelsFor,
   deriveEndpointId,
   isPresetProvider,
+  derivedEndpointIds,
   mergeModelDefinitions,
   presetLabel,
   recommendedModelIds,
+  sameEndpointUrl,
   upstreamOf,
 } from './providerEndpoints';
 
@@ -179,5 +181,33 @@ describe('勾中的 id → 模型定义', () => {
     expect(
       mergeModelDefinitions(['b', 'a', 'b', '', '  '], []).map(model => model.id)
     ).toEqual(['b', 'a']);
+  });
+});
+
+describe('找出这个上游已有的端点', () => {
+  const ids = ['deepseek', 'deepseek-relay', 'deepseek-relay-2', 'glm-relay', 'wode'];
+
+  it('只认派生出来的（不含官方条目本身）', () => {
+    expect(derivedEndpointIds('deepseek', ids)).toEqual(['deepseek-relay', 'deepseek-relay-2']);
+    expect(derivedEndpointIds('glm', ids)).toEqual(['glm-relay']);
+  });
+
+  it('手写 id 不算派生端点（那要走「id 就是 provider」那条路）', () => {
+    expect(derivedEndpointIds('deepseek', ['micuapi-deepseek'])).toEqual([]);
+  });
+
+  it('地址比较：尾斜杠 / 大小写 / 空格归一化', () => {
+    expect(sameEndpointUrl('https://R.example/v1/', ' https://r.example/v1 ')).toBe(true);
+    expect(sameEndpointUrl('https://r.example/v1', 'https://r.example/v1/')).toBe(true);
+  });
+
+  it('路径不同就是不同地址（/v1 与 /1 不能当同一个）', () => {
+    expect(sameEndpointUrl('https://api.example/v1', 'https://api.example/1')).toBe(false);
+  });
+
+  it('空的 / 非字符串一律不同（别把「没填」当成匹配上）', () => {
+    expect(sameEndpointUrl('', '')).toBe(false);
+    expect(sameEndpointUrl(undefined, undefined)).toBe(false);
+    expect(sameEndpointUrl('https://r.example/v1', undefined)).toBe(false);
   });
 });

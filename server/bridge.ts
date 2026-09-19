@@ -58,10 +58,12 @@ import { savePlan } from './planFile.js';
 import {
   assertModelsUsable,
   catalogModelsFor,
+  derivedEndpointIds,
   isPresetProvider,
   mergeModelDefinitions,
   presetLabel,
   recommendedModelIds,
+  sameEndpointUrl,
   upstreamOf,
 } from './providerEndpoints.js';
 import { createProviderEndpoint } from './setupConfig.js';
@@ -282,6 +284,29 @@ async function catalogFor(upstream: string): Promise<Record<string, unknown>[]> 
     return catalogModelsFor(response?.data?.models, upstream);
   } catch {
     return [];
+  }
+}
+
+/**
+ * 这个上游名下、地址正好是 `baseUrl` 的已配端点 id。
+ *
+ * 供应商下拉里只有内置目录的那些，不再列端点，所以「重新配一遍中转」就是
+ * 选中上游 + 重填同一个地址。没有这层匹配的话，每保存一次就会多出一个
+ * `deepseek-relay-2`、`-3`，而用户只想改地址。
+ */
+async function endpointForAddress(
+  upstream: string,
+  baseUrl: string
+): Promise<string | null> {
+  try {
+    const baseUrls = await readProviderBaseUrls();
+    return (
+      derivedEndpointIds(upstream, Object.keys(baseUrls)).find(id =>
+        sameEndpointUrl(baseUrls[id], baseUrl)
+      ) ?? null
+    );
+  } catch {
+    return null;
   }
 }
 
@@ -651,9 +676,12 @@ wss.on('connection', (ws: WebSocket) => {
             const presetIds = PROVIDER_PRESETS.map(preset => preset.id);
             const upstream = upstreamOf(provider, presetIds);
 
-            // 编辑已配端点时用户可能不重贴密钥：用存着的那份
+            // 密钥可以不重贴：编辑已有端点时用端点自己存着的那份。
+            // （重配中转 = 选中上游 + 重填同一个地址，见 endpointForAddress）
+            const reuse = upstream ? await endpointForAddress(upstream, baseUrl) : null;
             const key =
               (typeof data.key === 'string' ? data.key.trim() : '') ||
+              (reuse ? (await readApiKey(reuse)) || '' : '') ||
               (await readApiKey(provider)) ||
               '';
 
@@ -705,11 +733,16 @@ wss.on('connection', (ws: WebSocket) => {
               const presetIds = PROVIDER_PRESETS.map(preset => preset.id);
               // 认不出上游也能存：只是没有内置目录可兜底、也没官方条目要迁
               const upstream = upstreamOf(provider, presetIds) ?? provider;
-              // 已配的端点（deepseek-relay）是**改**它自己，不是再建一个
-              const existingEndpoint = isPresetProvider(provider) ? null : provider;
+              // 要改的是哪一个端点：
+              //  - 前端直接给了端点 id（旧版下拉 / 直接调接口）就是它自己
+              //  - 否则看这个上游名下有没有指向同一地址的端点（下拉里只有官方入口之后，
+              //    「重配中转」就是这个形状）。不认的话每保存一次就多一个 -2、-3
+              const existingEndpoint = isPresetProvider(provider)
+                ? await endpointForAddress(upstream, baseUrl)
+                : provider;
               // 改已有端点时密钥可以不重贴：用存着的那份
               const endpointKey =
-                key || (existingEndpoint ? (await readApiKey(provider)) || '' : '');
+                key || (existingEndpoint ? (await readApiKey(existingEndpoint)) || '' : '');
 
               const catalog = await catalogFor(upstream);
               const catalogIds = catalog.map(model => String(model.id));

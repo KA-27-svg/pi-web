@@ -132,6 +132,31 @@ export function upstreamOf(
  *  - 前缀：`deepseek-v4-flash`、`deepseek-ai/DeepSeek-V3`（SiliconFlow 那种写法）
  *  - 按非字母数字切段后正好是上游名：`moonshot/kimi-k3` 里的 `kimi`
  */
+/**
+ * 这个上游名下「派生出来的」端点 id：`<上游>-relay`、`<上游>-relay-2`……
+ *
+ * 不含官方条目本身（`deepseek`）——那是官方入口，不是端点。
+ * 用来回答「这个上游是不是已经有一个指向某地址的端点了」。
+ */
+export function derivedEndpointIds(provider: string, ids: Iterable<string>): string[] {
+  const prefix = `${provider.trim()}-relay`;
+  return [...ids].filter(id => id === prefix || id.startsWith(`${prefix}-`));
+}
+
+/**
+ * 两个中转地址是不是同一个。
+ *
+ * 用户重配时地址常常是复制粘贴的，尾斜杠 / 大小写 / 空格会不一样；
+ * 这直接决定「是改已有端点还是再建一个」，所以比较前统一归一化。
+ * 不做路径改写（`/v1` 与 `/1` 是**不同**的地址，一个能用一个是假 200）。
+ */
+export function sameEndpointUrl(a: unknown, b: unknown): boolean {
+  const norm = (value: unknown) =>
+    typeof value === 'string' ? value.trim().replace(/\/+$/, '').toLowerCase() : '';
+  const left = norm(a);
+  return Boolean(left) && left === norm(b);
+}
+
 export function matchesUpstream(modelId: string, upstream: string): boolean {
   const id = modelId.trim().toLowerCase();
   const up = upstream.trim().toLowerCase();

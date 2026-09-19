@@ -167,3 +167,25 @@
   - Verify: `ProviderSetup.test.tsx`（+9 项）
 - [x] 门禁：`tsc OK · lint OK · 1025 tests passed / 3 skipped · build OK`
 - [x] 真机冒烟：跑在**临时 agent 目录**（`PI_CODING_AGENT_DIR`），真实配置一个字节没碰
+
+## Slice 8：勾选界面去冗 + 下拉不再重复列端点（追加）✅
+
+用户反馈三点：说明文字多余、不必分「该上游 / 其它厂商」两段、供应商下拉里
+不该再列一份已配的中转端点（跟「已经配好的」那行重复）。
+
+- [x] 勾选清单改成一个平铺列表，标题只写「N 个模型」+ 全选/全不选；
+  去掉「已默认勾上「X」自己的那些…」与「同一个分组里的其它厂商」分隔条
+  （默认勾选行为不变，只是不再解释）
+- [x] 供应商下拉只留内置目录的「官方入口」；已配端点仍在弹窗顶部
+  「已经配好的」chip 里管理（删 / 看）
+- [x] 去掉下拉端点分组后，「重配中转」变成「选中上游 + 重填同一个地址」，
+  于是必须能认出这是同一个端点，否则每保存一次就多一个 `-2`、`-3`：
+  - `providerEndpoints.ts` 新增 `derivedEndpointIds`（`<上游>-relay` 系列，
+    不含官方条目本身）与 `sameEndpointUrl`（尾斜杠 / 大小写 / 空格归一化；
+    `/v1` 与 `/1` 是不同地址，不能归一化掉）
+  - `bridge.ts` 新增 `endpointForAddress(upstream, baseUrl)`：保存与探测都先用它
+    找已有端点——找到就原地更新、并用端点自己存着的密钥（密钥留空可提交）
+  - Verify: `providerEndpoints.test.ts`（+6 项）+ 真机冒烟（13 项）
+- [x] 门禁：`tsc OK · lint OK · 1030 tests passed / 3 skipped · build OK`
+- [x] 真机冒烟（临时 agent 目录）：重配不冒 `-2`、尾斜杠不同仍认同一个、
+  换地址才新建第二个、密钥留空时探测仍能拿到上游清单

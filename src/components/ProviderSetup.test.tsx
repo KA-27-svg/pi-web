@@ -365,7 +365,7 @@ describe('ProviderSetup 保存反馈', () => {
 });
 
 describe('中转端点（同一上游的第二个入口）', () => {
-  it('已配的中转端点出现在下拉里，用显示名', () => {
+  it('下拉里只有内置目录的供应商（已配的端点不重复列一份）', () => {
     render({
       providerNames: { 'deepseek-relay': 'DeepSeek 中转' },
       setup: {
@@ -374,9 +374,10 @@ describe('中转端点（同一上游的第二个入口）', () => {
       },
     } as unknown as Partial<BridgeStatus>);
 
+    // 端点要在「已经配好的」那一行里管（删 / 看），不在这个下拉里
     const groups = [...select().querySelectorAll('optgroup')];
-    expect(groups.map(g => g.label)).toEqual(['官方入口', '已配的中转端点']);
-    expect(groups[1].querySelector('option')?.textContent).toBe('DeepSeek 中转');
+    expect(groups.map(g => g.label)).toEqual(['官方入口']);
+    expect(select().textContent).not.toContain('DeepSeek 中转');
   });
 
   it('填了地址：按独立端点保存（带 newEndpoint），名称缺省不发（桥接用官方名兜底）', () => {
@@ -399,7 +400,7 @@ describe('中转端点（同一上游的第二个入口）', () => {
     expect(onSave).toHaveBeenCalledWith('deepseek', 'sk-official', undefined, undefined);
   });
 
-  it('选中已配的端点后可以只改名，密钥留空', () => {
+  it('重配已有中转：选中上游 + 重填同一个地址，密钥留空也能提交', () => {
     const onSave = render({
       providerNames: { 'deepseek-relay': 'DeepSeek 中转' },
       providerBaseUrls: { 'deepseek-relay': 'https://relay.example/v1' },
@@ -409,14 +410,16 @@ describe('中转端点（同一上游的第二个入口）', () => {
       },
     } as unknown as Partial<BridgeStatus>);
 
-    setValue(select(), 'deepseek-relay');
-    // 地址回显（不然只换 key 会在空地址上提交，把中转地址覆盖掉）
-    expect(baseUrlInput().value).toBe('https://relay.example/v1');
+    setValue(select(), 'deepseek');
+    setValue(baseUrlInput(), 'https://relay.example/v1');
     setValue(nameInput(), '改名后的中转');
+    // 官方条目已配过，所以留空密钥可以提交；桥接按「上游 + 地址」认出那个端点，
+    // 用端点自己存着的密钥
+    expect(submitButton().disabled).toBe(false);
     submit();
 
     expect(onSave).toHaveBeenCalledWith(
-      'deepseek-relay',
+      'deepseek',
       '',
       'https://relay.example/v1',
       '改名后的中转'
@@ -478,10 +481,10 @@ describe('ProviderSetup：中转端点分两步（探测 → 勾选 → 保存�
     expect(onSave).not.toHaveBeenCalled();
     // 列出来的就是上游报的那些
     expect(checkboxes()).toHaveLength(5);
-    expect(text()).toContain('上游报了 5 个模型');
+    expect(text()).toContain('5 个模型');
   });
 
-  it('默认只勾该上游自己的，别的厂商列出来但不勾', async () => {
+  it('默认只勾该上游自己的（其余列出来但不勾，可以自己勾上）', async () => {
     renderWithProbe();
 
     fillEndpoint();
@@ -491,7 +494,8 @@ describe('ProviderSetup：中转端点分两步（探测 → 勾选 → 保存�
       .filter(box => box.checked)
       .map(box => box.closest('label')?.textContent?.trim());
     expect(checkedIds).toEqual(['deepseek-v4-flash', 'deepseek-v4-pro', 'deepseek-v4.1-flash']);
-    expect(text()).toContain('同一个分组里的其它厂商');
+    // 一个平铺的清单，不再按厂商分段
+    expect(text()).not.toContain('同一个分组里的其它厂商');
   });
 
   it('确认后只把勾中的交上去', async () => {

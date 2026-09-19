@@ -34,7 +34,6 @@ interface ProviderSetupProps {
 /** 探测结果 + 用户勾了哪些。地址 / 密钥 / 供应商一变就作废 */
 interface PickedModels {
   provider: string;
-  upstream: string;
   from: EndpointModelsProbe['from'];
   models: EndpointModelOption[];
   checked: Set<string>;
@@ -50,7 +49,9 @@ interface PickedModels {
  *   模型清单从内置目录复制。以前地址是写进官方那一条的，结果配完中转官方入口
  *   就被覆盖没了——同一个上游想同时用官方和中转根本做不到。
  *
- * 已配的中转端点也会出现在供应商下拉里（选中后改名 / 换密钥 / 换地址）。
+ * 只列内置目录里的供应商（官方入口）。中转不单独列一项：重配一个已有中转就是
+ * 「选中上游 + 重填同一个地址」，桥接按上游 + 地址认出那个端点并原地更新，
+ * 不会越存越多。已配的端点删掉要在上面「已经配好的」那一行里删。
  *
  * 填了地址是**两步**：先探测上游有哪些模型，让用户勾选要加哪些，再保存。
  * 中转分组常常是混合的——一个「DeepSeek」分组可能同时卖 glm / kimi / qwen，
@@ -70,12 +71,7 @@ export function ProviderSetup({
   // 只收能贴 API key 的供应商：subscriptionOnly 的（如 GitHub Copilot）只认 OAuth，
   // 给它写一个 { type: 'api_key' } 进 auth.json 语义就是错的
   const presets = (status.providers ?? []).filter(preset => !preset.subscriptionOnly);
-  const presetIds = new Set(presets.map(preset => preset.id));
-  /** 已配的中转端点：不在内置目录里的已配 id（显示名优先） */
-  const endpoints = (status.setup?.credentials.providers ?? [])
-    .filter(id => !presetIds.has(id))
-    .map(id => ({ id, label: status.providerNames?.[id] ?? id }));
-  const providers = [...presets, ...endpoints];
+  const providers = presets;
   const subscriptions = status.subscriptions ?? [];
 
   const [selected, setSelected] = useState('');
@@ -162,10 +158,9 @@ export function ProviderSetup({
         .then(result => {
           setPicked({
             provider,
-            upstream: result.upstream,
             from: result.from,
             models: result.models ?? [],
-            // 默认只勾该上游自己的：其余（别的厂商）列出来但不勾
+            // 默认勾上推荐的那些（内置目录有同名，或名字像这个上游）
             checked: new Set((result.models ?? []).filter(m => m.recommended).map(m => m.id)),
           });
         })
@@ -223,15 +218,6 @@ export function ProviderSetup({
                 </option>
               ))}
             </optgroup>
-            {endpoints.length > 0 && (
-              <optgroup label="已配的中转端点">
-                {endpoints.map(endpoint => (
-                  <option key={endpoint.id} value={endpoint.id}>
-                    {endpoint.label}
-                  </option>
-                ))}
-              </optgroup>
-            )}
           </select>
         </label>
 
@@ -286,8 +272,8 @@ export function ProviderSetup({
             <span className="mt-1 block text-[10.5px] leading-[1.6] text-muted/80">
               会保存成一个**独立的中转端点**（用上面的名称区分），官方入口不受影响，
               两个都能用。官方条目上残留的旧地址会被自动清掉。
-              下一步会列出上游的模型让你勾（默认只勾它自己的），保存后 pi 会重启一次
-              来加载新的模型清单（正在跑的那一轮会被打断）。
+              下一步会列出上游的模型让你勾，保存后 pi 会重启一次来加载新的模型清单
+              （正在跑的那一轮会被打断）。
             </span>
           ) : (
             <span className="mt-1 block text-[10.5px] leading-[1.6] text-muted/80">
@@ -300,7 +286,9 @@ export function ProviderSetup({
           <div className="rounded-lg border border-border bg-surface px-3 py-2.5">
             <div className="flex items-baseline justify-between gap-2">
               <span className="text-[11px] text-muted">
-                上游报了 {picked.models.length} 个模型
+                {picked.models.length > 0
+                  ? `${picked.models.length} 个模型`
+                  : '上游没报出任何模型'}
                 {picked.from === 'catalog' && '（上游没给清单，改用 pi 内置目录）'}
               </span>
               <button
@@ -321,48 +309,31 @@ export function ProviderSetup({
                 {picked.checked.size === picked.models.length ? '全不选' : '全选'}
               </button>
             </div>
-            <p className="mt-1 text-[10.5px] leading-[1.6] text-muted/80">
-              {picked.models.length === 0
-                ? '上游没报出任何模型（地址或密钥不对？）。换个地址试试，或者直接编辑 models.json。'
-                : picked.upstream
-                  ? `已默认勾上「${picked.upstream}」自己的那些。别的厂商的也能勾，但它们会一起挂在这个端点下。`
-                  : '认不出这个端点属于哪个上游，所以一个都没勾——自己挑要用的。'}
-            </p>
 
-            {(['own', 'others'] as const).map(group => {
-              const models = picked.models.filter(model =>
-                group === 'own' ? model.recommended : !model.recommended
-              );
-              if (models.length === 0) return null;
+            {picked.models.length === 0 && (
+              <p className="mt-1 text-[10.5px] leading-[1.6] text-muted/80">
+                地址或密钥不对？换个地址试试。
+              </p>
+            )}
 
-              return (
-                <div key={group} className={group === 'others' ? 'mt-2' : 'mt-1.5'}>
-                  {group === 'others' && (
-                    <div className="mb-0.5 border-t border-border/70 pt-1.5 text-[10px] text-muted">
-                      同一个分组里的其它厂商
-                    </div>
-                  )}
-                  <div className="max-h-44 space-y-px overflow-y-auto">
-                    {models.map(model => (
-                      <label
-                        key={model.id}
-                        className="flex cursor-pointer items-center gap-2 rounded px-1 py-0.5 transition-colors hover:bg-surface-hover"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={picked.checked.has(model.id)}
-                          onChange={() => toggleModel(model.id)}
-                          className="size-3 accent-accent"
-                        />
-                        <span className="truncate font-mono text-[11.5px] text-foreground/80">
-                          {model.id}
-                        </span>
-                      </label>
-                    ))}
-                  </div>
-                </div>
-              );
-            })}
+            <div className="mt-1.5 max-h-44 space-y-px overflow-y-auto">
+              {picked.models.map(model => (
+                <label
+                  key={model.id}
+                  className="flex cursor-pointer items-center gap-2 rounded px-1 py-0.5 transition-colors hover:bg-surface-hover"
+                >
+                  <input
+                    type="checkbox"
+                    checked={picked.checked.has(model.id)}
+                    onChange={() => toggleModel(model.id)}
+                    className="size-3 accent-accent"
+                  />
+                  <span className="truncate font-mono text-[11.5px] text-foreground/80">
+                    {model.id}
+                  </span>
+                </label>
+              ))}
+            </div>
           </div>
         )}
 
